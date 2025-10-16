@@ -1,0 +1,337 @@
+import os
+import string
+from pathlib import Path
+
+import gradio as gr
+
+from src.text2image import main as text2image
+from utils import read_json
+from utils.components import (
+    add_wildcard,
+    add_wildcard_to_textbox,
+    auto_complete,
+    delete_wildcard,
+    modify_wildcard,
+    update_components_for_models_change,
+    update_components_for_sampler_change,
+    update_components_for_sm_change,
+    update_from_dropdown,
+    update_from_height,
+    update_from_width,
+    update_wildcard_names,
+    update_wildcard_tags,
+)
+from utils.environment import env
+from utils.prepare import _model
+from utils.setting_updater import modify_env
+from utils.variable import MODELS, NOISE_SCHEDULE, RESOLUTION, SAMPLER, UC_PRESET, WILDCARD_TYPE
+
+with gr.Blocks() as anr:
+    with gr.Row():
+        model = gr.Dropdown(
+            choices=MODELS,
+            value=_model,
+            label="生图模型",
+            interactive=True,
+            scale=1,
+        )
+        with gr.Column(scale=2):
+            gr.Markdown("# Auto-NovelAI-Refactor | NovelAI 批量生成工具")
+    with gr.Tab("图片生成"):
+        with gr.Row():
+            with gr.Column(scale=3):
+                positive_input = gr.TextArea(
+                    value=None,
+                    label="正面提示词",
+                    placeholder="请在此输入正面提示词...",
+                    lines=5,
+                )
+                auto_complete(positive_input)
+                negative_input = gr.TextArea(
+                    value=None,
+                    label="负面提示词",
+                    placeholder="请在此输入负面提示词...",
+                    lines=5,
+                )
+                auto_complete(negative_input)
+            with gr.Column(scale=1):
+                add_quality_tags = gr.Checkbox(value=True, label="添加质量词", interactive=True)
+                undesired_contentc_preset = gr.Dropdown(
+                    choices=[
+                        x
+                        for x in UC_PRESET
+                        if x
+                        not in {
+                            "nai-diffusion-4-5-full": [],
+                            "nai-diffusion-4-5-curated": ["Furry Focus"],
+                            "nai-diffusion-4-full": ["Furry Focus", "Human Focus"],
+                            "nai-diffusion-4-curated-preview": ["Furry Focus", "Human Focus"],
+                            "nai-diffusion-3": ["Furry Focus"],
+                            "nai-diffusion-furry-3": ["Furry Focus", "Human Focus"],
+                        }.get(_model, [])
+                    ],
+                    value="Heavy",
+                    label="负面提示词预设",
+                    interactive=True,
+                )
+                generate_button = gr.Button(value="开始生成")
+                stop_button = gr.Button(value="停止生成")
+                quantity = gr.Slider(
+                    minimum=1,
+                    maximum=999,
+                    value=1,
+                    step=1,
+                    label="生成数量",
+                    interactive=True,
+                )
+
+        with gr.Row():
+            with gr.Column(scale=1):
+                with gr.Tab(label="参数设置"):
+                    resolution = gr.Dropdown(
+                        choices=RESOLUTION + ["自定义"],
+                        value="832x1216",
+                        label="分辨率预设",
+                        interactive=True,
+                    )
+                    with gr.Row():
+                        width = gr.Slider(
+                            minimum=64,
+                            maximum=49152,
+                            value=832,
+                            step=64,
+                            label="宽",
+                            interactive=True,
+                        )
+                        height = gr.Slider(
+                            minimum=64,
+                            maximum=49152,
+                            value=1216,
+                            step=64,
+                            label="高",
+                            interactive=True,
+                        )
+                    resolution.change(
+                        fn=update_from_dropdown,
+                        inputs=[resolution],
+                        outputs=[width, height],
+                    )
+                    width.change(
+                        fn=update_from_width,
+                        inputs=[width, height, resolution],
+                        outputs=resolution,
+                    )
+                    height.change(
+                        fn=update_from_height,
+                        inputs=[width, height, resolution],
+                        outputs=resolution,
+                    )
+                    steps = gr.Slider(
+                        minimum=1,
+                        maximum=50,
+                        value=23,
+                        label="采样步数",
+                        step=1,
+                        interactive=True,
+                    )
+                    prompt_guidance = gr.Slider(
+                        minimum=0,
+                        maximum=10,
+                        value=5,
+                        label="提示词指导系数",
+                        step=0.1,
+                        interactive=True,
+                    )
+                    prompt_guidance_rescale = gr.Slider(
+                        minimum=0,
+                        maximum=10,
+                        value=0,
+                        label="提示词重采样系数",
+                        step=0.02,
+                        interactive=True,
+                    )
+                    with gr.Row():
+                        variety = gr.Checkbox(value=False, label="Variety+")
+                        decrisp = gr.Checkbox(
+                            value=False,
+                            label="Decrisp",
+                            visible=True if _model in ["nai-diffusion-3", "nai-diffusion-furry-3"] else False,
+                        )
+                    with gr.Row():
+                        sm = gr.Checkbox(
+                            value=False,
+                            label="SMEA",
+                            visible=True if _model in ["nai-diffusion-3", "nai-diffusion-furry-3"] else False,
+                        )
+                        sm_dyn = gr.Checkbox(
+                            value=False,
+                            label="DYN",
+                            visible=True if _model in ["nai-diffusion-3", "nai-diffusion-furry-3"] else False,
+                        )
+                    with gr.Row():
+                        seed = gr.Textbox(value="-1", label="种子", interactive=True, scale=4)
+                    with gr.Row(scale=1):
+                        last_seed = gr.Button(value="♻️", size="sm")
+                        random_seed = gr.Button(value="🎲", size="sm")
+                        last_seed.click(lambda: read_json("last.json")["parameters"]["seed"], outputs=seed)
+                        random_seed.click(lambda: "-1", outputs=seed)
+                    sampler = gr.Dropdown(
+                        choices=(
+                            SAMPLER
+                            if _model in ["nai-diffusion-3", "nai-diffusion-furry-3"]
+                            else [x for x in SAMPLER if x != "ddim_v3"]
+                        ),
+                        value="k_euler_ancestral",
+                        label="采样器",
+                        interactive=True,
+                    )
+                    noise_schedule = gr.Dropdown(
+                        choices=(
+                            NOISE_SCHEDULE
+                            if _model in ["nai-diffusion-3", "nai-diffusion-furry-3"]
+                            else [x for x in NOISE_SCHEDULE if x != "native"]
+                        ),
+                        value="karras",
+                        label="调度器",
+                        interactive=True,
+                    )
+                    legacy_uc = gr.Checkbox(
+                        value=False,
+                        label="Legacy Prompt Conditioning Mode",
+                        visible=(
+                            True if _model in ["nai-diffusion-4-full", "nai-diffusion-4-curated-preview"] else False
+                        ),
+                    )
+                with gr.Tab(label="风格迁移"):
+                    ...
+                with gr.Tab(label="角色参考"):
+                    ...
+                with gr.Tab(label="Wildcards"):
+                    with gr.Tab("使用或修改"):
+                        wildcard_type = gr.Dropdown(
+                            choices=WILDCARD_TYPE,
+                            value=None,
+                            label="分类",
+                            interactive=True,
+                        )
+                        wildcard_name = gr.Dropdown(
+                            value=None,
+                            label="名称",
+                            interactive=True,
+                        )
+                        wildcard_tags = gr.Textbox(label="包含的提示词", lines=2, interactive=True)
+                        with gr.Row():
+                            wildcard_add_positive = gr.Button("添加到正面提示词")
+                            wildcard_add_negative = gr.Button("添加到负面提示词")
+                        with gr.Row():
+                            wildcard_modify = gr.Button("修改", size="sm")
+                            wildcard_delete = gr.Button("删除", size="sm")
+                    with gr.Tab("创建新卡片"):
+                        new_wildcard_type = gr.Textbox(label="分类")
+                        new_wildcard_name = gr.Textbox(label="名称")
+                        new_wildcard_tags = gr.Textbox(label="提示词", lines=2)
+                        wildcard_add = gr.Button("添加卡片")
+                        wildcard_refresh = gr.Button("刷新列表")
+
+                    wildcard_type.change(update_wildcard_names, inputs=wildcard_type, outputs=wildcard_name)
+                    wildcard_name.change(
+                        update_wildcard_tags,
+                        inputs=[wildcard_type, wildcard_name],
+                        outputs=wildcard_tags,
+                    )
+                    wildcard_add_positive.click(
+                        add_wildcard_to_textbox,
+                        inputs=[positive_input, wildcard_type, wildcard_name],
+                        outputs=positive_input,
+                    )
+                    wildcard_add_negative.click(
+                        add_wildcard_to_textbox,
+                        inputs=[negative_input, wildcard_type, wildcard_name],
+                        outputs=negative_input,
+                    )
+                    wildcard_refresh.click(
+                        lambda: gr.update(choices=os.listdir("./wildcards")),
+                        outputs=wildcard_type,
+                    )
+
+            with gr.Column(scale=2):
+                output_image = gr.Gallery(label="输出图片", interactive=False, show_label=False)
+                output_information = gr.Textbox(label="输出信息", interactive=False, show_label=False)
+                wildcard_modify.click(
+                    modify_wildcard,
+                    inputs=[wildcard_type, wildcard_name, wildcard_tags],
+                    outputs=output_information,
+                )
+                wildcard_delete.click(
+                    delete_wildcard,
+                    inputs=[wildcard_type, wildcard_name],
+                    outputs=output_information,
+                )
+                wildcard_add.click(
+                    add_wildcard,
+                    inputs=[new_wildcard_type, new_wildcard_name, new_wildcard_tags],
+                    outputs=output_information,
+                )
+        model.change(
+            update_components_for_models_change,
+            inputs=model,
+            outputs=[decrisp, sm, sm_dyn, legacy_uc, sampler, noise_schedule, undesired_contentc_preset],
+        )
+        sm.change(update_components_for_sm_change, inputs=sm, outputs=sm_dyn)
+        sampler.change(update_components_for_sampler_change, inputs=sampler, outputs=noise_schedule)
+        generate_button.click(
+            text2image,
+            inputs=[
+                model,
+                positive_input,
+                negative_input,
+                add_quality_tags,
+                undesired_contentc_preset,
+                quantity,
+                width,
+                height,
+                steps,
+                prompt_guidance,
+                prompt_guidance_rescale,
+                variety,
+                seed,
+                sampler,
+                noise_schedule,
+                decrisp,
+                sm,
+                sm_dyn,
+                legacy_uc,
+            ],
+            outputs=[output_image, output_information],
+        )
+    with gr.Tab("配置设置"):
+        with gr.Row():
+            setting_modify_button = gr.Button("保存")
+            # setting_restart_button = gr.Button("重启")
+        setting_output_information = gr.Textbox(show_label=False, visible=False)
+        token = gr.Textbox(
+            value=env.token,
+            label="Token",
+            lines=2,
+            visible=True if not env.share else False,
+        )
+        gr.Markdown(
+            "获取 Token 的方法(The Way to Get Token): [**自述文件(README)**](https://github.com/zhulinyv/Semi-Auto-NovelAI-to-Pixiv#%EF%B8%8F-%E9%85%8D%E7%BD%AE)",
+            visible=True if not env.share else False,
+        )
+        proxy = gr.Textbox(value=env.proxy, label="代理地址")
+        custom_path = gr.Textbox(value=env.custom_path, label="自定义路径")
+        gr.Markdown("已支持的自动替换路径: <类型>, <日期>, <种子>, <随机字符>, <编号>")
+        port = gr.Textbox(value=env.port, label="端口号")
+        share = gr.Checkbox(value=env.share, label="共享 Gradio 连接")
+        setting_modify_button.click(
+            modify_env, inputs=[token, proxy, custom_path, port, share], outputs=setting_output_information
+        )
+
+
+anr.launch(
+    inbrowser=True,
+    share=env.share,
+    server_port=env.port,
+    allowed_paths=[f"{d}:" for d in string.ascii_uppercase if Path(f"{d}:").exists()],
+)
