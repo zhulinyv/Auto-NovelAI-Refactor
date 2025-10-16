@@ -1,0 +1,1 @@
+space, from_space_station, zero_gravity, floating, floating objects
