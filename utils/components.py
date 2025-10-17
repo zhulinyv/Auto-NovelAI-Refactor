@@ -152,6 +152,9 @@ def update_components_for_models_change(model):
             gr.update(choices=_SAMPLER),  # sampler
             gr.update(choices=_NOISE_SCHEDULE),  # noise_schedule
             gr.update(choices=_UC_PRESET),  # uc_preset
+            gr.update(visible=True),  # naiv4vibebundle_file
+            gr.update(visible=True),  # normalize_reference_strength_multiple
+            gr.update(visible=False),  # nai3vibe_column
         )
     elif model in ["nai-diffusion-4-full", "nai-diffusion-4-curated-preview"]:
         _UC_PRESET.remove("Furry Focus")
@@ -164,6 +167,9 @@ def update_components_for_models_change(model):
             gr.update(choices=_SAMPLER),  # sampler
             gr.update(choices=_NOISE_SCHEDULE),  # noise_schedule
             gr.update(choices=_UC_PRESET),  # uc_preset
+            gr.update(visible=True),  # naiv4vibebundle_file
+            gr.update(visible=True),  # normalize_reference_strength_multiple
+            gr.update(visible=False),  # nai3vibe_column
         )
     elif model in ["nai-diffusion-3", "nai-diffusion-furry-3"]:
         _UC_PRESET.remove("Furry Focus")
@@ -177,6 +183,9 @@ def update_components_for_models_change(model):
             gr.update(choices=SAMPLER),  # sampler
             gr.update(choices=NOISE_SCHEDULE),  # noise_schedule
             gr.update(choices=_UC_PRESET),  # uc_preset
+            gr.update(visible=False),  # naiv4vibebundle_file
+            gr.update(visible=False),  # normalize_reference_strength_multiple
+            gr.update(visible=True),  # nai3vibe_column
         )
 
 
