@@ -1,7 +1,8 @@
 import random
 
-from utils import format_str, replace_wildcards, return_x64, sleep_for_cool
+from utils import format_str, read_json, replace_wildcards, return_last_value, return_x64, sleep_for_cool
 from utils.generator import Generator
+from utils.image_tools import image_to_base64
 from utils.logger import logger
 from utils.models import *  # noqa
 from utils.variable import (
@@ -10,6 +11,8 @@ from utils.variable import (
     return_uc_preset_data,
     return_undesired_contentc_preset,
 )
+
+generator = Generator("https://image.novelai.net/ai/generate-image")
 
 
 def main(
@@ -32,7 +35,53 @@ def main(
     sm,
     sm_dyn,
     legacy_uc,
+    naiv4vibebundle_file,
+    normalize_reference_strength_multiple,
+    *args,
 ):
+    reference_image_multiple = []
+    reference_information_extracted_multiple = []
+    reference_strength_multiple = []
+    if naiv4vibebundle_file or args[0]:
+        model_function_map = {
+            "nai-diffusion-4-5-full": nai45fvibe,  # noqa
+            "nai-diffusion-4-5-curated": nai45cvibe,  # noqa
+            "nai-diffusion-4-full": nai4fvibe,  # noqa
+            "nai-diffusion-4-curated-preview": nai4cpvibe,  # noqa
+            "nai-diffusion-3": nai3vibe,  # noqa
+            "nai-diffusion-furry-3": nai3vibe,  # noqa
+        }
+        if model in ["nai-diffusion-3", "nai-diffusion-furry-3"]:
+            logger.debug(">>>>>")
+            vibe_images = [list(chunk) for chunk in zip(*[iter(args)] * 3)]
+
+            for vibe_image in vibe_images:
+                reference_image_multiple.append(image_to_base64(vibe_image[0]))
+                reference_information_extracted_multiple.append(vibe_image[1])
+                reference_strength_multiple.append(vibe_image[2])
+        else:
+            model_vibe_map = {
+                "nai-diffusion-4-5-full": "v4-5full",
+                "nai-diffusion-4-5-curated": "v4-5curated",
+                "nai-diffusion-4-full": "v4full",
+                "nai-diffusion-4-curated-preview": "v4curated",
+            }
+            vibe_data = read_json(naiv4vibebundle_file)
+            vibe_model_name = model_vibe_map.get(model)
+            for vibe_image in vibe_data["vibes"]:
+                reference_image_multiple.append(return_last_value(vibe_image["encodings"][vibe_model_name])["encoding"])
+                reference_strength_multiple.append(vibe_image["importInfo"]["strength"])
+    else:
+        model_function_map = {
+            "nai-diffusion-4-5-full": nai45ft2i,  # noqa
+            "nai-diffusion-4-5-curated": nai45ct2i,  # noqa
+            "nai-diffusion-4-full": nai4ft2i,  # noqa
+            "nai-diffusion-4-curated-preview": nai4cpt2i,  # noqa
+            "nai-diffusion-3": nai3t2i,  # noqa
+            "nai-diffusion-furry-3": naif3t2i,  # noqa
+        }
+    func = model_function_map.get(model)
+
     image_list = []
 
     for i in range(quantity):
@@ -43,16 +92,6 @@ def main(
 
         _positive_input = replace_wildcards(positive_input)
         _negative_input = replace_wildcards(negative_input)
-
-        model_function_map = {
-            "nai-diffusion-4-5-full": nai45ft2i,  # noqa
-            "nai-diffusion-4-5-curated": nai45ct2i,  # noqa
-            "nai-diffusion-4-full": nai4ft2i,  # noqa
-            "nai-diffusion-4-curated-preview": nai4cpt2i,  # noqa
-            "nai-diffusion-3": nai3t2i,  # noqa
-            "nai-diffusion-furry-3": naif3t2i,  # noqa
-        }
-        func = model_function_map.get(model)
 
         json_data = func(
             _input=format_str(_positive_input + return_quality_tags(model) if add_quality_tags else _positive_input),
@@ -72,7 +111,7 @@ def main(
             legacy_v3_extend=False,
             skip_cfg_above_sigma=(return_skip_cfg_above_sigma(model) if variety else None),
             use_coords=False,
-            normalize_reference_strength_multiple=True,
+            normalize_reference_strength_multiple=normalize_reference_strength_multiple,
             use_order=True,
             legacy_uc=legacy_uc if model in ["nai-diffusion-4-full", "nai-diffusion-4-curated-preview"] else False,
             seed=random.randint(1000000000, 9999999999) if seed == "-1" else int(seed),
@@ -80,13 +119,15 @@ def main(
                 _negative_input + return_undesired_contentc_preset(model, undesired_contentc_preset)
             ),
             deliberate_euler_ancestral_bug=False,  # 仅在采样器为 k_euler_ancestral 时出现
-            prefer_brownian=True,
+            prefer_brownian=True,  # 仅在采样器为 k_euler_ancestral 时出现
             use_new_shared_trial=True,
             sm=sm,
             sm_dyn=sm_dyn,
+            reference_image_multiple=reference_image_multiple,
+            reference_information_extracted_multiple=reference_information_extracted_multiple,
+            reference_strength_multiple=reference_strength_multiple,
         )
 
-        generator = Generator("https://image.novelai.net/ai/generate-image")
         image_data = generator.generate(json_data)
         if image_data:
             path = generator.save(image_data, "text2image", json_data["parameters"]["seed"])

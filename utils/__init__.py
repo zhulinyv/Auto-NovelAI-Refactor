@@ -86,3 +86,7 @@ def sleep_for_cool(seconds):
     logger.info(f"等待 {sleep_time} 秒后继续...")
     time.sleep(sleep_time)
     return
+
+
+def return_last_value(_dict):
+    return list(_dict.values())[-1]

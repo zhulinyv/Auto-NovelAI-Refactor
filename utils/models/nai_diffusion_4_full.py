@@ -30,7 +30,7 @@ def text2image(**kwargs):
             "characterPrompts": [],
             "v4_prompt": {
                 "caption": {
-                    "base_caption": kwargs["negative_prompt"],
+                    "base_caption": kwargs["_input"],
                     "char_captions": [
                         # {"char_caption": str, "centers": [{"x": float, "y": float}]},
                     ],
@@ -55,10 +55,15 @@ def text2image(**kwargs):
         "use_new_shared_trial": kwargs["use_new_shared_trial"],
     }
 
-    if kwargs["sampler"] != "k_euler_ancestral":
-        pass
-    else:
+    if kwargs["sampler"] == "k_euler_ancestral":
         json_data["parameters"]["deliberate_euler_ancestral_bug"] = kwargs["deliberate_euler_ancestral_bug"]
         json_data["parameters"]["prefer_brownian"] = kwargs["prefer_brownian"]
 
+    return json_data
+
+
+def vibe_transfer(**kwargs):
+    json_data = text2image(**kwargs)
+    json_data["parameters"]["reference_image_multiple"] = kwargs["reference_image_multiple"]
+    json_data["parameters"]["reference_strength_multiple"] = kwargs["reference_strength_multiple"]
     return json_data

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import gradio as gr
 
-from src.text2image import main as text2image
+from src.generate_images import main as generate_images
 from utils import read_json
 from utils.components import (
     add_wildcard,
@@ -201,11 +201,88 @@ with gr.Blocks() as anr:
                         visible=(
                             True if _model in ["nai-diffusion-4-full", "nai-diffusion-4-curated-preview"] else False
                         ),
+                        interactive=True,
                     )
-                with gr.Tab(label="风格迁移"):
-                    ...
                 with gr.Tab(label="角色参考"):
                     ...
+                with gr.Tab(label="风格迁移"):
+                    naiv4vibebundle_file = gr.File(
+                        type="filepath",
+                        label="*.naiv4vibebundle",
+                        visible=True if _model not in ["nai-diffusion-3", "nai-diffusion-furry-3"] else False,
+                        interactive=True,
+                    )
+                    normalize_reference_strength_multiple = gr.Checkbox(
+                        True,
+                        label="Normalize Reference Strength Values",
+                        visible=True if _model not in ["nai-diffusion-3", "nai-diffusion-furry-3"] else False,
+                        interactive=True,
+                    )
+                    nai3vibe_column = gr.Column(
+                        visible=True if _model in ["nai-diffusion-3", "nai-diffusion-furry-3"] else False
+                    )
+                    with nai3vibe_column:
+                        nai3vibe_transfer_image_count = gr.State(1)
+                        nai3vibe_transfer_add_button = gr.Button("添加图片")
+                        nai3vibe_transfer_del_button = gr.Button("删除图片")
+                        nai3vibe_transfer_add_button.click(
+                            lambda x: x + 1,
+                            nai3vibe_transfer_image_count,
+                            nai3vibe_transfer_image_count,
+                        )
+                        nai3vibe_transfer_del_button.click(
+                            lambda x: x - 1,
+                            nai3vibe_transfer_image_count,
+                            nai3vibe_transfer_image_count,
+                        )
+                        gr.Markdown("<hr>")
+
+                        @gr.render(inputs=nai3vibe_transfer_image_count)
+                        def _(count):
+                            nai3vibe_transfer_components_list = []
+                            for _ in range(count):
+                                with gr.Row():
+                                    nai3vibe_transfer_image = gr.Image(type="filepath")
+                                    with gr.Column():
+                                        reference_information_extracted_multiple = gr.Slider(
+                                            0, 1, 1.0, step=0.01, label="信息提取强度", interactive=True
+                                        )
+                                        reference_strength_multiple = gr.Slider(
+                                            0, 1, 0.6, step=0.01, label="画风参考强度", interactive=True
+                                        )
+                                        gr.Markdown("<hr>")
+                                nai3vibe_transfer_components_list.append(nai3vibe_transfer_image)
+                                nai3vibe_transfer_components_list.append(reference_information_extracted_multiple)
+                                nai3vibe_transfer_components_list.append(reference_strength_multiple)
+                            generate_button.click(
+                                generate_images,
+                                inputs=[
+                                    model,
+                                    positive_input,
+                                    negative_input,
+                                    add_quality_tags,
+                                    undesired_contentc_preset,
+                                    quantity,
+                                    width,
+                                    height,
+                                    steps,
+                                    prompt_guidance,
+                                    prompt_guidance_rescale,
+                                    variety,
+                                    seed,
+                                    sampler,
+                                    noise_schedule,
+                                    decrisp,
+                                    sm,
+                                    sm_dyn,
+                                    legacy_uc,
+                                    naiv4vibebundle_file,
+                                    normalize_reference_strength_multiple,
+                                ]
+                                + nai3vibe_transfer_components_list,
+                                outputs=[output_image, output_information],
+                            )
+
                 with gr.Tab(label="Wildcards"):
                     with gr.Tab("使用或修改"):
                         wildcard_type = gr.Dropdown(
@@ -275,35 +352,22 @@ with gr.Blocks() as anr:
         model.change(
             update_components_for_models_change,
             inputs=model,
-            outputs=[decrisp, sm, sm_dyn, legacy_uc, sampler, noise_schedule, undesired_contentc_preset],
-        )
-        sm.change(update_components_for_sm_change, inputs=sm, outputs=sm_dyn)
-        sampler.change(update_components_for_sampler_change, inputs=sampler, outputs=noise_schedule)
-        generate_button.click(
-            text2image,
-            inputs=[
-                model,
-                positive_input,
-                negative_input,
-                add_quality_tags,
-                undesired_contentc_preset,
-                quantity,
-                width,
-                height,
-                steps,
-                prompt_guidance,
-                prompt_guidance_rescale,
-                variety,
-                seed,
-                sampler,
-                noise_schedule,
+            outputs=[
                 decrisp,
                 sm,
                 sm_dyn,
                 legacy_uc,
+                sampler,
+                noise_schedule,
+                undesired_contentc_preset,
+                naiv4vibebundle_file,
+                normalize_reference_strength_multiple,
+                nai3vibe_column,
             ],
-            outputs=[output_image, output_information],
         )
+        sm.change(update_components_for_sm_change, inputs=sm, outputs=sm_dyn)
+        sampler.change(update_components_for_sampler_change, inputs=sampler, outputs=noise_schedule)
+
     with gr.Tab("配置设置"):
         with gr.Row():
             setting_modify_button = gr.Button("保存")
