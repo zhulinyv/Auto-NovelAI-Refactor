@@ -39,6 +39,8 @@ UC_PRESET = ["Heavy", "Light", "Furry Focus", "Human Focus", "None"]
 
 WILDCARD_TYPE = os.listdir("./wildcards")
 
+CHARACTER_POSITION = [f"{chr(letter)}{number}" for letter in range(ord("A"), ord("F")) for number in range(1, 6)]
+
 
 def return_skip_cfg_above_sigma(model):
     if model == "nai-diffusion-4-5-full":

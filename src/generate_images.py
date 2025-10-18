@@ -1,6 +1,14 @@
 import random
 
-from utils import format_str, read_json, replace_wildcards, return_last_value, return_x64, sleep_for_cool
+from utils import (
+    format_str,
+    position_to_float,
+    read_json,
+    replace_wildcards,
+    return_last_value,
+    return_x64,
+    sleep_for_cool,
+)
 from utils.generator import Generator
 from utils.image_tools import image_to_base64
 from utils.logger import logger
@@ -37,12 +45,33 @@ def main(
     legacy_uc,
     naiv4vibebundle_file,
     normalize_reference_strength_multiple,
+    ai_choice,
     *args,
 ):
+    character_components = args[:30]
+    character_components = [list(chunk) for chunk in zip(*[iter(character_components)] * 5)]
+
+    v4_prompt_positive = []
+    v4_prompt_negative = []
+    characterPrompts = []
+
+    for character_prompt in character_components:
+        if character_prompt[-2]:
+            x, y = position_to_float(character_prompt[2])
+            center = {"x": x, "y": y}
+            centers = [center]
+
+            v4_prompt_positive.append({"char_caption": character_prompt[0], "centers": centers})
+            v4_prompt_negative.append({"char_caption": character_prompt[1], "centers": centers})
+            characterPrompts.append(
+                {"prompt": character_prompt[0], "uc": character_prompt[1], "center": center, "enabled": True}
+            )
+
+    vibe_components = args[30:]
     reference_image_multiple = []
     reference_information_extracted_multiple = []
     reference_strength_multiple = []
-    if naiv4vibebundle_file or args[0]:
+    if naiv4vibebundle_file or vibe_components[0]:
         model_function_map = {
             "nai-diffusion-4-5-full": nai45fvibe,  # noqa
             "nai-diffusion-4-5-curated": nai45cvibe,  # noqa
@@ -52,9 +81,7 @@ def main(
             "nai-diffusion-furry-3": nai3vibe,  # noqa
         }
         if model in ["nai-diffusion-3", "nai-diffusion-furry-3"]:
-            logger.debug(">>>>>")
-            vibe_images = [list(chunk) for chunk in zip(*[iter(args)] * 3)]
-
+            vibe_images = [list(chunk) for chunk in zip(*[iter(vibe_components)] * 3)]
             for vibe_image in vibe_images:
                 reference_image_multiple.append(image_to_base64(vibe_image[0]))
                 reference_information_extracted_multiple.append(vibe_image[1])
@@ -110,7 +137,7 @@ def main(
             noise_schedule=noise_schedule,
             legacy_v3_extend=False,
             skip_cfg_above_sigma=(return_skip_cfg_above_sigma(model) if variety else None),
-            use_coords=False,
+            use_coords=not ai_choice,
             normalize_reference_strength_multiple=normalize_reference_strength_multiple,
             use_order=True,
             legacy_uc=legacy_uc if model in ["nai-diffusion-4-full", "nai-diffusion-4-curated-preview"] else False,
@@ -126,6 +153,9 @@ def main(
             reference_image_multiple=reference_image_multiple,
             reference_information_extracted_multiple=reference_information_extracted_multiple,
             reference_strength_multiple=reference_strength_multiple,
+            v4_prompt_positive=v4_prompt_positive,
+            v4_prompt_negative=v4_prompt_negative,
+            characterPrompts=characterPrompts,
         )
 
         image_data = generator.generate(json_data)
