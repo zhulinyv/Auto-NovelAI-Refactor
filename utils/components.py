@@ -155,6 +155,7 @@ def update_components_for_models_change(model):
             gr.update(visible=True),  # naiv4vibebundle_file
             gr.update(visible=True),  # normalize_reference_strength_multiple
             gr.update(visible=False),  # nai3vibe_column
+            gr.update(visible=True),  # character_reference_tab
         )
     elif model in ["nai-diffusion-4-full", "nai-diffusion-4-curated-preview"]:
         _UC_PRESET.remove("Furry Focus")
@@ -170,6 +171,7 @@ def update_components_for_models_change(model):
             gr.update(visible=True),  # naiv4vibebundle_file
             gr.update(visible=True),  # normalize_reference_strength_multiple
             gr.update(visible=False),  # nai3vibe_column
+            gr.update(visible=False),  # character_reference_tab
         )
     elif model in ["nai-diffusion-3", "nai-diffusion-furry-3"]:
         _UC_PRESET.remove("Furry Focus")
@@ -186,6 +188,7 @@ def update_components_for_models_change(model):
             gr.update(visible=False),  # naiv4vibebundle_file
             gr.update(visible=False),  # normalize_reference_strength_multiple
             gr.update(visible=True),  # nai3vibe_column
+            gr.update(visible=False),  # character_reference_tab
         )
 
 
@@ -227,3 +230,28 @@ def delete_character(character_components_number):
     else:
         update_visible_list = [gr.update(visible=False) for _ in range(30)]
         return gr.update(value=character_components_number), *update_visible_list
+
+
+def return_position_interactive(ai_choice):
+    components_list = []
+    for _ in range(6):
+        components_list.append(gr.update())
+        components_list.append(gr.update())
+        components_list.append(gr.update(interactive=not ai_choice))
+        components_list.append(gr.update())
+        components_list.append(gr.update())
+    return (*components_list,)
+
+
+def return_character_reference_component(character_reference_image):
+    if character_reference_image:
+        return gr.update(visible=True), gr.update(visible=True), gr.update(visible=False)
+    else:
+        return gr.update(visible=False), gr.update(visible=False), gr.update(visible=True)
+
+
+def return_character_reference_component_visible(nai3vibe_transfer_image):
+    if nai3vibe_transfer_image:
+        return gr.update(visible=False)
+    else:
+        return gr.update(visible=True)

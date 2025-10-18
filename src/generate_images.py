@@ -45,16 +45,23 @@ def main(
     legacy_uc,
     naiv4vibebundle_file,
     normalize_reference_strength_multiple,
+    character_reference_image,
+    style_aware,
+    fidelity,
     ai_choice,
     *args,
 ):
+    director_reference_images = []
+    director_reference_descriptions = []
+    director_reference_information_extracted = []
+    director_reference_strength_values = []
+    director_reference_secondary_strength_values = []
+
     character_components = args[:30]
     character_components = [list(chunk) for chunk in zip(*[iter(character_components)] * 5)]
-
     v4_prompt_positive = []
     v4_prompt_negative = []
     characterPrompts = []
-
     for character_prompt in character_components:
         if character_prompt[-2]:
             x, y = position_to_float(character_prompt[2])
@@ -99,14 +106,33 @@ def main(
                 reference_image_multiple.append(return_last_value(vibe_image["encodings"][vibe_model_name])["encoding"])
                 reference_strength_multiple.append(vibe_image["importInfo"]["strength"])
     else:
-        model_function_map = {
-            "nai-diffusion-4-5-full": nai45ft2i,  # noqa
-            "nai-diffusion-4-5-curated": nai45ct2i,  # noqa
-            "nai-diffusion-4-full": nai4ft2i,  # noqa
-            "nai-diffusion-4-curated-preview": nai4cpt2i,  # noqa
-            "nai-diffusion-3": nai3t2i,  # noqa
-            "nai-diffusion-furry-3": naif3t2i,  # noqa
-        }
+        if character_reference_image and model in ["nai-diffusion-4-5-full", "nai-diffusion-4-5-curated"]:
+            director_reference_images = [image_to_base64(character_reference_image)]
+            director_reference_descriptions = [
+                {
+                    "caption": {
+                        "base_caption": "character&style" if style_aware else "character",
+                        "char_captions": [],
+                    },
+                    "legacy_uc": False,
+                }
+            ]
+            director_reference_information_extracted = [1]
+            director_reference_strength_values = [1]
+            director_reference_secondary_strength_values = [1 - fidelity]
+            model_function_map = {
+                "nai-diffusion-4-5-full": nai45fchar,  # noqa
+                "nai-diffusion-4-5-curated": nai45cchar,  # noqa
+            }
+        else:
+            model_function_map = {
+                "nai-diffusion-4-5-full": nai45ft2i,  # noqa
+                "nai-diffusion-4-5-curated": nai45ct2i,  # noqa
+                "nai-diffusion-4-full": nai4ft2i,  # noqa
+                "nai-diffusion-4-curated-preview": nai4cpt2i,  # noqa
+                "nai-diffusion-3": nai3t2i,  # noqa
+                "nai-diffusion-furry-3": naif3t2i,  # noqa
+            }
     func = model_function_map.get(model)
 
     image_list = []
@@ -156,6 +182,11 @@ def main(
             v4_prompt_positive=v4_prompt_positive,
             v4_prompt_negative=v4_prompt_negative,
             characterPrompts=characterPrompts,
+            director_reference_images=director_reference_images,
+            director_reference_descriptions=director_reference_descriptions,
+            director_reference_information_extracted=director_reference_information_extracted,
+            director_reference_strength_values=director_reference_strength_values,
+            director_reference_secondary_strength_values=director_reference_secondary_strength_values,
         )
 
         image_data = generator.generate(json_data)

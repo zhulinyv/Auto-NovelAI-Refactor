@@ -69,3 +69,17 @@ def vibe_transfer(**kwargs):
     json_data["parameters"]["reference_image_multiple"] = kwargs["reference_image_multiple"]
     json_data["parameters"]["reference_strength_multiple"] = kwargs["reference_strength_multiple"]
     return json_data
+
+
+def character(**kwargs):
+    json_data = text2image(**kwargs)
+    json_data["parameters"]["director_reference_images"] = kwargs["director_reference_images"]
+    json_data["parameters"]["director_reference_descriptions"] = kwargs["director_reference_descriptions"]
+    json_data["parameters"]["director_reference_information_extracted"] = kwargs[
+        "director_reference_information_extracted"
+    ]
+    json_data["parameters"]["director_reference_strength_values"] = kwargs["director_reference_strength_values"]
+    json_data["parameters"]["director_reference_secondary_strength_values"] = kwargs[
+        "director_reference_secondary_strength_values"
+    ]
+    return json_data
