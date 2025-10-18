@@ -90,3 +90,11 @@ def sleep_for_cool(seconds):
 
 def return_last_value(_dict):
     return list(_dict.values())[-1]
+
+
+def position_to_float(position: str):
+    offset = 0.1
+    letter_dict = {chr(65 + i): i * 0.2 + offset for i in range(5)}
+    number_dict = {str(i + 1): i * 0.2 + offset for i in range(5)}
+    letter, number = position
+    return round(letter_dict[letter], 1), round(number_dict[number], 1)

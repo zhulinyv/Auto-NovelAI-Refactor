@@ -7,9 +7,11 @@ import gradio as gr
 from src.generate_images import main as generate_images
 from utils import read_json
 from utils.components import (
+    add_character,
     add_wildcard,
     add_wildcard_to_textbox,
     auto_complete,
+    delete_character,
     delete_wildcard,
     modify_wildcard,
     update_components_for_models_change,
@@ -24,7 +26,7 @@ from utils.components import (
 from utils.environment import env
 from utils.prepare import _model
 from utils.setting_updater import modify_env
-from utils.variable import MODELS, NOISE_SCHEDULE, RESOLUTION, SAMPLER, UC_PRESET, WILDCARD_TYPE
+from utils.variable import CHARACTER_POSITION, MODELS, NOISE_SCHEDULE, RESOLUTION, SAMPLER, UC_PRESET, WILDCARD_TYPE
 
 with gr.Blocks() as anr:
     with gr.Row():
@@ -203,8 +205,46 @@ with gr.Blocks() as anr:
                         ),
                         interactive=True,
                     )
-                with gr.Tab(label="角色参考"):
-                    ...
+                with gr.Tab(label="角色分区"):
+                    character_components_list = []
+                    character_components_number = gr.Number(value=0, visible=False)  # 使用 Number 替代 Slider
+                    add_character_button = gr.Button("添加角色")
+                    delete_character_button = gr.Button("删除角色")
+                    ai_choice = gr.Checkbox(False, label="AI's Choice", interactive=True)
+                    gr.Markdown("<hr>")
+
+                    # 先创建所有组件
+                    for i in range(6):
+                        character_components_list.append(
+                            gr.TextArea(label=f"角色 {i+1} 正面提示词", lines=3, visible=False, interactive=True)
+                        )
+                        character_components_list.append(
+                            gr.TextArea(label=f"角色 {i+1} 负面提示词", lines=3, visible=False, interactive=True)
+                        )
+                        with gr.Row():
+                            character_components_list.append(
+                                gr.Dropdown(
+                                    choices=CHARACTER_POSITION,
+                                    label=f"角色 {i+1} 位置",
+                                    visible=False,
+                                    interactive=True,
+                                )
+                            )
+                            character_components_list.append(
+                                gr.Checkbox(False, label="启用", visible=False, interactive=True)
+                            )
+                        character_components_list.append(gr.Markdown("<hr>", visible=False))
+
+                    add_character_button.click(
+                        add_character,
+                        inputs=character_components_number,
+                        outputs=[character_components_number] + character_components_list,
+                    )
+                    delete_character_button.click(
+                        delete_character,
+                        inputs=character_components_number,
+                        outputs=[character_components_number] + character_components_list,
+                    )
                 with gr.Tab(label="风格迁移"):
                     naiv4vibebundle_file = gr.File(
                         type="filepath",
@@ -279,6 +319,8 @@ with gr.Blocks() as anr:
                                     naiv4vibebundle_file,
                                     normalize_reference_strength_multiple,
                                 ]
+                                + [ai_choice]
+                                + character_components_list
                                 + nai3vibe_transfer_components_list,
                                 outputs=[output_image, output_information],
                             )

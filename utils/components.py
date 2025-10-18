@@ -201,3 +201,29 @@ def update_components_for_sampler_change(sampler):
         return gr.update(visible=False)
     else:
         return gr.update(visible=True)
+
+
+def add_character(character_components_number):
+    if character_components_number < 6:
+        character_components_number += 1
+        update_visible_list = [gr.update(visible=True) for _ in range(5) for _ in range(character_components_number)]
+        update_visible_list += [
+            gr.update(visible=False) for _ in range(5) for _ in range(6 - character_components_number)
+        ]
+        return gr.update(value=character_components_number), *update_visible_list
+    else:
+        update_visible_list = [gr.update(visible=True) for _ in range(30)]
+        return gr.update(value=character_components_number), *update_visible_list
+
+
+def delete_character(character_components_number):
+    if character_components_number > 0:
+        character_components_number -= 1
+        update_visible_list = [gr.update(visible=True) for _ in range(5) for _ in range(character_components_number)]
+        update_visible_list += [
+            gr.update(visible=False) for _ in range(5) for _ in range(6 - character_components_number)
+        ]
+        return gr.update(value=character_components_number), *update_visible_list
+    else:
+        update_visible_list = [gr.update(visible=False) for _ in range(30)]
+        return gr.update(value=character_components_number), *update_visible_list

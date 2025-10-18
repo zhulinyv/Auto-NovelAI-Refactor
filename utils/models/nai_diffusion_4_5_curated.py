@@ -28,9 +28,9 @@ def text2image(**kwargs):
             "v4_prompt": {
                 "caption": {
                     "base_caption": kwargs["_input"],
-                    "char_captions": [
-                        # {"char_caption": str, "centers": [{"x": float, "y": float}]},
-                    ],
+                    "char_captions": kwargs[
+                        "v4_prompt_positive"
+                    ],  # {"char_caption": str, "centers": [{"x": float, "y": float}]},,
                 },
                 "use_coords": kwargs["use_coords"],
                 "use_order": kwargs["use_order"],
@@ -38,15 +38,17 @@ def text2image(**kwargs):
             "v4_negative_prompt": {
                 "caption": {
                     "base_caption": kwargs["negative_prompt"],
-                    "char_captions": [
-                        # {"char_caption": str, "centers": [{"x": float, "y": float}]},
-                    ],
+                    "char_captions": kwargs[
+                        "v4_prompt_negative"
+                    ],  # {"char_caption": str, "centers": [{"x": float, "y": float}]},,
                 },
                 "legacy_uc": kwargs["legacy_uc"],
             },
             "legacy_uc": kwargs["legacy_uc"],
             "seed": kwargs["seed"],  # 10 位数
-            "characterPrompts": [],
+            "characterPrompts": kwargs[
+                "characterPrompts"
+            ],  # {"prompt": str, "uc": str, "center": {"x": float, "y": float}, "enabled": bool}
             "negative_prompt": kwargs["negative_prompt"],
             # "deliberate_euler_ancestral_bug": kwargs["deliberate_euler_ancestral_bug"],
             # "prefer_brownian": kwargs["prefer_brownian"],
