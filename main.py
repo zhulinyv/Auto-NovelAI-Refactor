@@ -14,6 +14,9 @@ from utils.components import (
     delete_character,
     delete_wildcard,
     modify_wildcard,
+    return_character_reference_component,
+    return_character_reference_component_visible,
+    return_position_interactive,
     update_components_for_models_change,
     update_components_for_sampler_change,
     update_components_for_sm_change,
@@ -245,12 +248,33 @@ with gr.Blocks() as anr:
                         inputs=character_components_number,
                         outputs=[character_components_number] + character_components_list,
                     )
-                with gr.Tab(label="风格迁移"):
+                    ai_choice.change(return_position_interactive, inputs=ai_choice, outputs=character_components_list)
+                character_reference_tab = gr.Tab(
+                    "角色参考",
+                    visible=True if model in ["nai-diffusion-4-5-full", "nai-diffusion-4-5-curated"] else False,
+                )
+                with character_reference_tab:
+                    character_reference_image = gr.Image(label="Character Reference Image", type="filepath")
+                    with gr.Row():
+                        fidelity = gr.Slider(0, 1, 1, step=0.05, label="Fidelity", visible=False)
+                        style_aware = gr.Checkbox(label="Style Aware", visible=False)
+                vibe_transfer_tab = gr.Tab(label="风格迁移", visible=True)
+                character_reference_image.change(
+                    return_character_reference_component,
+                    inputs=character_reference_image,
+                    outputs=[style_aware, fidelity, vibe_transfer_tab],
+                )
+                with vibe_transfer_tab:
                     naiv4vibebundle_file = gr.File(
                         type="filepath",
                         label="*.naiv4vibebundle",
                         visible=True if _model not in ["nai-diffusion-3", "nai-diffusion-furry-3"] else False,
                         interactive=True,
+                    )
+                    naiv4vibebundle_file.change(
+                        return_character_reference_component_visible,
+                        inputs=naiv4vibebundle_file,
+                        outputs=character_reference_tab,
                     )
                     normalize_reference_strength_multiple = gr.Checkbox(
                         True,
@@ -318,8 +342,11 @@ with gr.Blocks() as anr:
                                     legacy_uc,
                                     naiv4vibebundle_file,
                                     normalize_reference_strength_multiple,
+                                    character_reference_image,
+                                    style_aware,
+                                    fidelity,
+                                    ai_choice,
                                 ]
-                                + [ai_choice]
                                 + character_components_list
                                 + nai3vibe_transfer_components_list,
                                 outputs=[output_image, output_information],
@@ -405,6 +432,7 @@ with gr.Blocks() as anr:
                 naiv4vibebundle_file,
                 normalize_reference_strength_multiple,
                 nai3vibe_column,
+                character_reference_tab,
             ],
         )
         sm.change(update_components_for_sm_change, inputs=sm, outputs=sm_dyn)
