@@ -176,7 +176,10 @@ with gr.Blocks() as anr:
                 with gr.Row(scale=1):
                     last_seed = gr.Button(value="♻️", size="sm")
                     random_seed = gr.Button(value="🎲", size="sm")
-                    last_seed.click(lambda: read_json("last.json")["parameters"]["seed"], outputs=seed)
+                    last_seed.click(
+                        lambda: read_json("last.json")["parameters"]["seed"] if os.path.exists("last.json") else "-1",
+                        outputs=seed,
+                    )
                     random_seed.click(lambda: "-1", outputs=seed)
                 sampler = gr.Dropdown(
                     choices=(
