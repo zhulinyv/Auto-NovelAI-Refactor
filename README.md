@@ -15,7 +15,7 @@
 
 - 目前已实现的功能:
 
-<img src=https://i.postimg.cc/kXNKdjtb/image.png  alt="Auto-NovelAI-Refactor" width="600"/>
+<img src=https://i.postimg.cc/kXNKdjtb/image.png  alt="Auto-NovelAI-Refactor" width="500"/>
 
 ## 💿 部署
 
