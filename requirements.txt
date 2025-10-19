@@ -1,0 +1,5 @@
+gradio
+ujson
+loguru
+pydantic_settings
+send2trash

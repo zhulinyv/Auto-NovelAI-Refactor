@@ -1,3 +1,15 @@
+[project]
+name = "auto-novelai-refactor"
+version = "1.0"
+description = "Semi-Auto-NovelAI-to-Pixiv 项目的重构版本"
+authors = [
+    {name = "zhulinyv",email = "zhulinyv2005@outlook.com"}
+]
+license = {text = "GPL-3.0"}
+readme = "README.md"
+requires-python = ">=3.10"
+
+
 # https://black.readthedocs.io/en/stable/the_black_code_style/current_style.html
 [tool.black]
 line-length = 120
