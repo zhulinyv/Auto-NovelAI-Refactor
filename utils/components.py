@@ -156,6 +156,7 @@ def update_components_for_models_change(model):
             gr.update(visible=True),  # normalize_reference_strength_multiple
             gr.update(visible=False),  # nai3vibe_column
             gr.update(visible=True),  # character_reference_tab
+            gr.update(visible=True),  # naiv4vibebundle_file_instruction
         )
     elif model in ["nai-diffusion-4-full", "nai-diffusion-4-curated-preview"]:
         _UC_PRESET.remove("Furry Focus")
@@ -172,6 +173,7 @@ def update_components_for_models_change(model):
             gr.update(visible=True),  # normalize_reference_strength_multiple
             gr.update(visible=False),  # nai3vibe_column
             gr.update(visible=False),  # character_reference_tab
+            gr.update(visible=True),  # naiv4vibebundle_file_instruction
         )
     elif model in ["nai-diffusion-3", "nai-diffusion-furry-3"]:
         _UC_PRESET.remove("Furry Focus")
@@ -189,6 +191,7 @@ def update_components_for_models_change(model):
             gr.update(visible=False),  # normalize_reference_strength_multiple
             gr.update(visible=True),  # nai3vibe_column
             gr.update(visible=False),  # character_reference_tab
+            gr.update(visible=False),  # naiv4vibebundle_file_instruction
         )
 
 
