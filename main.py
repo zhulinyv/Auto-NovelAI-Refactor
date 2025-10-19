@@ -279,6 +279,9 @@ with gr.Blocks() as anr:
                     visible=True if _model not in ["nai-diffusion-3", "nai-diffusion-furry-3"] else False,
                     interactive=True,
                 )
+                gr.Markdown(
+                    "关于 *.naiv4vibebundle 文件的获取: 请先在官网上传 vibe 使用的底图, 调整权重后进行编码, 待全部图片完成编码后下载 *.naiv4vibebundle 文件, 注意不要下载单张图片编码的 vibe 文件"
+                )
                 nai3vibe_column = gr.Column(
                     visible=True if _model in ["nai-diffusion-3", "nai-diffusion-furry-3"] else False
                 )
