@@ -8,8 +8,14 @@
 ## 💬 介绍
 
 - 这里是 [Semi-Auto-NovelAI-to-Pixiv](https://github.com/zhulinyv/Semi-Auto-NovelAI-to-Pixiv) 的重构版本
+
 - 它不仅仅继承了 SANP 的各个功能, 更提供了更加方便快捷的使用体验
+
 - **使用中遇到问题请加 QQ 群咨询：[559063963](https://qm.qq.com/cgi-bin/qm/qr?k=I9FqVFb_wn-y5Ejid9CIae57KLLlvDuj&jump_from=webapi&authKey=i+DvSe2nFRBsKNu+D9NK0sFd7Qr1u/vakfRUFDGDCWaceBQOsuiHwkxDa3kRLfup)**
+
+- 目前已实现的功能:
+
+![](https://i.postimg.cc/kXNKdjtb/image.png)
 
 ## 💿 部署
 
