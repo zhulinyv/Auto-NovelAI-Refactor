@@ -209,7 +209,7 @@ with gr.Blocks() as anr:
                 character_components_number = gr.Number(value=0, visible=False)  # 使用 Number 替代 Slider
                 add_character_button = gr.Button("添加角色")
                 delete_character_button = gr.Button("删除角色")
-                ai_choice = gr.Checkbox(False, label="AI's Choice", interactive=True)
+                ai_choice = gr.Checkbox(True, label="AI's Choice", interactive=True)
                 gr.Markdown("<hr>")
 
                 # 先创建所有组件
@@ -247,13 +247,14 @@ with gr.Blocks() as anr:
                 ai_choice.change(return_position_interactive, inputs=ai_choice, outputs=character_components_list)
             character_reference_tab = gr.Tab(
                 "角色参考",
-                visible=True if model in ["nai-diffusion-4-5-full", "nai-diffusion-4-5-curated"] else False,
+                visible=True if _model in ["nai-diffusion-4-5-full", "nai-diffusion-4-5-curated"] else False,
             )
             with character_reference_tab:
                 character_reference_image = gr.Image(label="Character Reference Image", type="filepath")
                 with gr.Row():
                     fidelity = gr.Slider(0, 1, 1, step=0.05, label="Fidelity", visible=False)
-                    style_aware = gr.Checkbox(label="Style Aware", visible=False, interactive=True)
+                    style_aware = gr.Checkbox(True, label="Style Aware", visible=False, interactive=True)
+                gr.Markdown("由于 NovelAI 不能识别本地 Python 编码的 base64 图片, 此功能暂时无法正确生成图片")
             vibe_transfer_tab = gr.Tab(label="风格迁移", visible=True, interactive=True)
             character_reference_image.change(
                 return_character_reference_component,
