@@ -15,7 +15,7 @@
 
 - 目前已实现的功能:
 
-![](https://i.postimg.cc/kXNKdjtb/image.png)
+<img src=https://i.postimg.cc/kXNKdjtb/image.png  alt="Auto-NovelAI-Refactor" width="600"/>
 
 ## 💿 部署
 
