@@ -58,7 +58,12 @@ with gr.Blocks() as anr:
             )
             auto_complete(negative_input)
         with gr.Column(scale=1):
-            add_quality_tags = gr.Checkbox(value=True, label="添加质量词", interactive=True)
+            with gr.Row():
+                furry_mode = gr.Button(
+                    "🌸", visible=False if _model in ["nai-diffusion-3", "nai-diffusion-furry-3"] else True
+                )
+                furry_mode.click(lambda x: "🐾" if x == "🌸" else "🌸", inputs=furry_mode, outputs=furry_mode)
+                add_quality_tags = gr.Checkbox(value=True, label="添加质量词", interactive=True)
             undesired_contentc_preset = gr.Dropdown(
                 choices=[
                     x
@@ -328,6 +333,7 @@ with gr.Blocks() as anr:
                                 model,
                                 positive_input,
                                 negative_input,
+                                furry_mode,
                                 add_quality_tags,
                                 undesired_contentc_preset,
                                 quantity,
@@ -461,6 +467,7 @@ with gr.Blocks() as anr:
             normalize_reference_strength_multiple,
             nai3vibe_column,
             character_reference_tab,
+            furry_mode,
         ],
     )
     sm.change(update_components_for_sm_change, inputs=sm, outputs=sm_dyn)
