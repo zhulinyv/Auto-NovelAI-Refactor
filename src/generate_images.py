@@ -27,6 +27,7 @@ def main(
     model,
     positive_input,
     negative_input,
+    furry_mode,
     add_quality_tags,
     undesired_contentc_preset,
     quantity,
@@ -51,6 +52,9 @@ def main(
     ai_choice,
     *args,
 ):
+    if furry_mode == "🐾" and model not in ["nai-diffusion-3", "nai-diffusion-furry-3"]:
+        positive_input = "fur dataset, " + positive_input
+
     director_reference_images = []
     director_reference_descriptions = []
     director_reference_information_extracted = []
