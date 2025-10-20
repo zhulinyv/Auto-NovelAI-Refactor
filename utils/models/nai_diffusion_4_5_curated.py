@@ -83,3 +83,13 @@ def character(**kwargs):
         "director_reference_secondary_strength_values"
     ]
     return json_data
+
+
+def image2image(json_data, **kwargs):
+    json_data["action"] = "img2img"
+    json_data["parameters"]["color_correct"] = kwargs["color_correct"]
+    json_data["parameters"]["strength"] = kwargs["strength"]
+    json_data["parameters"]["noise"] = kwargs["noise"]
+    json_data["parameters"]["image"] = kwargs["image"]
+    json_data["parameters"]["extra_noise_seed"] = kwargs["extra_noise_seed"]
+    return json_data

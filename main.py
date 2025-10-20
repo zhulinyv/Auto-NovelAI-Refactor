@@ -16,6 +16,7 @@ from utils.components import (
     modify_wildcard,
     return_character_reference_component,
     return_character_reference_component_visible,
+    return_image2image_visible,
     return_position_interactive,
     update_components_for_models_change,
     update_components_for_sampler_change,
@@ -212,6 +213,16 @@ with gr.Blocks() as anr:
                     visible=(True if _model in ["nai-diffusion-4-full", "nai-diffusion-4-curated-preview"] else False),
                     interactive=True,
                 )
+                inpaint_input_image = gr.Sketchpad(
+                    sources=["upload", "clipboard", "webcam"],
+                    type="pil",
+                    label="基础图片(可选)",
+                )
+                strength = gr.Slider(0.01, 0.99, 0.7, step=0.01, label="强度", visible=False, interactive=True)
+                noise = gr.Slider(0, 10, 0, step=0.01, label="噪声", visible=False, interactive=True)
+                inpaint_input_image.change(
+                    return_image2image_visible, inputs=inpaint_input_image, outputs=[strength, noise]
+                )
             with gr.Tab(label="角色分区"):
                 character_components_list = []
                 character_components_number = gr.Number(value=0, visible=False)  # 使用 Number 替代 Slider
@@ -350,6 +361,9 @@ with gr.Blocks() as anr:
                                 sm,
                                 sm_dyn,
                                 legacy_uc,
+                                inpaint_input_image,
+                                strength,
+                                noise,
                                 naiv4vibebundle_file,
                                 normalize_reference_strength_multiple,
                                 character_reference_image,
@@ -467,6 +481,7 @@ with gr.Blocks() as anr:
             normalize_reference_strength_multiple,
             nai3vibe_column,
             character_reference_tab,
+            naiv4vibebundle_file_instruction,
             furry_mode,
         ],
     )

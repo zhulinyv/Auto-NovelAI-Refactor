@@ -33,13 +33,13 @@ class Generator:
                     else None
                 ),
             )
-            if status_code := rep.status_code != 200:
+            if (status_code := rep.status_code) != 200:
                 logger.debug(f"本次请求状态码: {status_code}")
                 logger.debug(rep.json()["message"])
             with zipfile.ZipFile(io.BytesIO(rep.content), mode="r") as zip:
                 with zip.open("image_0.png") as image:
+                    logger.success("请求成功!")
                     return image.read()
-            logger.success("请求成功!")
         except Exception as e:
             logger.error(f"出现错误: {e}")
             return None
