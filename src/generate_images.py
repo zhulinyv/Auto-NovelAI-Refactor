@@ -44,6 +44,9 @@ def main(
     sm,
     sm_dyn,
     legacy_uc,
+    inpaint_input_image,
+    strength,
+    noise,
     naiv4vibebundle_file,
     normalize_reference_strength_multiple,
     character_reference_image,
@@ -150,6 +153,8 @@ def main(
         _positive_input = replace_wildcards(positive_input)
         _negative_input = replace_wildcards(negative_input)
 
+        _seed = random.randint(1000000000, 9999999999) if seed == "-1" else int(seed)
+
         json_data = func(
             _input=format_str(_positive_input + return_quality_tags(model) if add_quality_tags else _positive_input),
             width=return_x64(width),
@@ -171,7 +176,7 @@ def main(
             normalize_reference_strength_multiple=normalize_reference_strength_multiple,
             use_order=True,
             legacy_uc=legacy_uc if model in ["nai-diffusion-4-full", "nai-diffusion-4-curated-preview"] else False,
-            seed=random.randint(1000000000, 9999999999) if seed == "-1" else int(seed),
+            seed=_seed,
             negative_prompt=format_str(
                 _negative_input + return_undesired_contentc_preset(model, undesired_contentc_preset)
             ),
@@ -192,6 +197,27 @@ def main(
             director_reference_strength_values=director_reference_strength_values,
             director_reference_secondary_strength_values=director_reference_secondary_strength_values,
         )
+
+        if inpaint_input_image["background"]:
+            model_function_map = {
+                "nai-diffusion-4-5-full": nai45fi2i,  # noqa
+                "nai-diffusion-4-5-curated": nai45ci2i,  # noqa
+                "nai-diffusion-4-full": nai4fi2i,  # noqa
+                "nai-diffusion-4-curated-preview": nai4cpi2i,  # noqa
+                "nai-diffusion-3": nai3i2i,  # noqa
+                "nai-diffusion-furry-3": naif3i2i,  # noqa
+            }
+            (inpaint_input_image["background"]).save(image_path := "./outputs/temp_inpaint_image.png")
+            (inpaint_input_image["layers"][0]).save("./outputs/temp_inpaint_mask.png")
+            func = model_function_map.get(model)
+            json_data = func(
+                json_data,
+                strength=strength,
+                noise=noise,
+                image=image_to_base64(image_path),
+                extra_noise_seed=_seed,
+                color_correct=False,
+            )
 
         image_data = generator.generate(json_data)
         if image_data:

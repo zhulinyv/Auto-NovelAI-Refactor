@@ -261,3 +261,10 @@ def return_character_reference_component_visible(nai3vibe_transfer_image):
         return gr.update(visible=False)
     else:
         return gr.update(visible=True)
+
+
+def return_image2image_visible(inpaint_input_image):
+    if inpaint_input_image["background"]:
+        return gr.update(visible=True), gr.update(visible=True)
+    else:
+        return gr.update(visible=False), gr.update(visible=False)
