@@ -46,7 +46,7 @@
 
 #### 3️⃣ 克隆仓库
 
-- 打开 cmd 或 powershell, 执行 `git clone -b main --depth=1 https://github.com/zhulinyv/Semi-Auto-NovelAI-to-Pixiv.git`
+- 打开 cmd 或 powershell, 执行 `git clone -b main --depth=1 https://github.com/zhulinyv/Auto-NovelAI-Refactor.git`
 
 #### 4️⃣ 接下来的路
 
