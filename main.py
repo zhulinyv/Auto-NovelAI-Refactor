@@ -105,16 +105,16 @@ with gr.Blocks() as anr:
                 )
                 with gr.Row():
                     width = gr.Slider(
-                        minimum=64,
-                        maximum=49152,
+                        minimum=0,
+                        maximum=50000,
                         value=832,
                         step=64,
                         label="宽",
                         interactive=True,
                     )
                     height = gr.Slider(
-                        minimum=64,
-                        maximum=49152,
+                        minimum=0,
+                        maximum=50000,
                         value=1216,
                         step=64,
                         label="高",
@@ -221,7 +221,9 @@ with gr.Blocks() as anr:
                 strength = gr.Slider(0.01, 0.99, 0.7, step=0.01, label="强度", visible=False, interactive=True)
                 noise = gr.Slider(0, 10, 0, step=0.01, label="噪声", visible=False, interactive=True)
                 inpaint_input_image.change(
-                    return_image2image_visible, inputs=inpaint_input_image, outputs=[strength, noise]
+                    return_image2image_visible,
+                    inputs=inpaint_input_image,
+                    outputs=[inpaint_input_image, strength, noise, width, height],
                 )
             with gr.Tab(label="角色分区"):
                 character_components_list = []
@@ -460,10 +462,13 @@ with gr.Blocks() as anr:
                 proxy = gr.Textbox(value=env.proxy, label="代理地址")
                 custom_path = gr.Textbox(value=env.custom_path, label="自定义路径")
                 gr.Markdown("已支持的自动替换路径: <类型>, <日期>, <种子>, <随机字符>, <编号>")
+                cool_time = gr.Slider(1, 600, env.cool_time, label="冷却时间")
                 port = gr.Textbox(value=env.port, label="端口号")
                 share = gr.Checkbox(value=env.share, label="共享 Gradio 连接")
                 setting_modify_button.click(
-                    modify_env, inputs=[token, proxy, custom_path, port, share], outputs=setting_output_information
+                    modify_env,
+                    inputs=[token, proxy, custom_path, cool_time, port, share],
+                    outputs=setting_output_information,
                 )
     model.change(
         update_components_for_models_change,
