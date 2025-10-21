@@ -10,7 +10,13 @@ from utils import (
     sleep_for_cool,
 )
 from utils.generator import Generator
-from utils.image_tools import change_the_mask_color, image_to_base64, is_fully_transparent, process_image_by_orientation
+from utils.image_tools import (
+    change_the_mask_color,
+    image_to_base64,
+    is_fully_transparent,
+    process_image_by_orientation,
+    process_white_regions,
+)
 from utils.logger import logger
 from utils.models import *  # noqa
 from utils.variable import (
@@ -235,7 +241,7 @@ def main(
                     strength=strength,
                     noise=noise,
                     image=image_to_base64(image_path),
-                    mask=image_to_base64(change_the_mask_color(mask_path)),
+                    mask=image_to_base64(process_white_regions(change_the_mask_color(mask_path), mask_path)),
                     extra_noise_seed=_seed,
                     color_correct=False,
                 )

@@ -463,6 +463,7 @@ with gr.Blocks() as anr:
                 custom_path = gr.Textbox(value=env.custom_path, label="自定义路径")
                 gr.Markdown("已支持的自动替换路径: <类型>, <日期>, <种子>, <随机字符>, <编号>")
                 cool_time = gr.Slider(1, 600, env.cool_time, label="冷却时间")
+                gr.Markdown("会上下浮动 1 秒")
                 port = gr.Textbox(value=env.port, label="端口号")
                 share = gr.Checkbox(value=env.share, label="共享 Gradio 连接")
                 setting_modify_button.click(
