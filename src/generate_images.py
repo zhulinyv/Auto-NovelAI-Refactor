@@ -10,7 +10,7 @@ from utils import (
     sleep_for_cool,
 )
 from utils.generator import Generator
-from utils.image_tools import image_to_base64
+from utils.image_tools import image_to_base64, process_image_by_orientation
 from utils.logger import logger
 from utils.models import *  # noqa
 from utils.variable import (
@@ -114,7 +114,10 @@ def main(
                 reference_strength_multiple.append(vibe_image["importInfo"]["strength"])
     else:
         if character_reference_image and model in ["nai-diffusion-4-5-full", "nai-diffusion-4-5-curated"]:
-            director_reference_images = [image_to_base64(character_reference_image)]
+            process_image_by_orientation(character_reference_image).save(
+                image_path := "./outputs/temp_character_reference_image.png"
+            )
+            director_reference_images = [image_to_base64(image_path)]
             director_reference_descriptions = [
                 {
                     "caption": {

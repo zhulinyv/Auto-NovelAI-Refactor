@@ -273,7 +273,6 @@ with gr.Blocks() as anr:
                 with gr.Row():
                     fidelity = gr.Slider(0, 1, 1, step=0.05, label="Fidelity", visible=False)
                     style_aware = gr.Checkbox(True, label="Style Aware", visible=False, interactive=True)
-                gr.Markdown("由于 NovelAI 不能识别本地 Python 编码的 base64 图片, 此功能暂时无法正确生成图片")
             vibe_transfer_tab = gr.Tab(label="风格迁移", visible=True, interactive=True)
             character_reference_image.change(
                 return_character_reference_component,
