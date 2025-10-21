@@ -1,7 +1,10 @@
 import base64
 from io import BytesIO
 
+import numpy as np
 from PIL import Image
+
+from utils import return_x64
 
 
 def image_to_base64(image_path):
@@ -60,3 +63,35 @@ def process_image_by_orientation(image_path):
             final_img = img.resize((1472, 1472), Image.Resampling.LANCZOS)
 
         return final_img
+
+
+def change_the_mask_color(image_path):
+    with Image.open(image_path) as image:
+        image_array = image.load()
+        width, height = image.size
+        for x in range(0, width):
+            for y in range(0, height):
+                rgba = image_array[x, y]
+                r, g, b, a = rgba
+                if a != 0:
+                    image_array[x, y] = (255, 255, 255)
+                elif a == 0:
+                    image_array[x, y] = (0, 0, 0)
+        image.save(image_path)
+        return image_path
+
+
+def is_fully_transparent(image_path):
+    img = Image.open(image_path).convert("RGBA")
+    img_array = np.array(img)
+    alpha_channel = img_array[:, :, 3]
+    return np.all(alpha_channel == 0)
+
+
+def resize_image(image_path):
+    with Image.open(image_path) as image:
+        w, h = image.size
+        new_size = (return_x64(w), return_x64(h))
+        image = image.resize(new_size, Image.Resampling.LANCZOS)
+        image.save(image_path)
+    return image_path

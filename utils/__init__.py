@@ -74,16 +74,16 @@ def replace_wildcards(text: str):
         if wild_card[1] != "随机":
             tag = read_txt(f"./wildcards/{wild_card[0]}/{wild_card[1]}.txt")
         else:
-            tag = read_txt((_path := f"./wildcards/{wild_card[0]}/") + random.choice(os.listdir(_path)))
+            tag = read_txt((_path := f"./wildcards/{wild_card[0]}/") + (name := random.choice(os.listdir(_path))))
         text = text.replace(f"<{wild_card[0]}:{wild_card[1]}>", tag)
-        logger.debug(f'已将 <{wild_card[0]}:{wild_card[1]}> 替换为 "{tag}"')
+        logger.debug(f'已将 <{wild_card[0]}:{wild_card[1]}> 替换为 {name}: "{tag}"')
     (logger.info(f"共发现 {len(matchers)} 个 wildcard, 已完成替换!") if len(matchers) != 0 else ...)
     return text
 
 
 def sleep_for_cool(seconds):
     sleep_time = round(random.uniform(abs(seconds - 1), seconds + 1), 3)
-    logger.info(f"等待 {sleep_time} 秒后继续...")
+    logger.debug(f"等待 {sleep_time} 秒后继续...")
     time.sleep(sleep_time)
     return
 

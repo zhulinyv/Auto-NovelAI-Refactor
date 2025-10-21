@@ -10,6 +10,8 @@ class Settings(BaseSettings):
 
     custom_path: Union[str, None] = None
 
+    cool_time: int = 3
+
     port: int = 11451
     share: bool = False
 

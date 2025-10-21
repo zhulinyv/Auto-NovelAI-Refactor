@@ -4,7 +4,8 @@ import os
 import gradio as gr
 import send2trash
 
-from utils import format_str, list_to_str, read_txt
+from utils import format_str, list_to_str, read_txt, return_x64
+from utils.image_tools import resize_image
 from utils.variable import NOISE_SCHEDULE, RESOLUTION, SAMPLER, UC_PRESET
 
 
@@ -265,6 +266,16 @@ def return_character_reference_component_visible(nai3vibe_transfer_image):
 
 def return_image2image_visible(inpaint_input_image):
     if inpaint_input_image["background"]:
-        return gr.update(visible=True), gr.update(visible=True)
+        w, h = (inpaint_input_image["background"]).size
+        if w % 64 == 0 and h % 64 == 0:
+            return gr.update(), gr.update(visible=True), gr.update(visible=True), gr.update(value=w), gr.update(value=h)
+        (inpaint_input_image["background"]).save(image_path := "./outputs/temp_inpaint_image.png")
+        return (
+            gr.update(value=resize_image(image_path)),
+            gr.update(visible=True),
+            gr.update(visible=True),
+            gr.update(value=return_x64(w)),
+            gr.update(value=return_x64(h)),
+        )
     else:
-        return gr.update(visible=False), gr.update(visible=False)
+        return gr.update(), gr.update(visible=False), gr.update(visible=False), gr.update(), gr.update()

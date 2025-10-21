@@ -60,3 +60,12 @@ def image2image(json_data, **kwargs):
     json_data["parameters"]["image"] = kwargs["image"]
     json_data["parameters"]["extra_noise_seed"] = kwargs["extra_noise_seed"]
     return json_data
+
+
+def inpaint(json_data, **kwargs):
+    json_data = image2image(json_data, **kwargs)
+    json_data["model"] = "nai-diffusion-furry-3-inpainting"
+    json_data["action"] = "infill"
+    json_data["parameters"]["mask"] = kwargs["mask"]
+    json_data["parameters"]["add_original_image"] = False
+    return json_data

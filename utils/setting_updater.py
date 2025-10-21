@@ -26,6 +26,7 @@ def modify_env(
     token,
     proxy,
     custom_path,
+    cool_time,
     port,
     share,
 ):
@@ -33,6 +34,7 @@ def modify_env(
         token=f'"{token}"'.replace("\n", ""),
         proxy=f'"{proxy}"'.replace("\n", ""),
         custom_path=f'"{custom_path}"'.replace("\n", ""),
+        cool_time=cool_time,
         port=port,
         share=share,
     )
