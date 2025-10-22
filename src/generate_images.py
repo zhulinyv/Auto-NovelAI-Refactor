@@ -1,5 +1,7 @@
 import random
 
+import ujson as json
+
 from utils import (
     format_str,
     position_to_float,
@@ -9,6 +11,7 @@ from utils import (
     return_x64,
     sleep_for_cool,
 )
+from utils.environment import env
 from utils.generator import Generator
 from utils.image_tools import (
     change_the_mask_color,
@@ -61,102 +64,109 @@ def main(
     ai_choice,
     *args,
 ):
-    try:
-        if furry_mode == "🐾" and model not in ["nai-diffusion-3", "nai-diffusion-furry-3"]:
-            positive_input = "fur dataset, " + positive_input
+    with open("./outputs/temp_break.json", "w") as f:
+        json.dump({"break": False}, f)
 
-        director_reference_images = []
-        director_reference_descriptions = []
-        director_reference_information_extracted = []
-        director_reference_strength_values = []
-        director_reference_secondary_strength_values = []
+    if furry_mode == "🐾" and model not in ["nai-diffusion-3", "nai-diffusion-furry-3"]:
+        positive_input = "fur dataset, " + positive_input
 
-        character_components = args[:30]
-        character_components = [list(chunk) for chunk in zip(*[iter(character_components)] * 5)]
-        v4_prompt_positive = []
-        v4_prompt_negative = []
-        characterPrompts = []
-        for character_prompt in character_components:
-            if character_prompt[-2]:
-                x, y = position_to_float(character_prompt[2])
-                center = {"x": x, "y": y}
-                centers = [center]
+    director_reference_images = []
+    director_reference_descriptions = []
+    director_reference_information_extracted = []
+    director_reference_strength_values = []
+    director_reference_secondary_strength_values = []
 
-                v4_prompt_positive.append({"char_caption": character_prompt[0], "centers": centers})
-                v4_prompt_negative.append({"char_caption": character_prompt[1], "centers": centers})
-                characterPrompts.append(
-                    {"prompt": character_prompt[0], "uc": character_prompt[1], "center": center, "enabled": True}
-                )
+    character_components = args[:30]
+    character_components = [list(chunk) for chunk in zip(*[iter(character_components)] * 5)]
+    v4_prompt_positive = []
+    v4_prompt_negative = []
+    characterPrompts = []
+    for character_prompt in character_components:
+        if character_prompt[-2]:
+            x, y = position_to_float(character_prompt[2])
+            center = {"x": x, "y": y}
+            centers = [center]
 
-        vibe_components = args[30:]
-        reference_image_multiple = []
-        reference_information_extracted_multiple = []
-        reference_strength_multiple = []
-        if naiv4vibebundle_file or vibe_components[0]:
-            model_function_map = {
-                "nai-diffusion-4-5-full": nai45fvibe,  # noqa
-                "nai-diffusion-4-5-curated": nai45cvibe,  # noqa
-                "nai-diffusion-4-full": nai4fvibe,  # noqa
-                "nai-diffusion-4-curated-preview": nai4cpvibe,  # noqa
-                "nai-diffusion-3": nai3vibe,  # noqa
-                "nai-diffusion-furry-3": nai3vibe,  # noqa
-            }
-            if model in ["nai-diffusion-3", "nai-diffusion-furry-3"]:
-                vibe_images = [list(chunk) for chunk in zip(*[iter(vibe_components)] * 3)]
-                for vibe_image in vibe_images:
-                    reference_image_multiple.append(image_to_base64(vibe_image[0]))
-                    reference_information_extracted_multiple.append(vibe_image[1])
-                    reference_strength_multiple.append(vibe_image[2])
-            else:
-                model_vibe_map = {
-                    "nai-diffusion-4-5-full": "v4-5full",
-                    "nai-diffusion-4-5-curated": "v4-5curated",
-                    "nai-diffusion-4-full": "v4full",
-                    "nai-diffusion-4-curated-preview": "v4curated",
-                }
-                vibe_data = read_json(naiv4vibebundle_file)
-                vibe_model_name = model_vibe_map.get(model)
-                for vibe_image in vibe_data["vibes"]:
-                    reference_image_multiple.append(
-                        return_last_value(vibe_image["encodings"][vibe_model_name])["encoding"]
-                    )
-                    reference_strength_multiple.append(vibe_image["importInfo"]["strength"])
+            v4_prompt_positive.append({"char_caption": character_prompt[0], "centers": centers})
+            v4_prompt_negative.append({"char_caption": character_prompt[1], "centers": centers})
+            characterPrompts.append(
+                {"prompt": character_prompt[0], "uc": character_prompt[1], "center": center, "enabled": True}
+            )
+
+    vibe_components = args[30:]
+    reference_image_multiple = []
+    reference_information_extracted_multiple = []
+    reference_strength_multiple = []
+    if naiv4vibebundle_file or vibe_components[0]:
+        model_function_map = {
+            "nai-diffusion-4-5-full": nai45fvibe,  # noqa
+            "nai-diffusion-4-5-curated": nai45cvibe,  # noqa
+            "nai-diffusion-4-full": nai4fvibe,  # noqa
+            "nai-diffusion-4-curated-preview": nai4cpvibe,  # noqa
+            "nai-diffusion-3": nai3vibe,  # noqa
+            "nai-diffusion-furry-3": nai3vibe,  # noqa
+        }
+        if model in ["nai-diffusion-3", "nai-diffusion-furry-3"]:
+            vibe_images = [list(chunk) for chunk in zip(*[iter(vibe_components)] * 3)]
+            for vibe_image in vibe_images:
+                reference_image_multiple.append(image_to_base64(vibe_image[0]))
+                reference_information_extracted_multiple.append(vibe_image[1])
+                reference_strength_multiple.append(vibe_image[2])
         else:
-            if character_reference_image and model in ["nai-diffusion-4-5-full", "nai-diffusion-4-5-curated"]:
-                process_image_by_orientation(character_reference_image).save(
-                    image_path := "./outputs/temp_character_reference_image.png"
-                )
-                director_reference_images = [image_to_base64(image_path)]
-                director_reference_descriptions = [
-                    {
-                        "caption": {
-                            "base_caption": "character&style" if style_aware else "character",
-                            "char_captions": [],
-                        },
-                        "legacy_uc": False,
-                    }
-                ]
-                director_reference_information_extracted = [1]
-                director_reference_strength_values = [1]
-                director_reference_secondary_strength_values = [1 - fidelity]
-                model_function_map = {
-                    "nai-diffusion-4-5-full": nai45fchar,  # noqa
-                    "nai-diffusion-4-5-curated": nai45cchar,  # noqa
+            model_vibe_map = {
+                "nai-diffusion-4-5-full": "v4-5full",
+                "nai-diffusion-4-5-curated": "v4-5curated",
+                "nai-diffusion-4-full": "v4full",
+                "nai-diffusion-4-curated-preview": "v4curated",
+            }
+            vibe_data = read_json(naiv4vibebundle_file)
+            vibe_model_name = model_vibe_map.get(model)
+            for vibe_image in vibe_data["vibes"]:
+                reference_image_multiple.append(return_last_value(vibe_image["encodings"][vibe_model_name])["encoding"])
+                reference_strength_multiple.append(vibe_image["importInfo"]["strength"])
+    else:
+        if character_reference_image and model in ["nai-diffusion-4-5-full", "nai-diffusion-4-5-curated"]:
+            process_image_by_orientation(character_reference_image).save(
+                image_path := "./outputs/temp_character_reference_image.png"
+            )
+            director_reference_images = [image_to_base64(image_path)]
+            director_reference_descriptions = [
+                {
+                    "caption": {
+                        "base_caption": "character&style" if style_aware else "character",
+                        "char_captions": [],
+                    },
+                    "legacy_uc": False,
                 }
-            else:
-                model_function_map = {
-                    "nai-diffusion-4-5-full": nai45ft2i,  # noqa
-                    "nai-diffusion-4-5-curated": nai45ct2i,  # noqa
-                    "nai-diffusion-4-full": nai4ft2i,  # noqa
-                    "nai-diffusion-4-curated-preview": nai4cpt2i,  # noqa
-                    "nai-diffusion-3": nai3t2i,  # noqa
-                    "nai-diffusion-furry-3": naif3t2i,  # noqa
-                }
-        func = model_function_map.get(model)
+            ]
+            director_reference_information_extracted = [1]
+            director_reference_strength_values = [1]
+            director_reference_secondary_strength_values = [1 - fidelity]
+            model_function_map = {
+                "nai-diffusion-4-5-full": nai45fchar,  # noqa
+                "nai-diffusion-4-5-curated": nai45cchar,  # noqa
+            }
+        else:
+            model_function_map = {
+                "nai-diffusion-4-5-full": nai45ft2i,  # noqa
+                "nai-diffusion-4-5-curated": nai45ct2i,  # noqa
+                "nai-diffusion-4-full": nai4ft2i,  # noqa
+                "nai-diffusion-4-curated-preview": nai4cpt2i,  # noqa
+                "nai-diffusion-3": nai3t2i,  # noqa
+                "nai-diffusion-furry-3": naif3t2i,  # noqa
+            }
+    func = model_function_map.get(model)
 
-        image_list = []
+    _type = "text2image"
+    image_list = []
 
-        for i in range(quantity):
+    for i in range(quantity):
+        try:
+            _break = read_json("./outputs/temp_break.json")
+            if _break["break"]:
+                logger.warning("已停止生成!")
+                break
+
             if quantity != 1:
                 logger.info(f"正在生成第 {i+1} 张图片...")
             else:
@@ -225,6 +235,7 @@ def main(
                         "nai-diffusion-3": nai3i2i,  # noqa
                         "nai-diffusion-furry-3": naif3i2i,  # noqa
                     }
+                    _type = "image2image"
                 else:
                     model_function_map = {
                         "nai-diffusion-4-5-full": nai45finfill,  # noqa
@@ -234,6 +245,7 @@ def main(
                         "nai-diffusion-3": nai3infill,  # noqa
                         "nai-diffusion-furry-3": naif3infill,  # noqa
                     }
+                    _type = "inpaint"
 
                 func = model_function_map.get(model)
                 json_data = func(
@@ -248,10 +260,11 @@ def main(
 
             image_data = generator.generate(json_data)
             if image_data:
-                path = generator.save(image_data, "text2image", json_data["parameters"]["seed"])
+                path = generator.save(image_data, _type, json_data["parameters"]["seed"])
                 image_list.append(path)
             if quantity != 1 and i != quantity - 1:
-                sleep_for_cool(3)
-    except Exception as e:
-        logger.error(f"出现错误: {e}")
+                sleep_for_cool(env.cool_time)
+        except Exception as e:
+            logger.error(f"出现错误: {e}")
+            sleep_for_cool(5)
     return image_list, "处理完成!"

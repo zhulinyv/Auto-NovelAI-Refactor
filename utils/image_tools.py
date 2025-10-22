@@ -5,6 +5,7 @@ import numpy as np
 from PIL import Image
 
 from utils import return_x64
+from utils.naimeta import extract_data
 
 
 def image_to_base64(image_path):
@@ -195,3 +196,12 @@ def process_white_regions(image_path, output_path):
     result_img.save(output_path)
 
     return output_path
+
+
+def get_image_information(image_path):
+    with Image.open(image_path) as image:
+        try:
+            pnginfo = image.info
+        except Exception:
+            pnginfo = extract_data(image)
+    return pnginfo

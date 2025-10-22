@@ -5,7 +5,7 @@ from pathlib import Path
 import gradio as gr
 
 from src.generate_images import main as generate_images
-from utils import read_json
+from utils import read_json, stop_generate
 from utils.components import (
     add_character,
     add_wildcard,
@@ -28,7 +28,7 @@ from utils.components import (
     update_wildcard_tags,
 )
 from utils.environment import env
-from utils.prepare import _model
+from utils.prepare import _model, last_data, parameters
 from utils.setting_updater import modify_env
 from utils.variable import CHARACTER_POSITION, MODELS, NOISE_SCHEDULE, RESOLUTION, SAMPLER, UC_PRESET, WILDCARD_TYPE
 
@@ -47,12 +47,14 @@ with gr.Blocks() as anr:
     with gr.Row():
         with gr.Column(scale=3):
             positive_input = gr.TextArea(
+                value=last_data.get("input"),
                 label="正面提示词",
                 placeholder="请在此输入正面提示词...",
                 lines=5,
             )
             auto_complete(positive_input)
             negative_input = gr.TextArea(
+                value=parameters.get("negative_prompt"),
                 label="负面提示词",
                 placeholder="请在此输入负面提示词...",
                 lines=5,
@@ -64,7 +66,9 @@ with gr.Blocks() as anr:
                     "🌸", visible=False if _model in ["nai-diffusion-3", "nai-diffusion-furry-3"] else True
                 )
                 furry_mode.click(lambda x: "🐾" if x == "🌸" else "🌸", inputs=furry_mode, outputs=furry_mode)
-                add_quality_tags = gr.Checkbox(value=True, label="添加质量词", interactive=True)
+                add_quality_tags = gr.Checkbox(
+                    value=parameters.get("qualityToggle", True), label="添加质量词", interactive=True
+                )
             undesired_contentc_preset = gr.Dropdown(
                 choices=[
                     x
@@ -85,6 +89,7 @@ with gr.Blocks() as anr:
             )
             generate_button = gr.Button(value="开始生成")
             stop_button = gr.Button(value="停止生成")
+            stop_button.click(stop_generate)
             quantity = gr.Slider(
                 minimum=1,
                 maximum=999,
@@ -99,7 +104,11 @@ with gr.Blocks() as anr:
             with gr.Tab(label="参数设置"):
                 resolution = gr.Dropdown(
                     choices=RESOLUTION + ["自定义"],
-                    value="832x1216",
+                    value=(
+                        "自定义"
+                        if (res := "{}x{}".format(parameters.get("width"), parameters.get("height"))) not in RESOLUTION
+                        else res
+                    ),
                     label="分辨率预设",
                     interactive=True,
                 )
@@ -107,7 +116,7 @@ with gr.Blocks() as anr:
                     width = gr.Slider(
                         minimum=0,
                         maximum=50000,
-                        value=832,
+                        value=parameters.get("width", 832),
                         step=64,
                         label="宽",
                         interactive=True,
@@ -115,7 +124,7 @@ with gr.Blocks() as anr:
                     height = gr.Slider(
                         minimum=0,
                         maximum=50000,
-                        value=1216,
+                        value=parameters.get("height", 1216),
                         step=64,
                         label="高",
                         interactive=True,
@@ -138,7 +147,7 @@ with gr.Blocks() as anr:
                 steps = gr.Slider(
                     minimum=1,
                     maximum=50,
-                    value=23,
+                    value=parameters.get("steps", 23),
                     label="采样步数",
                     step=1,
                     interactive=True,
@@ -146,7 +155,7 @@ with gr.Blocks() as anr:
                 prompt_guidance = gr.Slider(
                     minimum=0,
                     maximum=10,
-                    value=5,
+                    value=parameters.get("scale", 5),
                     label="提示词指导系数",
                     step=0.1,
                     interactive=True,
@@ -154,26 +163,28 @@ with gr.Blocks() as anr:
                 prompt_guidance_rescale = gr.Slider(
                     minimum=0,
                     maximum=10,
-                    value=0,
+                    value=parameters.get("cfg_rescale", 0),
                     label="提示词重采样系数",
                     step=0.02,
                     interactive=True,
                 )
                 with gr.Row():
-                    variety = gr.Checkbox(value=False, label="Variety+")
+                    variety = gr.Checkbox(
+                        value=True if parameters.get("skip_cfg_above_sigma") else False, label="Variety+"
+                    )
                     decrisp = gr.Checkbox(
-                        value=False,
+                        value=parameters.get("dynamic_thresholding", False),
                         label="Decrisp",
                         visible=True if _model in ["nai-diffusion-3", "nai-diffusion-furry-3"] else False,
                     )
                 with gr.Row():
                     sm = gr.Checkbox(
-                        value=False,
+                        value=parameters.get("sm", False),
                         label="SMEA",
                         visible=True if _model in ["nai-diffusion-3", "nai-diffusion-furry-3"] else False,
                     )
                     sm_dyn = gr.Checkbox(
-                        value=False,
+                        value=parameters.get("sm_dyn", False),
                         label="DYN",
                         visible=True if _model in ["nai-diffusion-3", "nai-diffusion-furry-3"] else False,
                     )
@@ -193,7 +204,7 @@ with gr.Blocks() as anr:
                         if _model in ["nai-diffusion-3", "nai-diffusion-furry-3"]
                         else [x for x in SAMPLER if x != "ddim_v3"]
                     ),
-                    value="k_euler_ancestral",
+                    value=parameters.get("sampler", "k_euler_ancestral"),
                     label="采样器",
                     interactive=True,
                 )
@@ -203,12 +214,12 @@ with gr.Blocks() as anr:
                         if _model in ["nai-diffusion-3", "nai-diffusion-furry-3"]
                         else [x for x in NOISE_SCHEDULE if x != "native"]
                     ),
-                    value="karras",
+                    value=parameters.get("noise_schedule", "karras"),
                     label="调度器",
                     interactive=True,
                 )
                 legacy_uc = gr.Checkbox(
-                    value=False,
+                    value=parameters.get("legacy_uc", False),
                     label="Legacy Prompt Conditioning Mode",
                     visible=(True if _model in ["nai-diffusion-4-full", "nai-diffusion-4-curated-preview"] else False),
                     interactive=True,
@@ -444,6 +455,11 @@ with gr.Blocks() as anr:
                         inputs=[new_wildcard_type, new_wildcard_name, new_wildcard_tags],
                         outputs=output_information,
                     )
+            with gr.Tab("法术解析"):
+                with gr.Tab("读取信息"):
+                    ...
+                with gr.Tab("图片反推"):
+                    ...
             with gr.Tab("配置设置"):
                 with gr.Row():
                     setting_modify_button = gr.Button("保存")
