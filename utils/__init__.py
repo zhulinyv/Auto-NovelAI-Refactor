@@ -98,3 +98,10 @@ def position_to_float(position: str):
     number_dict = {str(i + 1): i * 0.2 + offset for i in range(5)}
     letter, number = position
     return round(letter_dict[letter], 1), round(number_dict[number], 1)
+
+
+def stop_generate():
+    logger.warning("正在停止生成...")
+    with open("./outputs/temp_break.json", "w") as f:
+        json.dump({"break": True}, f)
+    return
