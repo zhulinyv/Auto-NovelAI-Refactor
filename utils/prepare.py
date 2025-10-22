@@ -1,5 +1,6 @@
 import os
 import shutil
+from urllib.request import getproxies
 
 from utils import read_json
 
@@ -16,3 +17,11 @@ if os.path.exists("last.json"):
         _model = "nai-diffusion-4-curated-preview"
 else:
     _model = "nai-diffusion-4-5-full"
+
+try:
+    proxies = getproxies()
+    os.environ["http_proxy"] = proxies["http"]
+    os.environ["https_proxy"] = proxies["https"]
+    os.environ["no_proxy"] = proxies.get("no", "localhost, 127.0.0.1, ::1")
+except KeyError:
+    pass
