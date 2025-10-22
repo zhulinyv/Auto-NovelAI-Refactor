@@ -3,9 +3,10 @@ import os
 
 import gradio as gr
 import send2trash
+import ujson as json
 
 from utils import format_str, list_to_str, read_txt, return_x64
-from utils.image_tools import resize_image
+from utils.image_tools import get_image_information, resize_image
 from utils.variable import NOISE_SCHEDULE, RESOLUTION, SAMPLER, UC_PRESET
 
 
@@ -279,3 +280,40 @@ def return_image2image_visible(inpaint_input_image):
         )
     else:
         return gr.update(), gr.update(visible=False), gr.update(visible=False), gr.update(), gr.update()
+
+
+def return_pnginfo(image_path):
+    if not image_path:
+        return gr.update(visible=False), None, None, None, None, None, None, None
+    pnginfo = get_image_information(image_path)
+    return (
+        gr.update(visible=True if pnginfo.get("Software") == "NovelAI" else False),
+        pnginfo.get("Source"),
+        pnginfo.get("Generation_time"),
+        pnginfo.get("Comment"),
+        pnginfo.get("Title"),
+        pnginfo.get("Description"),
+        pnginfo.get("Software"),
+        pnginfo,
+    )
+
+
+def send_pnginfo_to_generate(image_path):
+    pnginfo = get_image_information(image_path)
+    comment = json.loads(pnginfo.get("Comment", {}))
+    return (
+        comment.get("prompt"),
+        comment.get("uc"),
+        comment.get("width", 832),
+        comment.get("height", 1216),
+        comment.get("steps", 23),
+        comment.get("scale", 5),
+        comment.get("cfg_rescale", 0),
+        True if comment.get("skip_cfg_above_sigma") else False,
+        comment.get("dynamic_thresholding", False),
+        comment.get("sm", False),
+        comment.get("sm_dyn", False),
+        comment.get("sampler", "k_euler_ancestral"),
+        comment.get("noise_schedule", "karras"),
+        comment.get("v4_prompt", {}).get("legacy_uc", False),
+    )
