@@ -17,7 +17,9 @@ from utils.components import (
     return_character_reference_component,
     return_character_reference_component_visible,
     return_image2image_visible,
+    return_pnginfo,
     return_position_interactive,
+    send_pnginfo_to_generate,
     update_components_for_models_change,
     update_components_for_sampler_change,
     update_components_for_sm_change,
@@ -457,7 +459,56 @@ with gr.Blocks() as anr:
                     )
             with gr.Tab("法术解析"):
                 with gr.Tab("读取信息"):
-                    ...
+                    with gr.Row():
+                        with gr.Column():
+                            pnginfo_image = gr.Image(type="filepath")
+                            send_button = gr.Button("发送到图片生成", visible=False)
+                            show_all_pnginfo = gr.Checkbox(False, label="显示所有信息")
+                        with gr.Column():
+                            source = gr.Textbox(label="Source")
+                            generation_time = gr.Textbox(label="Generation_time")
+                            comment = gr.JSON(label="Comment", open=True)
+                            title = gr.Textbox(label="Title")
+                            description = gr.TextArea(label="Description")
+                            software = gr.Textbox(label="Software")
+                    all_pnginfo = gr.JSON(label="全部信息", open=True, visible=False)
+                    show_all_pnginfo.change(
+                        lambda x: gr.update(visible=x), inputs=show_all_pnginfo, outputs=all_pnginfo
+                    )
+                    pnginfo_image.change(
+                        return_pnginfo,
+                        inputs=pnginfo_image,
+                        outputs=[
+                            send_button,
+                            source,
+                            generation_time,
+                            comment,
+                            title,
+                            description,
+                            software,
+                            all_pnginfo,
+                        ],
+                    )
+                    send_button.click(
+                        send_pnginfo_to_generate,
+                        inputs=pnginfo_image,
+                        outputs=[
+                            positive_input,
+                            negative_input,
+                            width,
+                            height,
+                            steps,
+                            prompt_guidance,
+                            prompt_guidance_rescale,
+                            variety,
+                            decrisp,
+                            sm,
+                            sm_dyn,
+                            sampler,
+                            noise_schedule,
+                            legacy_uc,
+                        ],
+                    )
                 with gr.Tab("图片反推"):
                     ...
             with gr.Tab("配置设置"):

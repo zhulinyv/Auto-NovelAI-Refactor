@@ -42,7 +42,7 @@
 
 #### 2️⃣ 安装 Git
 
-- 推荐安装最新版本, 安装时一路 **Next** 即可[https://git-scm.com/download/win](https://git-scm.com/download/win)
+- 推荐安装最新版本, 安装时一路 **Next** 即可 [https://git-scm.com/download/win](https://git-scm.com/download/win)
 
 #### 3️⃣ 克隆仓库
 
