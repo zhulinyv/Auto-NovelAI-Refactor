@@ -87,10 +87,15 @@ def main(
             center = {"x": x, "y": y}
             centers = [center]
 
-            v4_prompt_positive.append({"char_caption": character_prompt[0], "centers": centers})
-            v4_prompt_negative.append({"char_caption": character_prompt[1], "centers": centers})
+            v4_prompt_positive.append({"char_caption": replace_wildcards(character_prompt[0]), "centers": centers})
+            v4_prompt_negative.append({"char_caption": replace_wildcards(character_prompt[1]), "centers": centers})
             characterPrompts.append(
-                {"prompt": character_prompt[0], "uc": character_prompt[1], "center": center, "enabled": True}
+                {
+                    "prompt": replace_wildcards(character_prompt[0]),
+                    "uc": replace_wildcards(character_prompt[1]),
+                    "center": center,
+                    "enabled": True,
+                }
             )
 
     vibe_components = args[30:]
