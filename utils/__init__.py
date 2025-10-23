@@ -101,6 +101,15 @@ def position_to_float(position: str):
     return round(letter_dict[letter], 1), round(number_dict[number], 1)
 
 
+def float_to_position(letter_float: float, number_float: float) -> str:
+    offset = 0.1
+    letter_dict = {chr(65 + i): i * 0.2 + offset for i in range(5)}
+    number_dict = {str(i + 1): i * 0.2 + offset for i in range(5)}
+    letter = min(letter_dict, key=lambda x: abs(letter_dict[x] - letter_float))
+    number = min(number_dict, key=lambda x: abs(number_dict[x] - number_float))
+    return letter + number
+
+
 def stop_generate():
     logger.warning("正在停止生成...")
     with open("./outputs/temp_break.json", "w") as f:

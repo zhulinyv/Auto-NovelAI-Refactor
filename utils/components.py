@@ -5,7 +5,7 @@ import gradio as gr
 import send2trash
 import ujson as json
 
-from utils import format_str, list_to_str, read_txt, return_x64
+from utils import float_to_position, format_str, list_to_str, read_txt, return_x64
 from utils.image_tools import get_image_information, resize_image
 from utils.variable import NOISE_SCHEDULE, RESOLUTION, SAMPLER, UC_PRESET
 
@@ -340,6 +340,41 @@ def return_pnginfo(image_path):
 def send_pnginfo_to_generate(image_path):
     pnginfo = get_image_information(image_path)
     comment = json.loads(pnginfo.get("Comment", {}))
+    character_components_list = []
+    if char_captions := comment.get("v4_prompt", {}).get("caption", {}).get("char_captions", []):
+        for num in range(len(char_captions)):
+            character_components_list.append(
+                gr.update(value=comment["v4_prompt"]["caption"]["char_captions"][num]["char_caption"], visible=True)
+            )
+            character_components_list.append(
+                gr.update(
+                    value=comment["v4_negative_prompt"]["caption"]["char_captions"][num]["char_caption"], visible=True
+                )
+            )
+            character_components_list.append(
+                gr.update(
+                    value=float_to_position(
+                        comment["v4_prompt"]["caption"]["char_captions"][num]["centers"][0]["x"],
+                        comment["v4_prompt"]["caption"]["char_captions"][num]["centers"][0]["y"],
+                    ),
+                    visible=True,
+                )
+            )
+            character_components_list.append(gr.update(value=True, visible=True)),
+            character_components_list.append(gr.update(visible=True))
+        for _ in range(5 - num):
+            for _ in range(5):
+                character_components_list.append(gr.update())
+        character_components_list = [
+            gr.update(
+                value=not comment.get("v4_prompt", {}).get("use_coords", False),
+                interactive=True if num + 1 > 1 else False,
+            ),
+            gr.update(value=num + 1),
+        ] + character_components_list
+    else:
+        character_components_list = [gr.update() for _ in range(32)]
+
     return (
         comment.get("prompt"),
         comment.get("uc"),
@@ -352,7 +387,9 @@ def send_pnginfo_to_generate(image_path):
         comment.get("dynamic_thresholding", False),
         comment.get("sm", False),
         comment.get("sm_dyn", False),
+        comment.get("seed", "-1"),
         comment.get("sampler", "k_euler_ancestral"),
         comment.get("noise_schedule", "karras"),
         comment.get("v4_prompt", {}).get("legacy_uc", False),
+        *character_components_list,
     )
