@@ -72,13 +72,14 @@ def replace_wildcards(text: str):
     matchers = re.findall(pattern, text)
     for wild_card in matchers:
         if wild_card[1] != "随机":
+            name = wild_card[1]
             tag = read_txt(f"./wildcards/{wild_card[0]}/{wild_card[1]}.txt")
         else:
             tag = read_txt((_path := f"./wildcards/{wild_card[0]}/") + (name := random.choice(os.listdir(_path))))
         text = text.replace(f"<{wild_card[0]}:{wild_card[1]}>", tag)
         logger.debug(f'已将 <{wild_card[0]}:{wild_card[1]}> 替换为 {name}: "{tag}"')
     (logger.info(f"共发现 {len(matchers)} 个 wildcard, 已完成替换!") if len(matchers) != 0 else ...)
-    return text
+    return format_str(text)
 
 
 def sleep_for_cool(seconds):

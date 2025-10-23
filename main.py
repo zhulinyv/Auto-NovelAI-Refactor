@@ -3,6 +3,7 @@ import string
 from pathlib import Path
 
 import gradio as gr
+import pandas as pd
 
 from src.generate_images import main as generate_images
 from utils import read_json, stop_generate
@@ -243,7 +244,22 @@ with gr.Blocks() as anr:
                 character_components_number = gr.Number(value=0, visible=False)  # 使用 Number 替代 Slider
                 add_character_button = gr.Button("添加角色")
                 delete_character_button = gr.Button("删除角色")
-                ai_choice = gr.Checkbox(True, label="AI's Choice", interactive=True)
+                character_position_table = gr.Dataframe(
+                    value=pd.DataFrame(
+                        [
+                            ["1", "A1", "B1", "C1", "D1", "E1"],
+                            ["2", "A2", "B2", "C2", "D2", "E2"],
+                            ["3", "A3", "B3", "C3", "D3", "E3"],
+                            ["4", "A4", "B4", "C4", "D4", "E4"],
+                            ["5", "A5", "B5", "C5", "D5", "E5"],
+                        ],
+                        columns=["位置", "A", "B", "C", "D", "E"],
+                    ),
+                    visible=False,
+                    interactive=False,
+                )
+                ai_choice = gr.Checkbox(True, label="AI's Choice (Character Positions (Global))", interactive=False)
+                ai_choice.change(lambda x: gr.update(visible=not x), inputs=ai_choice, outputs=character_position_table)
                 gr.Markdown("<hr>")
 
                 # 先创建所有组件
@@ -271,12 +287,12 @@ with gr.Blocks() as anr:
                 add_character_button.click(
                     add_character,
                     inputs=character_components_number,
-                    outputs=[character_components_number] + character_components_list,
+                    outputs=[ai_choice, character_components_number] + character_components_list,
                 )
                 delete_character_button.click(
                     delete_character,
                     inputs=character_components_number,
-                    outputs=[character_components_number] + character_components_list,
+                    outputs=[ai_choice, character_components_number] + character_components_list,
                 )
                 ai_choice.change(return_position_interactive, inputs=ai_choice, outputs=character_components_list)
             character_reference_tab = gr.Tab(

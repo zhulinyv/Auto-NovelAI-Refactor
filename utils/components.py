@@ -217,27 +217,66 @@ def update_components_for_sampler_change(sampler):
 def add_character(character_components_number):
     if character_components_number < 6:
         character_components_number += 1
-        update_visible_list = [gr.update(visible=True) for _ in range(5) for _ in range(character_components_number)]
-        update_visible_list += [
-            gr.update(visible=False) for _ in range(5) for _ in range(6 - character_components_number)
-        ]
-        return gr.update(value=character_components_number), *update_visible_list
+        update_visible_list = []
+        for _ in range(character_components_number):
+            for i in range(5):
+                if i == 3:
+                    update_visible_list.append(gr.update(value=True, visible=True))
+                else:
+                    update_visible_list.append(gr.update(visible=True))
+        for _ in range(6 - character_components_number):
+            for i in range(5):
+                if i == 3:
+                    update_visible_list.append(gr.update(value=False, visible=False))
+                else:
+                    update_visible_list.append(gr.update(visible=False))
+        if character_components_number <= 1:
+            return (
+                gr.update(value=True, interactive=False),
+                gr.update(value=character_components_number),
+                *update_visible_list,
+            )
+        else:
+            return gr.update(interactive=True), gr.update(value=character_components_number), *update_visible_list
     else:
         update_visible_list = [gr.update(visible=True) for _ in range(30)]
-        return gr.update(value=character_components_number), *update_visible_list
+        return (
+            gr.update(interactive=True),
+            gr.update(value=character_components_number),
+            *update_visible_list,
+        )
 
 
 def delete_character(character_components_number):
     if character_components_number > 0:
         character_components_number -= 1
-        update_visible_list = [gr.update(visible=True) for _ in range(5) for _ in range(character_components_number)]
-        update_visible_list += [
-            gr.update(visible=False) for _ in range(5) for _ in range(6 - character_components_number)
-        ]
-        return gr.update(value=character_components_number), *update_visible_list
+        update_visible_list = []
+        for _ in range(character_components_number):
+            for i in range(5):
+                if i == 3:
+                    update_visible_list.append(gr.update(value=True, visible=True))
+                else:
+                    update_visible_list.append(gr.update(visible=True))
+        for _ in range(6 - character_components_number):
+            for i in range(5):
+                if i == 3:
+                    update_visible_list.append(gr.update(value=False, visible=False))
+                else:
+                    update_visible_list.append(gr.update(visible=False))
+        if character_components_number <= 1:
+            return (
+                gr.update(value=True, interactive=False),
+                gr.update(value=character_components_number),
+                *update_visible_list,
+            )
+        return gr.update(interactive=True), gr.update(value=character_components_number), *update_visible_list
     else:
         update_visible_list = [gr.update(visible=False) for _ in range(30)]
-        return gr.update(value=character_components_number), *update_visible_list
+        return (
+            gr.update(value=True, interactive=False),
+            gr.update(value=character_components_number),
+            *update_visible_list,
+        )
 
 
 def return_position_interactive(ai_choice):
