@@ -3,6 +3,7 @@ import shutil
 from urllib.request import getproxies
 
 from utils import read_json
+from utils.environment import env
 
 if not os.path.exists("./outputs"):
     os.mkdir("./outputs")
@@ -20,6 +21,10 @@ else:
     last_data = {}
     parameters = {}
     _model = "nai-diffusion-4-5-full"
+
+if env.proxy:
+    os.environ["http_proxy"] = env.proxy
+    os.environ["https_proxy"] = env.proxy
 
 try:
     proxies = getproxies()

@@ -173,23 +173,28 @@ with gr.Blocks() as anr:
                 )
                 with gr.Row():
                     variety = gr.Checkbox(
-                        value=True if parameters.get("skip_cfg_above_sigma") else False, label="Variety+"
+                        value=True if parameters.get("skip_cfg_above_sigma") else False,
+                        label="Variety+",
+                        interactive=True,
                     )
                     decrisp = gr.Checkbox(
                         value=parameters.get("dynamic_thresholding", False),
                         label="Decrisp",
                         visible=True if _model in ["nai-diffusion-3", "nai-diffusion-furry-3"] else False,
+                        interactive=True,
                     )
                 with gr.Row():
                     sm = gr.Checkbox(
                         value=parameters.get("sm", False),
                         label="SMEA",
                         visible=True if _model in ["nai-diffusion-3", "nai-diffusion-furry-3"] else False,
+                        interactive=True,
                     )
                     sm_dyn = gr.Checkbox(
                         value=parameters.get("sm_dyn", False),
                         label="DYN",
                         visible=True if _model in ["nai-diffusion-3", "nai-diffusion-furry-3"] else False,
+                        interactive=True,
                     )
                 with gr.Row():
                     seed = gr.Textbox(value="-1", label="种子", interactive=True, scale=4)
@@ -520,10 +525,14 @@ with gr.Blocks() as anr:
                             decrisp,
                             sm,
                             sm_dyn,
+                            seed,
                             sampler,
                             noise_schedule,
                             legacy_uc,
-                        ],
+                            ai_choice,
+                            character_components_number,
+                        ]
+                        + character_components_list,
                     )
                 with gr.Tab("图片反推"):
                     ...
