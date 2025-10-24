@@ -323,14 +323,13 @@ def return_image2image_visible(inpaint_input_image):
 
 def return_pnginfo(image_path):
     if not image_path:
-        return gr.update(visible=False), None, None, None, None, None, None, None
+        return gr.update(visible=False), None, None, None, None, None, None
     pnginfo = get_image_information(image_path)
     return (
         gr.update(visible=True if pnginfo.get("Software") == "NovelAI" else False),
         pnginfo.get("Source"),
-        pnginfo.get("Generation_time"),
+        pnginfo.get("Generation time"),
         pnginfo.get("Comment"),
-        pnginfo.get("Title"),
         pnginfo.get("Description"),
         pnginfo.get("Software"),
         pnginfo,

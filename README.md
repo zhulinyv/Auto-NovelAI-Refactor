@@ -9,13 +9,14 @@
 
 - 这里是 [Semi-Auto-NovelAI-to-Pixiv](https://github.com/zhulinyv/Semi-Auto-NovelAI-to-Pixiv) 的重构版本
 
-- 它不仅仅继承了 SANP 的各个功能, 更提供了更加方便快捷的使用体验
+- 它不仅继承了 SANP 的各个功能, 更提供了方便快捷的使用体验
 
 - **使用中遇到问题请加 QQ 群咨询：[559063963](https://qm.qq.com/cgi-bin/qm/qr?k=I9FqVFb_wn-y5Ejid9CIae57KLLlvDuj&jump_from=webapi&authKey=i+DvSe2nFRBsKNu+D9NK0sFd7Qr1u/vakfRUFDGDCWaceBQOsuiHwkxDa3kRLfup)**
 
 - 目前已实现的功能:
 
 <img src=https://i.postimg.cc/kXNKdjtb/image.png  alt="Auto-NovelAI-Refactor" width="500"/>
+
 
 ## 💿 部署
 
@@ -52,6 +53,8 @@
 
 - 现在你可以直接运行项目根目录下的 `run.bat` 来启动 WebUI, 首次启动会自动创建虚拟环境并安装依赖
 
+- **非 Windows 操作系统**需要手动安装依赖并使用 python 执行 main.py 来启动 WebUI
+
 #### 5️⃣ 整合包下载
 
 - 如果上述操作你觉得难以上手或出现问题, 请立即加群下载整合包, 解压即用
@@ -72,7 +75,14 @@
 
 ## 🌟 使用
 
-- **运行 `run.bat`, 会自动打开默认浏览器并跳转到 [127.0.0.1:11451](http://127.0.0.1:11451)**
+- **运行 `run.bat`, 会自动打开默认浏览器并跳转到 [http://127.0.0.1:11451](http://127.0.0.1:11451)**
+
+
+## 🤝 鸣谢
+
+本项目使用 [SmilingWolf/wd-tagger](https://huggingface.co/spaces/SmilingWolf/wd-tagger) 反推提示词
+
+本项目使用 [涩涩法典梦神版](qq:3298853270) 提供的各种动作提示词
 
 
 ## 🔊 声明
