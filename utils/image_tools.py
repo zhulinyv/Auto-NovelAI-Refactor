@@ -201,7 +201,7 @@ def process_white_regions(image_path, output_path):
 def get_image_information(image_path):
     with Image.open(image_path) as image:
         try:
-            pnginfo = image.info
-        except Exception:
             pnginfo = extract_data(image)
+        except Exception:
+            pnginfo = image.info
     return pnginfo

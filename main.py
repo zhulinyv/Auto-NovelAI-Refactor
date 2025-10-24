@@ -6,7 +6,7 @@ import gradio as gr
 import pandas as pd
 
 from src.generate_images import main as generate_images
-from utils import read_json, stop_generate
+from utils import read_json, remove_pnginfo, return_array_image, stop_generate, tagger, tk_asksavefile_asy
 from utils.components import (
     add_character,
     add_wildcard,
@@ -478,18 +478,19 @@ with gr.Blocks() as anr:
                         inputs=[new_wildcard_type, new_wildcard_name, new_wildcard_tags],
                         outputs=output_information,
                     )
+            with gr.Tab("导演工具"):
+                ...
             with gr.Tab("法术解析"):
                 with gr.Tab("读取信息"):
                     with gr.Row():
                         with gr.Column():
-                            pnginfo_image = gr.Image(type="filepath")
+                            pnginfo_image = gr.Image(type="filepath", image_mode="RGBA")
                             send_button = gr.Button("发送到图片生成", visible=False)
                             show_all_pnginfo = gr.Checkbox(False, label="显示所有信息")
                         with gr.Column():
                             source = gr.Textbox(label="Source")
-                            generation_time = gr.Textbox(label="Generation_time")
+                            generation_time = gr.Textbox(label="Generation time")
                             comment = gr.JSON(label="Comment", open=True)
-                            title = gr.Textbox(label="Title")
                             description = gr.TextArea(label="Description")
                             software = gr.Textbox(label="Software")
                     all_pnginfo = gr.JSON(label="全部信息", open=True, visible=False)
@@ -504,7 +505,6 @@ with gr.Blocks() as anr:
                             source,
                             generation_time,
                             comment,
-                            title,
                             description,
                             software,
                             all_pnginfo,
@@ -535,7 +535,122 @@ with gr.Blocks() as anr:
                         + character_components_list,
                     )
                 with gr.Tab("图片反推"):
-                    ...
+                    with gr.Row():
+                        with gr.Column():
+                            tagger_image = gr.Image(type="filepath", label="Input")
+                            tagger_model = gr.Dropdown(
+                                choices=[
+                                    "SmilingWolf/wd-swinv2-tagger-v3",
+                                    "SmilingWolf/wd-convnext-tagger-v3",
+                                    "SmilingWolf/wd-vit-tagger-v3",
+                                    "SmilingWolf/wd-vit-large-tagger-v3",
+                                    "SmilingWolf/wd-eva02-large-tagger-v3",
+                                    "SmilingWolf/wd-v1-4-moat-tagger-v2",
+                                    "SmilingWolf/wd-v1-4-swinv2-tagger-v2",
+                                    "SmilingWolf/wd-v1-4-convnext-tagger-v2",
+                                    "SmilingWolf/wd-v1-4-convnextv2-tagger-v2",
+                                    "SmilingWolf/wd-v1-4-vit-tagger-v2",
+                                    "deepghs/idolsankaku-swinv2-tagger-v1",
+                                    "deepghs/idolsankaku-eva02-large-tagger-v1",
+                                ],
+                                value="SmilingWolf/wd-swinv2-tagger-v3",
+                                label="Model",
+                            )
+                            with gr.Row():
+                                general_tags_threshold = gr.Slider(
+                                    0, 1, 0.35, step=0.05, label="General Tags Threshold"
+                                )
+                                use_mcut_threshold_general = gr.Checkbox(False, label="Use MCut threshold")
+                            with gr.Row():
+                                character_tags_threshold = gr.Slider(
+                                    0, 1, 0.85, step=0.05, label="Character Tags Threshold"
+                                )
+                                use_mcut_threshold_character = gr.Checkbox(False, label="Use MCut threshold")
+                            with gr.Row():
+                                submit_button = gr.Button("提交")
+                                tagger_send_button = gr.Button("发送到图片生成")
+                        with gr.Column():
+                            tagger_sorted_general_strings = gr.TextArea(label="Output (string)", interactive=False)
+                            tagger_rating = gr.Label(label="Rating")
+                            tagger_character_res = gr.Label(label="Output (characters)")
+                            tagger_general_res = gr.Label(label="Output (tags)")
+                        submit_button.click(
+                            tagger,
+                            inputs=[
+                                tagger_image,
+                                tagger_model,
+                                general_tags_threshold,
+                                use_mcut_threshold_general,
+                                character_tags_threshold,
+                                use_mcut_threshold_character,
+                            ],
+                            outputs=[
+                                tagger_sorted_general_strings,
+                                tagger_rating,
+                                tagger_character_res,
+                                tagger_general_res,
+                            ],
+                        )
+                        tagger_send_button.click(
+                            lambda x: x, inputs=tagger_sorted_general_strings, outputs=positive_input
+                        )
+                with gr.Tab("抹除数据"):
+                    with gr.Row():
+                        with gr.Column():
+                            remove_pnginfo_image = gr.Image(type="numpy", interactive=False, label="单张处理(可选)")
+                            with gr.Row():
+                                norm_input_text = gr.Textbox(visible=False)
+                                norm_input_btn = gr.Button("选择图片")
+                                norm_clear_btn = gr.Button("清除选择")
+                        norm_clear_btn.click(lambda x: x, gr.Textbox(None, visible=False), norm_input_text)
+                        norm_input_btn.click(tk_asksavefile_asy, inputs=[], outputs=[norm_input_text])
+                        norm_input_text.change(return_array_image, norm_input_text, remove_pnginfo_image)
+                        with gr.Column():
+                            remove_pnginfo_generate_button = gr.Button("开始处理")
+                            remove_pnginfo_choices = gr.CheckboxGroup(
+                                [
+                                    "Title",
+                                    "Description",
+                                    "Software",
+                                    "Source",
+                                    "Generation time",
+                                    "Comment",
+                                    "dpi",
+                                    "parameters",
+                                    "prompt",
+                                ],
+                                value=[
+                                    "Title",
+                                    "Description",
+                                    "Software",
+                                    "Source",
+                                    "Generation time",
+                                    "Comment",
+                                    "dpi",
+                                    "parameters",
+                                    "prompt",
+                                ],
+                                label="要清除的内容",
+                                scale=2,
+                            )
+                            remove_pnginfo_metadate = gr.Textbox(label="添加自定义信息(可选)")
+                            remove_pnginfo_input_path = gr.Textbox(label="批处理路径(可选)")
+                            remove_pnginfo_output_information = gr.Textbox(show_label=False, visible=False)
+                            remove_pnginfo_output_information.change(
+                                lambda x: gr.update(visible=True if x else False),
+                                inputs=remove_pnginfo_output_information,
+                                outputs=remove_pnginfo_output_information,
+                            )
+                            remove_pnginfo_generate_button.click(
+                                fn=remove_pnginfo,
+                                inputs=[
+                                    norm_input_text,
+                                    remove_pnginfo_input_path,
+                                    remove_pnginfo_choices,
+                                    remove_pnginfo_metadate,
+                                ],
+                                outputs=[remove_pnginfo_output_information],
+                            )
             with gr.Tab("配置设置"):
                 with gr.Row():
                     setting_modify_button = gr.Button("保存")
