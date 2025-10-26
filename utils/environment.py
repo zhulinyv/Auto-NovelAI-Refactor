@@ -14,6 +14,8 @@ class Settings(BaseSettings):
 
     port: int = 11451
     share: bool = False
+    start_sound: bool = True
+    finish_sound: bool = True
 
     model_config = SettingsConfigDict(env_file=".env", extra="allow", arbitrary_types_allowed=True)
 

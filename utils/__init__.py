@@ -13,6 +13,7 @@ from gradio_client import Client, handle_file
 from PIL import Image
 from PIL.PngImagePlugin import PngInfo
 
+from utils.environment import env
 from utils.logger import logger
 from utils.naimeta import inject_data
 
@@ -196,4 +197,24 @@ def remove_pnginfo(image, path, choices, info):
             img.save(_path := Path(file))
         logger.success("清除成功!")
 
+    playsound("./assets/finish.mp3")
+
     return f"清除成功! 图片已保存到 {os.path.dirname(os.path.abspath(_path))}"
+
+
+try:
+    from playsound import playsound as _playsound
+
+    def playsound(file_path):
+        if file_path == "./assets/llss.mp3" and not env.start_sound:
+            return
+        elif file_path == "./assets/finish.mp3" and not env.finish_sound:
+            return
+        _playsound(file_path)
+        return
+
+except Exception:
+
+    def playsound(file_path):
+        logger.warning("playsound 导入失败, 无法播放提示音!")
+        return
