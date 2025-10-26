@@ -5,6 +5,7 @@ from pathlib import Path
 import gradio as gr
 import pandas as pd
 
+from src.director_tools import colorize, declutter, emotion, line_art, remove_bg, sketch
 from src.generate_images import main as generate_images
 from utils import read_json, remove_pnginfo, return_array_image, stop_generate, tagger, tk_asksavefile_asy
 from utils.components import (
@@ -479,7 +480,93 @@ with gr.Blocks() as anr:
                         outputs=output_information,
                     )
             with gr.Tab("导演工具"):
-                ...
+                director_input_path = gr.Textbox(label="批处理路径(同时输入路径和图片时仅处理图片)")
+                with gr.Row():
+                    director_input_image = gr.Image(type="filepath", label="Input")
+                    director_output_image = gr.Gallery(interactive=False)
+                with gr.Tab("Remove BG"):
+                    remove_bg_button = gr.Button("开始处理")
+                    remove_bg_button.click(
+                        remove_bg, inputs=[director_input_path, director_input_image], outputs=director_output_image
+                    )
+                with gr.Tab("Line Art"):
+                    line_art_button = gr.Button("开始处理")
+                    line_art_button.click(
+                        line_art, inputs=[director_input_path, director_input_image], outputs=director_output_image
+                    )
+                with gr.Tab("Sketch"):
+                    sketch_button = gr.Button("开始处理")
+                    sketch_button.click(
+                        sketch, inputs=[director_input_path, director_input_image], outputs=director_output_image
+                    )
+                with gr.Tab("Colorize"):
+                    with gr.Row():
+                        colorize_defry = gr.Slider(0, 5, 0, step=1, label="Defry")
+                        colorize_prompt = gr.Textbox(label="Prompt (Optional)")
+                    colorize_button = gr.Button("开始处理")
+                    colorize_button.click(
+                        colorize,
+                        inputs=[director_input_path, director_input_image, colorize_defry, colorize_prompt],
+                        outputs=director_output_image,
+                    )
+                with gr.Tab("Emotion"):
+                    with gr.Row():
+                        emotion_tag = gr.Dropdown(
+                            [
+                                "Neutral",
+                                "Happy",
+                                "Sad",
+                                "Angry",
+                                "Scared",
+                                "Surprised",
+                                "Tired",
+                                "Excited",
+                                "Nervous",
+                                "Thinking",
+                                "Confused",
+                                "Shy",
+                                "Disgusted",
+                                "Smug",
+                                "Bored",
+                                "Laughing",
+                                "Irritated",
+                                "Aroused",
+                                "Embarrassed",
+                                "Worried",
+                                "Love",
+                                "Determined",
+                                "Hurt",
+                                "Playful",
+                            ],
+                            value="Neutral",
+                            label="Emotion",
+                            interactive=True,
+                        )
+                        emotion_strength = gr.Dropdown(
+                            ["Normal", "Slightly Weak", "Weak", "Even Weaker", "Very Weak", "Weakest"],
+                            show_label=False,
+                            interactive=True,
+                        )
+                        emotion_prompt = gr.Textbox(label="Prompt (Optional)")
+                    emotion_button = gr.Button("开始处理")
+                    emotion_button.click(
+                        emotion,
+                        inputs=[
+                            director_input_path,
+                            director_input_image,
+                            emotion_tag,
+                            emotion_strength,
+                            emotion_prompt,
+                        ],
+                        outputs=director_output_image,
+                    )
+                with gr.Tab("Declutter"):
+                    declutter_button = gr.Button("开始处理")
+                    declutter_button.click(
+                        declutter, inputs=[director_input_path, director_input_image], outputs=director_output_image
+                    )
+                director_stop_button = gr.Button("停止处理")
+                director_stop_button.click(stop_generate)
             with gr.Tab("法术解析"):
                 with gr.Tab("读取信息"):
                     with gr.Row():
@@ -667,15 +754,21 @@ with gr.Blocks() as anr:
                     visible=True if not env.share else False,
                 )
                 proxy = gr.Textbox(value=env.proxy, label="代理地址")
+                gr.Markdown("<p>本地代理格式应为: http://127.0.0.1:xxx (xxx 为代理软件的端口号)</p>")
                 custom_path = gr.Textbox(value=env.custom_path, label="自定义路径")
                 gr.Markdown("已支持的自动替换路径: <类型>, <日期>, <种子>, <随机字符>, <编号>")
                 cool_time = gr.Slider(1, 600, env.cool_time, label="冷却时间")
                 gr.Markdown("会上下浮动 1 秒")
-                port = gr.Textbox(value=env.port, label="端口号")
-                share = gr.Checkbox(value=env.share, label="共享 Gradio 连接")
+                port = gr.Textbox(value=env.port, label="ANR 的端口号")
+                gr.Markdown("理论范围：1 - 65535")
+                share = gr.Checkbox(value=env.share, label="共享 Gradio 链接")
+                gr.Markdown("生成一个有效期一周的可分享链接, 可以在任意设备上访问")
+                with gr.Row():
+                    start_sound = gr.Checkbox(value=env.start_sound, label="启动提示音")
+                    finish_sound = gr.Checkbox(value=env.finish_sound, label="完成提示音")
                 setting_modify_button.click(
                     modify_env,
-                    inputs=[token, proxy, custom_path, cool_time, port, share],
+                    inputs=[token, proxy, custom_path, cool_time, port, share, start_sound, finish_sound],
                     outputs=setting_output_information,
                 )
     model.change(

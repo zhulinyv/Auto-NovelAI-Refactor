@@ -4,6 +4,7 @@ import ujson as json
 
 from utils import (
     format_str,
+    playsound,
     position_to_float,
     read_json,
     replace_wildcards,
@@ -12,7 +13,7 @@ from utils import (
     sleep_for_cool,
 )
 from utils.environment import env
-from utils.generator import Generator
+from utils.generator import Generator, inquire_anlas
 from utils.image_tools import (
     change_the_mask_color,
     image_to_base64,
@@ -272,4 +273,7 @@ def main(
         except Exception as e:
             logger.error(f"出现错误: {e}")
             sleep_for_cool(5)
-    return image_list, "处理完成!"
+
+    playsound("./assets/finish.mp3")
+
+    return image_list, f"处理完成! 剩余点数: {inquire_anlas()}"

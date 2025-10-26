@@ -210,3 +210,4 @@ test.*
 outputs/
 .env
 last.json
+.gradio

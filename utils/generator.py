@@ -12,11 +12,32 @@ from utils.logger import logger
 from utils.models.headers import headers
 
 
+def inquire_anlas():
+    try:
+        rep = requests.get(
+            "https://api.novelai.net/user/subscription",
+            headers=headers,
+            proxies=(
+                {
+                    "http": env.proxy,
+                    "https": env.proxy,
+                }
+                if env.proxy is not None
+                else None
+            ),
+        )
+        if rep.status_code == 200:
+            return rep.json()["trainingStepsLeft"]["fixedTrainingStepsLeft"]
+        return -1
+    except Exception as e:
+        return str(e)
+
+
 class Generator:
     def __init__(self, url):
         self.url = url
 
-    def generate(self, json_data):
+    def generate(self, json_data: dict):
         with open("last.json", "w", encoding="utf-8") as file:
             json.dump(json_data, file, ensure_ascii=False, indent=4)
         try:
@@ -36,9 +57,16 @@ class Generator:
             if (status_code := rep.status_code) != 200:
                 logger.debug(f"本次请求状态码: {status_code}")
                 logger.debug(rep.json()["message"])
+            logger.success(f"请求成功! 剩余点数: {inquire_anlas()}")
             with zipfile.ZipFile(io.BytesIO(rep.content), mode="r") as zip:
+                if json_data.get("req_type") == "bg-removal":
+                    with (
+                        zip.open("image_0.png") as masked,
+                        zip.open("image_1.png") as generated,
+                        zip.open("image_2.png") as blend,
+                    ):
+                        return masked.read(), generated.read(), blend.read()
                 with zip.open("image_0.png") as image:
-                    logger.success("请求成功!")
                     return image.read()
         except Exception as e:
             logger.error(f"出现错误: {e}")
