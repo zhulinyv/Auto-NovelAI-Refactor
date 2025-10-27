@@ -7,6 +7,7 @@ import pandas as pd
 
 from src.director_tools import colorize, declutter, emotion, line_art, remove_bg, sketch
 from src.generate_images import main as generate_images
+from src.upscale_images import anime4k, realcugan_ncnn_vulkan, waifu2x_caffe
 from utils import read_json, remove_pnginfo, restart, return_array_image, stop_generate, tagger, tk_asksavefile_asy
 from utils.components import (
     add_character,
@@ -583,6 +584,104 @@ with gr.Blocks(
                     )
                 director_stop_button = gr.Button("停止处理")
                 director_stop_button.click(stop_generate)
+            with gr.Tab("超分降噪"):
+                upscale_input_path = gr.Textbox(label="批处理路径(同时输入路径和图片时仅处理图片)")
+                with gr.Row():
+                    with gr.Column():
+                        upscale_input_image = gr.Image(type="numpy", interactive=False, label="Input")
+                        with gr.Row():
+                            upscale_input_text = gr.Textbox(visible=False)
+                            upscale_input_btn = gr.Button("选择图片")
+                            upscale_clear_btn = gr.Button("清除选择")
+                    upscale_clear_btn.click(lambda x: x, gr.Textbox(None, visible=False), upscale_input_text)
+                    upscale_input_btn.click(tk_asksavefile_asy, inputs=[], outputs=[upscale_input_text])
+                    upscale_input_text.change(return_array_image, upscale_input_text, upscale_input_image)
+                    upscale_output_image = gr.Gallery(interactive=False, label="Output")
+                with gr.Tab("realcugan-ncnn-vulkan"):
+                    with gr.Column():
+                        with gr.Row():
+                            realcugan_noise = gr.Slider(minimum=-1, maximum=3, value=3, step=1, label="降噪强度")
+                            realcugan_scale = gr.Slider(minimum=2, maximum=4, value=2, step=1, label="放大倍数")
+                        realcugan_model = gr.Radio(
+                            ["models-se", "models-pro", "models-nose"], value="models-se", label="超分模型"
+                        )
+                        realcugan_button = gr.Button("开始生成")
+                        realcugan_button.click(
+                            realcugan_ncnn_vulkan,
+                            inputs=[
+                                upscale_input_path,
+                                upscale_input_text,
+                                realcugan_noise,
+                                realcugan_scale,
+                                realcugan_model,
+                            ],
+                            outputs=upscale_output_image,
+                        )
+                with gr.Tab("Anime4K"):
+                    with gr.Column():
+                        with gr.Row():
+                            anime4k_zoomFactor = gr.Slider(1, maximum=32, value=2, step=1, label="放大倍数")
+                            anime4k_HDNLevel = gr.Slider(minimum=1, maximum=3, step=1, value=3, label="HDN 等级")
+                        with gr.Row():
+                            anime4k_GPUMode = gr.Radio([True, False], label="开启 GPU 加速", value=True)
+                            anime4k_CNNMode = gr.Radio([True, False], label="开启 ACNet 模式", value=True)
+                            anime4k_HDN = gr.Radio([True, False], label="为 ACNet 开启 HDN", value=True)
+                        anime4k_button = gr.Button("开始生成")
+                        anime4k_button.click(
+                            anime4k,
+                            inputs=[
+                                upscale_input_path,
+                                upscale_input_text,
+                                anime4k_zoomFactor,
+                                anime4k_HDNLevel,
+                                anime4k_GPUMode,
+                                anime4k_CNNMode,
+                                anime4k_HDN,
+                            ],
+                            outputs=upscale_output_image,
+                        )
+                with gr.Tab("waifu2x-caffe"):
+                    with gr.Column():
+                        with gr.Row():
+                            waifu2x_caffe_mode = gr.Radio(
+                                ["noise", "scale", "noise_scale"], value="noise_scale", label="模式"
+                            )
+                            waifu2x_caffe_process = gr.Radio(["cpu", "gpu", "cudnn"], value="gpu", label="处理模式")
+                            waifu2x_caffe_tta = gr.Radio([True, False], value=False, label="开启 tta 模式")
+                        with gr.Row():
+                            waifu2x_caffe_scale = gr.Slider(minimum=1, maximum=32, value=2, label="放大倍数")
+                            waifu2x_caffe_noise = gr.Slider(minimum=0, maximum=3, step=1, value=3, label="降噪强度")
+                        waifu2x_caffe_model = gr.Radio(
+                            [
+                                "anime_style_art_rgb",
+                                "anime_style_art",
+                                "photo",
+                                "upconv_7_anime_style_art_rgb",
+                                "upconv_7_photo",
+                                "upresnet10",
+                                "cunet",
+                                "ukbench",
+                            ],
+                            value="cunet",
+                            label="超分模型",
+                        )
+                        waifu2x_caffe_button = gr.Button("开始生成")
+                        waifu2x_caffe_button.click(
+                            waifu2x_caffe,
+                            inputs=[
+                                upscale_input_path,
+                                upscale_input_text,
+                                waifu2x_caffe_mode,
+                                waifu2x_caffe_process,
+                                waifu2x_caffe_tta,
+                                waifu2x_caffe_scale,
+                                waifu2x_caffe_noise,
+                                waifu2x_caffe_model,
+                            ],
+                            outputs=upscale_output_image,
+                        )
+                upscale_stop_button = gr.Button("停止生成")
+                upscale_stop_button.click(stop_generate)
             with gr.Tab("法术解析"):
                 with gr.Tab("读取信息"):
                     with gr.Row():

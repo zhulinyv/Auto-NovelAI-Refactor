@@ -211,3 +211,6 @@ outputs/
 .env
 last.json
 .gradio
+assets/Anime4K
+assets/realcugan-ncnn-vulkan
+assets/waifu2x-caffe

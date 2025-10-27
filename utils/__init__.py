@@ -5,10 +5,12 @@ import re
 import sys
 import time
 import tkinter as tk
+import zipfile
 from pathlib import Path
 from tkinter.filedialog import askopenfilename
 
 import numpy as np
+import requests
 import ujson as json
 from git import Repo
 from gradio_client import Client, handle_file
@@ -245,3 +247,29 @@ def check_update(repo_path):
 
     except Exception as e:
         return False, e
+
+
+def download(url, saved_path):
+    rep = requests.get(
+        url,
+        proxies=(
+            {
+                "http": env.proxy,
+                "https": env.proxy,
+            }
+            if env.proxy is not None
+            else None
+        ),
+        stream=True,
+    )
+    with open(saved_path, "wb") as file:
+        for chunk in rep.iter_content(chunk_size=256):
+            file.write(chunk)
+    return
+
+
+def extract(file_path, otp_path):
+    with zipfile.ZipFile(file_path) as zip:
+        zip.extractall(otp_path)
+    os.remove(file_path)
+    return
