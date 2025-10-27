@@ -5,7 +5,7 @@ headers = {
     "Accept": "*/*",
     "Accept-Encoding": "gzip, deflate, br",
     "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
-    "Authorization": f"Bearer {env.token if env.token else logger.error("未配置 Token!")}",
+    "Authorization": f"Bearer {env.token if env.token else logger.error('未配置 Token!')}",
     "Content-type": "application/json",
     "Origin": "https://novelai.net",
     "Priority": "u=1, i",
