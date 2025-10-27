@@ -7,7 +7,7 @@ import pandas as pd
 
 from src.director_tools import colorize, declutter, emotion, line_art, remove_bg, sketch
 from src.generate_images import main as generate_images
-from utils import read_json, remove_pnginfo, return_array_image, stop_generate, tagger, tk_asksavefile_asy
+from utils import read_json, remove_pnginfo, restart, return_array_image, stop_generate, tagger, tk_asksavefile_asy
 from utils.components import (
     add_character,
     add_wildcard,
@@ -28,15 +28,28 @@ from utils.components import (
     update_from_dropdown,
     update_from_height,
     update_from_width,
+    update_repo,
     update_wildcard_names,
     update_wildcard_tags,
 )
 from utils.environment import env
-from utils.prepare import _model, last_data, parameters
+from utils.prepare import _model, is_updated, last_data, parameters
 from utils.setting_updater import modify_env
-from utils.variable import CHARACTER_POSITION, MODELS, NOISE_SCHEDULE, RESOLUTION, SAMPLER, UC_PRESET, WILDCARD_TYPE
+from utils.variable import (
+    BASE_PATH,
+    CHARACTER_POSITION,
+    MODELS,
+    NOISE_SCHEDULE,
+    RESOLUTION,
+    SAMPLER,
+    UC_PRESET,
+    WILDCARD_TYPE,
+)
 
-with gr.Blocks() as anr:
+with gr.Blocks(
+    theme=env.theme if env.theme != "空" else None,
+    title="Auto-NovelAI-Refactor",
+) as anr:
     with gr.Row():
         model = gr.Dropdown(
             choices=MODELS,
@@ -46,7 +59,10 @@ with gr.Blocks() as anr:
             scale=1,
         )
         with gr.Column(scale=2):
-            gr.Markdown("# Auto-NovelAI-Refactor | NovelAI 批量生成工具")
+            gr.Markdown(
+                "# [Auto-NovelAI-Refactor](https://github.com/zhulinyv/Auto-NovelAI-Refactor) | NovelAI 批量生成工具 | 版本: "
+                + is_updated
+            )
 
     with gr.Row():
         with gr.Column(scale=3):
@@ -739,9 +755,11 @@ with gr.Blocks() as anr:
                                 outputs=[remove_pnginfo_output_information],
                             )
             with gr.Tab("配置设置"):
+                update_anr_button = gr.Button("更新 ANR")
                 with gr.Row():
                     setting_modify_button = gr.Button("保存")
-                    # setting_restart_button = gr.Button("重启")
+                    setting_restart_button = gr.Button("重启")
+                    setting_restart_button.click(restart)
                 setting_output_information = gr.Textbox(show_label=False, visible=False)
                 token = gr.Textbox(
                     value=env.token,
@@ -766,11 +784,68 @@ with gr.Blocks() as anr:
                 with gr.Row():
                     start_sound = gr.Checkbox(value=env.start_sound, label="启动提示音")
                     finish_sound = gr.Checkbox(value=env.finish_sound, label="完成提示音")
+                check_update = gr.Checkbox(value=env.check_update, label="启动时检查更新")
+                theme = gr.Dropdown(
+                    value=env.theme,
+                    choices=[
+                        "空",
+                        "gradio/base",
+                        "gradio/glass",
+                        "gradio/monochrome",
+                        "gradio/seafoam",
+                        "gradio/soft",
+                        "gradio/dracula_test",
+                        "abidlabs/dracula_test",
+                        "abidlabs/Lime",
+                        "abidlabs/pakistan",
+                        "Ama434/neutral-barlow",
+                        "dawood/microsoft_windows",
+                        "finlaymacklon/smooth_slate",
+                        "Franklisi/darkmode",
+                        "freddyaboulton/dracula_revamped",
+                        "freddyaboulton/test-blue",
+                        "gstaff/xkcd",
+                        "Insuz/Mocha",
+                        "Insuz/SimpleIndigo",
+                        "JohnSmith9982/small_and_pretty",
+                        "nota-ai/theme",
+                        "nuttea/Softblue",
+                        "ParityError/Anime",
+                        "reilnuud/polite",
+                        "remilia/Ghostly",
+                        "rottenlittlecreature/Moon_Goblin",
+                        "step-3-profit/Midnight-Deep",
+                        "Taithrah/Minimal",
+                        "ysharma/huggingface",
+                        "ysharma/steampunk",
+                        "NoCrypt/miku",
+                    ],
+                    label="WebUI 主题",
+                    allow_custom_value=True,
+                )
+                gr.Markdown(
+                    f"[切换到浅色页面](http://127.0.0.1:{env.port}/?__theme=light) [切换到深色页面](http://127.0.0.1:{env.port}/?__theme=dark)"
+                )
                 setting_modify_button.click(
                     modify_env,
-                    inputs=[token, proxy, custom_path, cool_time, port, share, start_sound, finish_sound],
+                    inputs=[
+                        token,
+                        proxy,
+                        custom_path,
+                        cool_time,
+                        port,
+                        share,
+                        start_sound,
+                        finish_sound,
+                        check_update,
+                        theme,
+                    ],
                     outputs=setting_output_information,
                 )
+                update_anr_button.click(
+                    update_repo, inputs=gr.Textbox(BASE_PATH, visible=False), outputs=setting_output_information
+                )
+
     model.change(
         update_components_for_models_change,
         inputs=model,
