@@ -138,6 +138,7 @@ def tagger(image_path, model_repo, general_thresh, general_mcut_enabled, charact
         except KeyError:
             return None
 
+    logger.info("正在尝试反推...")
     client = Client("SmilingWolf/wd-tagger", verbose=False)
 
     times = 0

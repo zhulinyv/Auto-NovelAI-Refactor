@@ -483,7 +483,7 @@ with gr.Blocks() as anr:
                 director_input_path = gr.Textbox(label="批处理路径(同时输入路径和图片时仅处理图片)")
                 with gr.Row():
                     director_input_image = gr.Image(type="filepath", label="Input")
-                    director_output_image = gr.Gallery(interactive=False)
+                    director_output_image = gr.Gallery(interactive=False, label="Output")
                 with gr.Tab("Remove BG"):
                     remove_bg_button = gr.Button("开始处理")
                     remove_bg_button.click(
@@ -750,7 +750,7 @@ with gr.Blocks() as anr:
                     visible=True if not env.share else False,
                 )
                 gr.Markdown(
-                    "获取 Token 的方法(The Way to Get Token): [**自述文件(README)**](https://github.com/zhulinyv/Semi-Auto-NovelAI-to-Pixiv#%EF%B8%8F-%E9%85%8D%E7%BD%AE)",
+                    "获取 Token 的方法: [**自述文件**](https://github.com/zhulinyv/Semi-Auto-NovelAI-to-Pixiv#%EF%B8%8F-%E9%85%8D%E7%BD%AE)",
                     visible=True if not env.share else False,
                 )
                 proxy = gr.Textbox(value=env.proxy, label="代理地址")
