@@ -5,7 +5,7 @@ import gradio as gr
 import send2trash
 import ujson as json
 
-from utils.base import float_to_position, format_str, list_to_str, read_txt, return_x64
+from utils import float_to_position, format_str, list_to_str, read_txt, return_x64
 from utils.image_tools import get_image_information, resize_image
 from utils.logger import logger
 from utils.variable import NOISE_SCHEDULE, RESOLUTION, SAMPLER, UC_PRESET

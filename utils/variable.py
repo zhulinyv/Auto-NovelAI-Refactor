@@ -1,5 +1,7 @@
 import os
 
+VERSION = "1.0"
+
 MODELS = [
     "nai-diffusion-4-5-full",
     "nai-diffusion-4-5-curated",

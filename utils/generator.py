@@ -6,7 +6,7 @@ from datetime import date
 import requests
 import ujson as json
 
-from utils.base import generate_random_str
+from utils import generate_random_str
 from utils.environment import env
 from utils.logger import logger
 from utils.models.headers import headers
