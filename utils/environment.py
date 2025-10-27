@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     share: bool = False
     start_sound: bool = True
     finish_sound: bool = True
+    theme: Union[str, None] = None
+    check_update: bool = True
 
     model_config = SettingsConfigDict(env_file=".env", extra="allow", arbitrary_types_allowed=True)
 

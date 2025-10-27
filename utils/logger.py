@@ -2,11 +2,10 @@ import sys
 
 from loguru import logger
 
-VERSION = "1.0"
-
+from utils.prepare import is_updated
 
 format_ = (
-    f"<m>ANR:{VERSION} </m>"
+    f"<m>ANR:{is_updated} </m>"
     "| <c>{time:YY-MM-DD HH:mm:ss}</c> "
     "| <c>{module}:{line}</c> "
     "| <level>{level}</level> "

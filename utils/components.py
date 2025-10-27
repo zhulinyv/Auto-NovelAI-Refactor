@@ -7,7 +7,14 @@ import ujson as json
 
 from utils import float_to_position, format_str, list_to_str, read_txt, return_x64
 from utils.image_tools import get_image_information, resize_image
+from utils.logger import logger
 from utils.variable import NOISE_SCHEDULE, RESOLUTION, SAMPLER, UC_PRESET
+
+try:
+    import git
+except Exception:
+    os.environ["PATH"] = os.path.abspath("./Git23921/bin")
+    import git
 
 
 def get_resolution_from_sliders(width, height):
@@ -392,3 +399,15 @@ def send_pnginfo_to_generate(image_path):
         comment.get("v4_prompt", {}).get("legacy_uc", False),
         *character_components_list,
     )
+
+
+def update_repo(path):
+    logger.info("正在尝试更新...")
+    try:
+        repo = git.Repo(path)
+        repo.git.pull()
+        logger.success("更新完成, 重启后生效!")
+        return gr.update(value="更新完成, 重启后生效!", visible=True)
+    except Exception as e:
+        logger.error(f"更新失败, 出现错误: {e}")
+        return gr.update(value=f"更新失败, 出现错误: {e}", visible=True)

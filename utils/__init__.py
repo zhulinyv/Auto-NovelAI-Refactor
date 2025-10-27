@@ -2,6 +2,7 @@ import asyncio
 import os
 import random
 import re
+import sys
 import time
 import tkinter as tk
 from pathlib import Path
@@ -9,6 +10,7 @@ from tkinter.filedialog import askopenfilename
 
 import numpy as np
 import ujson as json
+from git import Repo
 from gradio_client import Client, handle_file
 from PIL import Image
 from PIL.PngImagePlugin import PngInfo
@@ -219,3 +221,27 @@ except Exception:
     def playsound(file_path):
         logger.warning("playsound 导入失败, 无法播放提示音!")
         return
+
+
+def restart():
+    logger.warning("开始重启...")
+    p = sys.executable
+    os.execl(p, p, *sys.argv)
+
+
+def check_update(repo_path):
+    try:
+        repo = Repo(repo_path)
+        current_branch = repo.active_branch
+        remote_ref = f"origin/{current_branch.name}"
+
+        if remote_ref not in repo.references:
+            return False, "远程分支不存在"
+
+        local_commit = current_branch.commit.hexsha
+        remote_commit = repo.references[remote_ref].commit.hexsha
+
+        return local_commit == remote_commit, local_commit
+
+    except Exception as e:
+        return False, e
