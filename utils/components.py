@@ -13,7 +13,7 @@ from utils.variable import NOISE_SCHEDULE, RESOLUTION, SAMPLER, UC_PRESET
 try:
     import git
 except Exception:
-    os.environ["PATH"] = os.path.abspath("./Git23921/bin")
+    os.environ["PATH"] = os.path.abspath("./Git/cmd")
     import git
 
 
