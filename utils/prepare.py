@@ -2,12 +2,11 @@ import os
 import shutil
 from urllib.request import getproxies
 
-from utils.base import check_update, playsound, read_json
+from utils import check_update, playsound, read_json
 from utils.environment import env
 from utils.logger import logger
-from utils.variable import BASE_PATH
+from utils.variable import BASE_PATH, VERSION
 
-VERSION = "1.0"
 
 if not os.path.exists("./outputs"):
     os.mkdir("./outputs")

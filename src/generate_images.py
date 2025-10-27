@@ -2,7 +2,7 @@ import random
 
 import ujson as json
 
-from utils.base import (
+from utils import (
     format_str,
     playsound,
     position_to_float,

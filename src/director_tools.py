@@ -5,7 +5,7 @@ from pathlib import Path
 import ujson as json
 from PIL import Image
 
-from utils.base import format_str, playsound, read_json
+from utils import format_str, playsound, read_json
 from utils.generator import Generator
 from utils.image_tools import image_to_base64
 from utils.logger import logger
