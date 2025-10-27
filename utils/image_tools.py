@@ -4,7 +4,7 @@ from io import BytesIO
 import numpy as np
 from PIL import Image
 
-from utils import return_x64
+from utils.base import return_x64
 from utils.naimeta import extract_data
 
 
