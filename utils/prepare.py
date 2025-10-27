@@ -7,7 +7,6 @@ from utils.environment import env
 from utils.logger import logger
 from utils.variable import BASE_PATH, VERSION
 
-
 if not os.path.exists("./outputs"):
     os.mkdir("./outputs")
 
