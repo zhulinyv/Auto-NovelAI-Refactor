@@ -2,7 +2,7 @@ import os
 import shutil
 from urllib.request import getproxies
 
-from utils import check_update, playsound, read_json
+from utils.base import check_update, playsound, read_json
 from utils.environment import env
 from utils.logger import logger
 from utils.variable import BASE_PATH
