@@ -6,6 +6,7 @@ from pathlib import Path
 import ujson as json
 
 from utils import download, extract, read_json
+from utils.image_tools import revert_image_info
 from utils.logger import logger
 
 
@@ -64,6 +65,13 @@ def realcugan_ncnn_vulkan(upscale_input_path, upscale_input_image, realcugan_noi
         if os.path.exists(output_path):
             logger.success("超分完成!")
             logger.info(f"图片已保存到 {output_path}")
+
+            logger.debug("正在还原元数据...")
+            if revert_image_info(image, output_path):
+                logger.success("还原成功!")
+            else:
+                logger.error("还原失败!")
+
             image_list.append(output_path)
         else:
             logger.error("超分失败! 请查看上方输出日志!")
@@ -112,6 +120,13 @@ def anime4k(
         if os.path.exists(output_path):
             logger.success("超分完成!")
             logger.info(f"图片已保存到 {output_path}")
+
+            logger.debug("正在还原元数据...")
+            if revert_image_info(image, output_path):
+                logger.success("还原成功!")
+            else:
+                logger.error("还原失败!")
+
             image_list.append(output_path)
         else:
             logger.error("超分失败! 请查看上方输出日志!")
@@ -160,6 +175,13 @@ def waifu2x_caffe(
         if os.path.exists(output_path):
             logger.success("超分完成!")
             logger.info(f"图片已保存到 {output_path}")
+
+            logger.debug("正在还原元数据...")
+            if revert_image_info(image, output_path):
+                logger.success("还原成功!")
+            else:
+                logger.error("还原失败!")
+
             image_list.append(output_path)
         else:
             logger.error("超分失败! 请查看上方输出日志!")
