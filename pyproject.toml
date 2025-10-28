@@ -1,6 +1,6 @@
 [project]
 name = "auto-novelai-refactor"
-version = "1.0"
+version = "1.1.0"
 description = "Semi-Auto-NovelAI-to-Pixiv 项目的重构版本"
 authors = [
     {name = "zhulinyv",email = "zhulinyv2005@outlook.com"}
