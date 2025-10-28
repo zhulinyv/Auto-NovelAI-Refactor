@@ -5,3 +5,4 @@ pydantic_settings
 send2trash
 playsound==1.2.2
 gitpython
+requests
