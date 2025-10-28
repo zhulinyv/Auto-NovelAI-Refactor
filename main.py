@@ -8,7 +8,20 @@ import pandas as pd
 from src.director_tools import colorize, declutter, emotion, line_art, remove_bg, sketch
 from src.generate_images import main as generate_images
 from src.upscale_images import anime4k, realcugan_ncnn_vulkan, waifu2x_caffe
-from utils import read_json, remove_pnginfo, restart, return_array_image, stop_generate, tagger, tk_asksavefile_asy
+from utils import (
+    copy_current_img,
+    del_current_img,
+    move_current_img,
+    read_json,
+    remove_pnginfo,
+    restart,
+    return_array_image,
+    show_first_img,
+    show_next_img,
+    stop_generate,
+    tagger,
+    tk_asksavefile_asy,
+)
 from utils.components import (
     add_character,
     add_wildcard,
@@ -853,6 +866,55 @@ with gr.Blocks(
                                 ],
                                 outputs=[remove_pnginfo_output_information],
                             )
+            with gr.Tab("图片筛选"):
+                with gr.Column():
+                    with gr.Row():
+                        selector_input_path = gr.Textbox(label="图片目录", scale=4)
+                        selector_select_button = gr.Button("加载图片", scale=1)
+                    with gr.Row():
+                        selector_output_path = gr.Textbox(label="目录1")
+                        _selector_output_path = gr.Textbox(label="目录2")
+                with gr.Row():
+                    selector_output_image = gr.Gallery(scale=7, preview=True, label="Image")
+                    with gr.Column(scale=1):
+                        selector_next_button = gr.Button("跳过")
+                        selector_move_button = gr.Button("移动到目录1")
+                        _selector_move_button = gr.Button("移动到目录2")
+                        selector_copy_button = gr.Button("复制到目录1")
+                        _selector_copy_button = gr.Button("复制到目录2")
+                        selector_delete_button = gr.Button("删除")
+                    selector_current_img = gr.Textbox(visible=False)
+                    selector_select_button.click(
+                        fn=show_first_img,
+                        inputs=[selector_input_path],
+                        outputs=[selector_output_image, selector_current_img],
+                    )
+                    selector_next_button.click(fn=show_next_img, outputs=[selector_output_image, selector_current_img])
+                    selector_move_button.click(
+                        fn=move_current_img,
+                        inputs=[selector_current_img, selector_output_path],
+                        outputs=[selector_output_image, selector_current_img],
+                    )
+                    _selector_move_button.click(
+                        fn=move_current_img,
+                        inputs=[selector_current_img, _selector_output_path],
+                        outputs=[selector_output_image, selector_current_img],
+                    )
+                    selector_copy_button.click(
+                        fn=copy_current_img,
+                        inputs=[selector_current_img, selector_output_path],
+                        outputs=[selector_output_image, selector_current_img],
+                    )
+                    _selector_copy_button.click(
+                        fn=copy_current_img,
+                        inputs=[selector_current_img, _selector_output_path],
+                        outputs=[selector_output_image, selector_current_img],
+                    )
+                    selector_delete_button.click(
+                        fn=del_current_img,
+                        inputs=[selector_current_img],
+                        outputs=[selector_output_image, selector_current_img],
+                    )
             with gr.Tab("配置设置"):
                 update_anr_button = gr.Button("更新 ANR")
                 with gr.Row():
