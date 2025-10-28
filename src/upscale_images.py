@@ -5,7 +5,7 @@ from pathlib import Path
 
 import ujson as json
 
-from utils import download, extract, read_json
+from utils import download, extract, playsound, read_json
 from utils.image_tools import revert_image_info
 from utils.logger import logger
 
@@ -75,6 +75,7 @@ def realcugan_ncnn_vulkan(upscale_input_path, upscale_input_image, realcugan_noi
             image_list.append(output_path)
         else:
             logger.error("超分失败! 请查看上方输出日志!")
+    playsound("./assets/finish.mp3")
     return image_list
 
 
@@ -130,6 +131,7 @@ def anime4k(
             image_list.append(output_path)
         else:
             logger.error("超分失败! 请查看上方输出日志!")
+    playsound("./assets/finish.mp3")
     return image_list
 
 
@@ -185,4 +187,5 @@ def waifu2x_caffe(
             image_list.append(output_path)
         else:
             logger.error("超分失败! 请查看上方输出日志!")
+    playsound("./assets/finish.mp3")
     return image_list
