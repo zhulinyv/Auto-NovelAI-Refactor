@@ -873,7 +873,9 @@ with gr.Blocks(
                 proxy = gr.Textbox(value=env.proxy, label="代理地址")
                 gr.Markdown("<p>本地代理格式应为: http://127.0.0.1:xxx (xxx 为代理软件的端口号)</p>")
                 custom_path = gr.Textbox(value=env.custom_path, label="自定义路径")
-                gr.Markdown("已支持的自动替换路径: <类型>, <日期>, <种子>, <随机字符>, <编号>")
+                gr.Markdown(
+                    "已支持的自动替换路径: <类型>, <日期>, <种子>, <随机字符>, <编号>, 推荐: `<类型>/<日期>/<种子>_<编号>`"
+                )
                 cool_time = gr.Slider(1, 600, env.cool_time, label="冷却时间")
                 gr.Markdown("会上下浮动 1 秒")
                 port = gr.Textbox(value=env.port, label="ANR 的端口号")

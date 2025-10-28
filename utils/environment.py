@@ -8,7 +8,7 @@ class Settings(BaseSettings):
 
     proxy: Union[str, None] = None
 
-    custom_path: Union[str, None] = None
+    custom_path: Union[str, None] = "<类型>/<日期>/<种子>_<编号>"
 
     cool_time: int = 3
 
