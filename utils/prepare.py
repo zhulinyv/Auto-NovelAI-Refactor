@@ -36,7 +36,7 @@ is_updated, commit = check_update(BASE_PATH)
 if is_updated:
     is_updated = VERSION
 else:
-    is_updated = commit + " (更新可用)"
+    is_updated = commit
 
 logger.opt(colors=True).success(
     f"""<c>

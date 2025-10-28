@@ -238,20 +238,23 @@ def restart():
 
 def check_update(repo_path):
     try:
-        repo = Repo(repo_path)
-        current_branch = repo.active_branch
-        remote_ref = f"origin/{current_branch.name}"
+        if env.check_update:
+            repo = Repo(repo_path)
+            current_branch = repo.active_branch
+            remote_ref = f"origin/{current_branch.name}"
 
-        if remote_ref not in repo.references:
-            return False, "远程分支不存在"
+            if remote_ref not in repo.references:
+                return False, "远程分支不存在"
 
-        local_commit = current_branch.commit.hexsha
-        remote_commit = repo.references[remote_ref].commit.hexsha
+            local_commit = current_branch.commit.hexsha
+            remote_commit = repo.references[remote_ref].commit.hexsha
 
-        return local_commit == remote_commit, local_commit
+            return local_commit == remote_commit, local_commit + " (更新可用)"
+        else:
+            return False, "更新检查已关闭"
 
     except Exception as e:
-        return False, e
+        return False, str(e)
 
 
 def download(url, saved_path):
