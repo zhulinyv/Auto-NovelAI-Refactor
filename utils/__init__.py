@@ -12,7 +12,12 @@ from tkinter.filedialog import askopenfilename
 import numpy as np
 import requests
 import ujson as json
-from git import Repo
+
+try:
+    from git import Repo
+except Exception:
+    os.environ["PATH"] = os.path.abspath("./Git/cmd")
+    from git import Repo
 from gradio_client import Client, handle_file
 from PIL import Image
 from PIL.PngImagePlugin import PngInfo
