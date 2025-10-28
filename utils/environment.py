@@ -1,6 +1,11 @@
+import os
+import shutil
 from typing import Union
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+if not os.path.exists(".env"):
+    shutil.copyfile(".env.example", ".env")
 
 
 class Settings(BaseSettings):

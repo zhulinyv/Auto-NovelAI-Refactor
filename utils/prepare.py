@@ -1,5 +1,4 @@
 import os
-import shutil
 from urllib.request import getproxies
 
 from utils import check_update, playsound, read_json
@@ -9,9 +8,6 @@ from utils.variable import BASE_PATH, VERSION
 
 if not os.path.exists("./outputs"):
     os.mkdir("./outputs")
-
-if not os.path.exists(".env"):
-    shutil.copyfile(".env.example", ".env")
 
 if os.path.exists("last.json"):
     last_data = read_json("last.json")
