@@ -3,6 +3,7 @@ from io import BytesIO
 
 import numpy as np
 from PIL import Image
+from PIL.PngImagePlugin import PngInfo
 
 from utils import return_x64
 from utils.naimeta import extract_data
@@ -205,3 +206,16 @@ def get_image_information(image_path):
         except Exception:
             pnginfo = image.info
     return pnginfo
+
+
+def revert_image_info(image_path1, image_path2):
+    try:
+        _pnginfo = get_image_information(image_path1)
+        metadata = PngInfo()
+        for k, v in _pnginfo.items():
+            metadata.add_text(k, v)
+        with Image.open(image_path2) as image2:
+            image2.save(image_path2, pnginfo=metadata)
+        return True
+    except Exception():
+        return False

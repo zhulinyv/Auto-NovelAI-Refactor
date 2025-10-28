@@ -82,7 +82,12 @@
 
 本项目使用 [SmilingWolf/wd-tagger](https://huggingface.co/spaces/SmilingWolf/wd-tagger) 反推提示词
 
-本项目使用 [涩涩法典梦神版](qq:3298853270) 提供的各种动作提示词
+本项目使用 [涩涩法典梦神版](https://share.weiyun.com/Xf8NXoNA) 提供的各种动作提示词
+
+本项目使用 [novelai-image-metadata](https://github.com/NovelAI/novelai-image-metadata) 修改元数据
+
+本项目使用 [realcugan-ncnn-vulkan](https://github.com/nihui/realcugan-ncnn-vulkan/) | [Anime4KCPP](https://github.com/TianZerL/Anime4KCPP) | [waifu2x-caffe](https://github.com/lltcggie/waifu2x-caffe) 超分降噪图片
+
 
 
 ## 🔊 声明
