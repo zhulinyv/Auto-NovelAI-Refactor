@@ -86,8 +86,9 @@
 
 本项目使用 [novelai-image-metadata](https://github.com/NovelAI/novelai-image-metadata) 修改元数据
 
-本项目使用 [realcugan-ncnn-vulkan](https://github.com/nihui/realcugan-ncnn-vulkan/) | [Anime4KCPP](https://github.com/TianZerL/Anime4KCPP) | [waifu2x-caffe](https://github.com/lltcggie/waifu2x-caffe) 超分降噪图片
+本项目使用 [realcugan-ncnn-vulkan](https://github.com/nihui/realcugan-ncnn-vulkan) | [Anime4KCPP](https://github.com/TianZerL/Anime4KCPP) | [waifu2x-caffe](https://github.com/lltcggie/waifu2x-caffe) 超分降噪图片
 
+本项目使用 [Semi-Auto-NovelAI-to-Pixiv](https://github.com/zhulinyv/Semi-Auto-NovelAI-to-Pixiv) 的部分源代码
 
 
 ## 🔊 声明
