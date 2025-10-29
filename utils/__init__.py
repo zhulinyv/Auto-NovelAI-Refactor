@@ -461,8 +461,3 @@ def plugin_list():
             status,
         )
     return md
-
-
-def uninstall_plugin(name):
-    data = get_plugin_list()
-    shutil.rmtree("./plugins/{}".format(data[name]["name"]))
