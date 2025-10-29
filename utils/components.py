@@ -1,5 +1,6 @@
 import csv
 import os
+import shutil
 
 import gradio as gr
 import send2trash
@@ -418,8 +419,17 @@ def install_plugin(name):
     plugin_path = "./plugins/{}".format(data[name]["name"])
 
     if os.path.exists(plugin_path):
+        logger.info(f"正在更新 {name}...")
         return update_repo("./plugins/{}".format(data[name]["name"]))
 
+    logger.info(f"正在安装 {name}...")
     git.Git().clone(data[name]["url"], plugin_path)
 
     return gr.update(value="安装完成, 重启后生效!", visible=True)
+
+
+def uninstall_plugin(name):
+    data = get_plugin_list()
+    shutil.rmtree("./plugins/{}".format(data[name]["name"]))
+
+    return gr.update(value="删除成功, 重启后生效!", visible=True)

@@ -23,7 +23,6 @@ from utils import (
     stop_generate,
     tagger,
     tk_asksavefile_asy,
-    uninstall_plugin,
 )
 from utils.components import (
     add_character,
@@ -40,6 +39,7 @@ from utils.components import (
     return_pnginfo,
     return_position_interactive,
     send_pnginfo_to_generate,
+    uninstall_plugin,
     update_components_for_models_change,
     update_components_for_sampler_change,
     update_components_for_sm_change,
@@ -920,9 +920,9 @@ with gr.Blocks(
                         outputs=[selector_output_image, selector_current_img],
                     )
             with gr.Tab("插件商店"):
+                plugin_store_output_information = gr.Textbox(show_label=False, visible=False)
                 with gr.Row():
                     plugin_store_plugin_name = gr.Textbox(label="插件名称")
-                    plugin_store_output_information = gr.Textbox(show_label=False, visible=False)
                     plugin_store_install_button = gr.Button("安装/更新")
                     plugin_store_uninstall_button = gr.Button("卸载")
                     plugin_store_restart_button = gr.Button("重启")
