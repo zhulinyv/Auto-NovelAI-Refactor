@@ -117,7 +117,7 @@ with gr.Blocks(
                         "nai-diffusion-furry-3": ["Furry Focus", "Human Focus"],
                     }.get(_model, [])
                 ],
-                value="Heavy",
+                value="None" if parameters.get("negative_prompt") else "Heavy",
                 label="负面提示词预设",
                 interactive=True,
             )
