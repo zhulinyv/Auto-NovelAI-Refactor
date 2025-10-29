@@ -1,0 +1,8 @@
+{
+    "anr_plugin_image_encrypt": {
+        "name": "anr_plugin_image_encrypt",
+        "description": "[Auto-NovelAI-Refactor](https://github.com/zhulinyv/Auto-NovelAI-Refactor) 的图片混淆插件",
+        "url": "https://github.com/zhulinyv/anr_plugin_image_encrypt",
+        "author": "[zhulinyv](https://github.com/zhulinyv)"
+    }
+}
