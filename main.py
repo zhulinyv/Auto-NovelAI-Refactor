@@ -11,6 +11,7 @@ from src.upscale_images import anime4k, realcugan_ncnn_vulkan, waifu2x_caffe
 from utils import (
     copy_current_img,
     del_current_img,
+    load_plugins,
     move_current_img,
     read_json,
     remove_pnginfo,
@@ -915,6 +916,10 @@ with gr.Blocks(
                         inputs=[selector_current_img],
                         outputs=[selector_output_image, selector_current_img],
                     )
+            plugins = load_plugins(Path("./plugins"))
+            for plugin_name, plugin_module in plugins.items():
+                if hasattr(plugin_module, "plugin"):
+                    plugin_module.plugin()
             with gr.Tab("配置设置"):
                 update_anr_button = gr.Button("更新 ANR")
                 with gr.Row():
