@@ -13,6 +13,7 @@ from utils import (
     del_current_img,
     load_plugins,
     move_current_img,
+    plugin_list,
     read_json,
     remove_pnginfo,
     restart,
@@ -22,6 +23,7 @@ from utils import (
     stop_generate,
     tagger,
     tk_asksavefile_asy,
+    uninstall_plugin,
 )
 from utils.components import (
     add_character,
@@ -30,6 +32,7 @@ from utils.components import (
     auto_complete,
     delete_character,
     delete_wildcard,
+    install_plugin,
     modify_wildcard,
     return_character_reference_component,
     return_character_reference_component_visible,
@@ -916,6 +919,21 @@ with gr.Blocks(
                         inputs=[selector_current_img],
                         outputs=[selector_output_image, selector_current_img],
                     )
+            with gr.Tab("插件商店"):
+                with gr.Row():
+                    plugin_store_plugin_name = gr.Textbox(label="插件名称")
+                    plugin_store_output_information = gr.Textbox(show_label=False, visible=False)
+                    plugin_store_install_button = gr.Button("安装/更新")
+                    plugin_store_uninstall_button = gr.Button("卸载")
+                    plugin_store_restart_button = gr.Button("重启")
+                gr.Markdown(plugin_list())
+                plugin_store_install_button.click(
+                    install_plugin, inputs=plugin_store_plugin_name, outputs=plugin_store_output_information
+                )
+                plugin_store_uninstall_button.click(
+                    uninstall_plugin, inputs=plugin_store_plugin_name, outputs=plugin_store_output_information
+                )
+                plugin_store_restart_button.click(restart)
             plugins = load_plugins(Path("./plugins"))
             for plugin_name, plugin_module in plugins.items():
                 if hasattr(plugin_module, "plugin"):

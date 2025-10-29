@@ -5,7 +5,7 @@ import gradio as gr
 import send2trash
 import ujson as json
 
-from utils import float_to_position, format_str, list_to_str, read_txt, return_x64
+from utils import float_to_position, format_str, get_plugin_list, list_to_str, read_txt, return_x64
 from utils.image_tools import get_image_information, resize_image
 from utils.logger import logger
 from utils.variable import NOISE_SCHEDULE, RESOLUTION, SAMPLER, UC_PRESET
@@ -411,3 +411,15 @@ def update_repo(path):
     except Exception as e:
         logger.error(f"更新失败, 出现错误: {e}")
         return gr.update(value=f"更新失败, 出现错误: {e}", visible=True)
+
+
+def install_plugin(name):
+    data = get_plugin_list()
+    plugin_path = "./plugins/{}".format(data[name]["name"])
+
+    if os.path.exists(plugin_path):
+        return update_repo("./plugins/{}".format(data[name]["name"]))
+
+    git.Git().clone(data[name]["url"], plugin_path)
+
+    return gr.update(value="安装完成, 重启后生效!", visible=True)

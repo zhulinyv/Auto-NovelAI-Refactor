@@ -374,10 +374,10 @@ def copy_current_img(current_img, output_path):
 
 
 def install_requirements(path):
-    logger.debug(f"开始安装所需依赖 {path} ...")
+    # logger.debug(f"开始安装所需依赖 {path}...")
     command = f"{sys.executable} -s -m pip install -r {path}"
     subprocess.call(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    logger.success("安装完成!")
+    # logger.success("安装完成!")
     return
 
 
@@ -404,3 +404,65 @@ def load_plugins(directory: str):
         else:
             logger.error(f"插件: {plugin} 没有 plugin 函数!")
     return plugins
+
+
+def get_plugin_list():
+    try:
+        plugins: dict = requests.get(
+            "https://raw.githubusercontent.com/zhulinyv/Auto-NovelAI-Refactor/main/assets/plugins.json",
+            proxies=(
+                {
+                    "http": env.proxy,
+                    "https": env.proxy,
+                }
+                if env.proxy is not None
+                else None
+            ),
+        ).json()
+    except Exception:
+        plugins: dict = read_json("./assets/plugins.json")
+    return plugins
+
+
+def plugin_list():
+    plugins = get_plugin_list()
+
+    md = """| 名称(Name) | 描述(Description) | 仓库(URL) | 作者(Author) | 状态(Status) |
+| :---: | :---: | :---: | :---: | :---: |
+"""
+    for plugin in list(plugins.keys()):
+        if os.path.exists(
+            path := "./plugins/{}".format(
+                plugins[plugin]["name"],
+            )
+        ):
+            if not env.check_update:
+                status = "已安装"
+            else:
+                _status, commit = check_update(path)
+                if _status:
+                    status = "已安装"
+                else:
+                    if commit not in [
+                        "远程分支不存在",
+                        "更新检查已关闭",
+                    ]:
+                        status = "更新可用"
+                    else:
+                        status = "版本检查失败"
+        else:
+            status = "未安装"
+        md += "| {} | {} | [{}]({}) | {} | {} |\n".format(
+            plugins[plugin]["name"],
+            plugins[plugin]["description"],
+            plugins[plugin]["url"],
+            plugins[plugin]["url"],
+            plugins[plugin]["author"],
+            status,
+        )
+    return md
+
+
+def uninstall_plugin(name):
+    data = get_plugin_list()
+    shutil.rmtree("./plugins/{}".format(data[name]["name"]))
