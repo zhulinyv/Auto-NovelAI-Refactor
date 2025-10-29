@@ -13,6 +13,18 @@ requires-python = ">=3.10,<4.0"
 [tool.poetry.requires-plugins]
 poetry-plugin-export = ">=1.8"
 
+[tool.poetry.dependencies]
+python = "^3.10"
+gradio = "^5.49.1"
+ujson = "^5.11.0"
+loguru = "^0.7.3"
+pydantic_settings = "^2.11.0"
+send2trash = "^1.8.3"
+playsound = "1.2.2"
+gitpython = "^3.1.45"
+requests = "^2.32.5"
+
+
 # https://black.readthedocs.io/en/stable/the_black_code_style/current_style.html
 [tool.black]
 line-length = 120
