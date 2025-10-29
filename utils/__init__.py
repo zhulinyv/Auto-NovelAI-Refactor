@@ -408,6 +408,7 @@ def load_plugins(directory: str):
 
 def get_plugin_list():
     try:
+        logger.info("正在获取插件列表...")
         plugins: dict = requests.get(
             "https://raw.githubusercontent.com/zhulinyv/Auto-NovelAI-Refactor/main/assets/plugins.json",
             proxies=(
