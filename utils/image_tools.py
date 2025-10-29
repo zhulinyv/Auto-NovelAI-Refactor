@@ -217,5 +217,5 @@ def revert_image_info(image_path1, image_path2):
         with Image.open(image_path2) as image2:
             image2.save(image_path2, pnginfo=metadata)
         return True
-    except Exception():
+    except Exception:
         return False

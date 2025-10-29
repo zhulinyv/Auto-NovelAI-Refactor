@@ -1,8 +1,10 @@
 import asyncio
+import importlib
 import os
 import random
 import re
 import shutil
+import subprocess
 import sys
 import time
 import tkinter as tk
@@ -369,3 +371,36 @@ def copy_current_img(current_img, output_path):
     except Exception:
         logger.error("未输入要复制的目录!")
         return None, None
+
+
+def install_requirements(path):
+    logger.debug(f"开始安装所需依赖 {path} ...")
+    command = f"{sys.executable} -s -m pip install -r {path}"
+    subprocess.call(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    logger.success("安装完成!")
+    return
+
+
+def load_plugins(directory: str):
+    plugins = {}
+    plugin_list = os.listdir(directory)
+    for plugin in plugin_list:
+        if plugin.endswith(".py"):
+            location = os.path.join(directory, plugin)
+        elif plugin != "__pycache__":
+            if os.path.exists(requirements_path := os.path.join(directory, plugin, "requirements.txt")):
+                install_requirements(requirements_path)
+            location = os.path.join(directory, plugin, "__init__.py")
+        else:
+            location = None
+        if location:
+            plugin_name = plugin
+            module_name = f"{directory}.{plugin_name}"
+            spec = importlib.util.spec_from_file_location(module_name, location)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            plugins[plugin_name] = module
+            logger.success(f"成功加载插件: {plugin}")
+        else:
+            logger.error(f"插件: {plugin} 没有 plugin 函数!")
+    return plugins

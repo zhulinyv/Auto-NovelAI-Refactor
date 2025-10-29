@@ -9,6 +9,9 @@ from utils.variable import BASE_PATH, VERSION
 if not os.path.exists("./outputs"):
     os.mkdir("./outputs")
 
+if not os.path.exists("./plugins"):
+    os.mkdir("./plugins")
+
 if os.path.exists("last.json"):
     last_data = read_json("last.json")
     parameters = last_data.get("parameters", {})
