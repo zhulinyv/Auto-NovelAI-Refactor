@@ -420,10 +420,13 @@ def install_plugin(name):
 
     if os.path.exists(plugin_path):
         logger.info(f"正在更新 {name}...")
-        return update_repo("./plugins/{}".format(data[name]["name"]))
+        output = update_repo("./plugins/{}".format(data[name]["name"]))
+        logger.success("更新完成!")
+        return output
 
     logger.info(f"正在安装 {name}...")
     git.Git().clone(data[name]["url"], plugin_path)
+    logger.success("安装完成!")
 
     return gr.update(value="安装完成, 重启后生效!", visible=True)
 
