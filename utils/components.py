@@ -420,7 +420,6 @@ def install_plugin(name):
 
     if os.path.exists(plugin_path):
         output = update_repo("./plugins/{}".format(data[name]["name"]))
-        logger.success("更新完成!")
         return output
 
     logger.info(f"正在安装 {name}...")
