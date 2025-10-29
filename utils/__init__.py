@@ -407,22 +407,23 @@ def load_plugins(directory: str):
 
 
 def get_plugin_list():
-    try:
-        logger.info("正在获取插件列表...")
-        plugins: dict = requests.get(
-            "https://raw.githubusercontent.com/zhulinyv/Auto-NovelAI-Refactor/main/assets/plugins.json",
-            proxies=(
-                {
-                    "http": env.proxy,
-                    "https": env.proxy,
-                }
-                if env.proxy is not None
-                else None
-            ),
-        ).json()
-    except Exception:
-        plugins: dict = read_json("./assets/plugins.json")
-    return plugins
+    # try:
+    #     logger.info("正在获取插件列表...")
+    #     plugins: dict = requests.get(
+    #         "https://raw.githubusercontent.com/zhulinyv/Auto-NovelAI-Refactor/main/assets/plugins.json",
+    #         proxies=(
+    #             {
+    #                 "http": env.proxy,
+    #                 "https": env.proxy,
+    #             }
+    #             if env.proxy is not None
+    #             else None
+    #         ),
+    #     ).json()
+    # except Exception:
+    #     plugins = read_json("./assets/plugins.json")
+    # return plugins
+    return read_json("./assets/plugins.json")
 
 
 def plugin_list():
