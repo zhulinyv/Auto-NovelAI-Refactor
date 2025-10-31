@@ -219,3 +219,9 @@ def revert_image_info(image_path1, image_path2):
         return True
     except Exception:
         return False
+
+
+def return_array_image(path):
+    if path:
+        with Image.open(path) as image:
+            return np.array(image)

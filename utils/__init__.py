@@ -190,12 +190,6 @@ async def tk_asksavefile_asy(init_dir=os.getcwd(), suffix="") -> str:
     return fname
 
 
-def return_array_image(path):
-    if path:
-        with Image.open(path) as image:
-            return np.array(image)
-
-
 def remove_pnginfo(image, path, choices, info):
     if image:
         file_list = [image]
