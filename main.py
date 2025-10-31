@@ -17,7 +17,6 @@ from utils import (
     read_json,
     remove_pnginfo,
     restart,
-    return_array_image,
     show_first_img,
     show_next_img,
     stop_generate,
@@ -51,6 +50,7 @@ from utils.components import (
     update_wildcard_tags,
 )
 from utils.environment import env
+from utils.image_tools import return_array_image
 from utils.prepare import _model, is_updated, last_data, parameters
 from utils.setting_updater import modify_env
 from utils.variable import (
