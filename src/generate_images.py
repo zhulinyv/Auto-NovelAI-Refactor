@@ -103,71 +103,74 @@ def main(
     reference_image_multiple = []
     reference_information_extracted_multiple = []
     reference_strength_multiple = []
-    if naiv4vibebundle_file or vibe_components[0]:
-        model_function_map = {
-            "nai-diffusion-4-5-full": nai45fvibe,  # noqa
-            "nai-diffusion-4-5-curated": nai45cvibe,  # noqa
-            "nai-diffusion-4-full": nai4fvibe,  # noqa
-            "nai-diffusion-4-curated-preview": nai4cpvibe,  # noqa
-            "nai-diffusion-3": nai3vibe,  # noqa
-            "nai-diffusion-furry-3": nai3vibe,  # noqa
-        }
-        if model in ["nai-diffusion-3", "nai-diffusion-furry-3"]:
-            vibe_images = [list(chunk) for chunk in zip(*[iter(vibe_components)] * 3)]
-            for vibe_image in vibe_images:
-                reference_image_multiple.append(image_to_base64(vibe_image[0]))
-                reference_information_extracted_multiple.append(vibe_image[1])
-                reference_strength_multiple.append(vibe_image[2])
-        else:
-            model_vibe_map = {
-                "nai-diffusion-4-5-full": "v4-5full",
-                "nai-diffusion-4-5-curated": "v4-5curated",
-                "nai-diffusion-4-full": "v4full",
-                "nai-diffusion-4-curated-preview": "v4curated",
-            }
-            vibe_data = read_json(naiv4vibebundle_file)
-            vibe_model_name = model_vibe_map.get(model)
-            for vibe_image in vibe_data["vibes"]:
-                reference_image_multiple.append(return_last_value(vibe_image["encodings"][vibe_model_name])["encoding"])
-                reference_strength_multiple.append(vibe_image["importInfo"]["strength"])
-    else:
-        if character_reference_image and model in ["nai-diffusion-4-5-full", "nai-diffusion-4-5-curated"]:
-            process_image_by_orientation(character_reference_image).save(
-                image_path := "./outputs/temp_character_reference_image.png"
-            )
-            director_reference_images = [image_to_base64(image_path)]
-            director_reference_descriptions = [
-                {
-                    "caption": {
-                        "base_caption": "character&style" if style_aware else "character",
-                        "char_captions": [],
-                    },
-                    "legacy_uc": False,
-                }
-            ]
-            director_reference_information_extracted = [1]
-            director_reference_strength_values = [1]
-            director_reference_secondary_strength_values = [1 - fidelity]
-            model_function_map = {
-                "nai-diffusion-4-5-full": nai45fchar,  # noqa
-                "nai-diffusion-4-5-curated": nai45cchar,  # noqa
-            }
-        else:
-            model_function_map = {
-                "nai-diffusion-4-5-full": nai45ft2i,  # noqa
-                "nai-diffusion-4-5-curated": nai45ct2i,  # noqa
-                "nai-diffusion-4-full": nai4ft2i,  # noqa
-                "nai-diffusion-4-curated-preview": nai4cpt2i,  # noqa
-                "nai-diffusion-3": nai3t2i,  # noqa
-                "nai-diffusion-furry-3": naif3t2i,  # noqa
-            }
-    func = model_function_map.get(model)
 
     _type = "text2image"
     image_list = []
 
     for i in range(quantity):
         try:
+            if naiv4vibebundle_file or vibe_components[0]:
+                model_function_map = {
+                    "nai-diffusion-4-5-full": nai45fvibe,  # noqa
+                    "nai-diffusion-4-5-curated": nai45cvibe,  # noqa
+                    "nai-diffusion-4-full": nai4fvibe,  # noqa
+                    "nai-diffusion-4-curated-preview": nai4cpvibe,  # noqa
+                    "nai-diffusion-3": nai3vibe,  # noqa
+                    "nai-diffusion-furry-3": nai3vibe,  # noqa
+                }
+                if model in ["nai-diffusion-3", "nai-diffusion-furry-3"]:
+                    vibe_images = [list(chunk) for chunk in zip(*[iter(vibe_components)] * 3)]
+                    for vibe_image in vibe_images:
+                        reference_image_multiple.append(image_to_base64(vibe_image[0]))
+                        reference_information_extracted_multiple.append(vibe_image[1])
+                        reference_strength_multiple.append(vibe_image[2])
+                else:
+                    model_vibe_map = {
+                        "nai-diffusion-4-5-full": "v4-5full",
+                        "nai-diffusion-4-5-curated": "v4-5curated",
+                        "nai-diffusion-4-full": "v4full",
+                        "nai-diffusion-4-curated-preview": "v4curated",
+                    }
+                    vibe_data = read_json(naiv4vibebundle_file)
+                    vibe_model_name = model_vibe_map.get(model)
+                    for vibe_image in vibe_data["vibes"]:
+                        reference_image_multiple.append(
+                            return_last_value(vibe_image["encodings"][vibe_model_name])["encoding"]
+                        )
+                        reference_strength_multiple.append(vibe_image["importInfo"]["strength"])
+            else:
+                if character_reference_image and model in ["nai-diffusion-4-5-full", "nai-diffusion-4-5-curated"]:
+                    process_image_by_orientation(character_reference_image).save(
+                        image_path := "./outputs/temp_character_reference_image.png"
+                    )
+                    director_reference_images = [image_to_base64(image_path)]
+                    director_reference_descriptions = [
+                        {
+                            "caption": {
+                                "base_caption": "character&style" if style_aware else "character",
+                                "char_captions": [],
+                            },
+                            "legacy_uc": False,
+                        }
+                    ]
+                    director_reference_information_extracted = [1]
+                    director_reference_strength_values = [1]
+                    director_reference_secondary_strength_values = [1 - fidelity]
+                    model_function_map = {
+                        "nai-diffusion-4-5-full": nai45fchar,  # noqa
+                        "nai-diffusion-4-5-curated": nai45cchar,  # noqa
+                    }
+                else:
+                    model_function_map = {
+                        "nai-diffusion-4-5-full": nai45ft2i,  # noqa
+                        "nai-diffusion-4-5-curated": nai45ct2i,  # noqa
+                        "nai-diffusion-4-full": nai4ft2i,  # noqa
+                        "nai-diffusion-4-curated-preview": nai4cpt2i,  # noqa
+                        "nai-diffusion-3": nai3t2i,  # noqa
+                        "nai-diffusion-furry-3": naif3t2i,  # noqa
+                    }
+            func = model_function_map.get(model)
+
             _break = read_json("./outputs/temp_break.json")
             if _break["break"]:
                 logger.warning("已停止生成!")

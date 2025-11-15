@@ -616,6 +616,7 @@ with gr.Blocks(
                     upscale_output_image = gr.Gallery(interactive=False, label="Output")
                 with gr.Tab("realcugan-ncnn-vulkan"):
                     with gr.Column():
+                        # gr.Markdown("出现错误时请确保电脑上有 vulkan-1.dll 文件")
                         with gr.Row():
                             realcugan_noise = gr.Slider(minimum=-1, maximum=3, value=3, step=1, label="降噪强度")
                             realcugan_scale = gr.Slider(minimum=2, maximum=4, value=2, step=1, label="放大倍数")
@@ -636,6 +637,7 @@ with gr.Blocks(
                         )
                 with gr.Tab("Anime4K"):
                     with gr.Column():
+                        # gr.Markdown("出现错误时请确保电脑上有 OpenCL.dll 文件")
                         with gr.Row():
                             anime4k_zoomFactor = gr.Slider(1, maximum=32, value=2, step=1, label="放大倍数")
                             anime4k_HDNLevel = gr.Slider(minimum=1, maximum=3, step=1, value=3, label="HDN 等级")
