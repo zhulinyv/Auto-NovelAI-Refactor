@@ -68,46 +68,46 @@ def main(
     with open("./outputs/temp_break.json", "w") as f:
         json.dump({"break": False}, f)
 
-    if furry_mode == "🐾" and model not in ["nai-diffusion-3", "nai-diffusion-furry-3"]:
-        positive_input = "fur dataset, " + positive_input
-
-    director_reference_images = []
-    director_reference_descriptions = []
-    director_reference_information_extracted = []
-    director_reference_strength_values = []
-    director_reference_secondary_strength_values = []
-
-    character_components = args[:30]
-    character_components = [list(chunk) for chunk in zip(*[iter(character_components)] * 5)]
-    v4_prompt_positive = []
-    v4_prompt_negative = []
-    characterPrompts = []
-    for character_prompt in character_components:
-        if character_prompt[-2]:
-            x, y = position_to_float(character_prompt[2])
-            center = {"x": x, "y": y}
-            centers = [center]
-
-            v4_prompt_positive.append({"char_caption": replace_wildcards(character_prompt[0]), "centers": centers})
-            v4_prompt_negative.append({"char_caption": replace_wildcards(character_prompt[1]), "centers": centers})
-            characterPrompts.append(
-                {
-                    "prompt": replace_wildcards(character_prompt[0]),
-                    "uc": replace_wildcards(character_prompt[1]),
-                    "center": center,
-                    "enabled": True,
-                }
-            )
-
-    vibe_components = args[30:]
-    reference_image_multiple = []
-    reference_information_extracted_multiple = []
-    reference_strength_multiple = []
-
     _type = "text2image"
     image_list = []
 
     for i in range(quantity):
+        if furry_mode == "🐾" and model not in ["nai-diffusion-3", "nai-diffusion-furry-3"]:
+            positive_input = "fur dataset, " + positive_input
+
+        director_reference_images = []
+        director_reference_descriptions = []
+        director_reference_information_extracted = []
+        director_reference_strength_values = []
+        director_reference_secondary_strength_values = []
+
+        character_components = args[:30]
+        character_components = [list(chunk) for chunk in zip(*[iter(character_components)] * 5)]
+        v4_prompt_positive = []
+        v4_prompt_negative = []
+        characterPrompts = []
+        for character_prompt in character_components:
+            if character_prompt[-2]:
+                x, y = position_to_float(character_prompt[2])
+                center = {"x": x, "y": y}
+                centers = [center]
+
+                v4_prompt_positive.append({"char_caption": replace_wildcards(character_prompt[0]), "centers": centers})
+                v4_prompt_negative.append({"char_caption": replace_wildcards(character_prompt[1]), "centers": centers})
+                characterPrompts.append(
+                    {
+                        "prompt": replace_wildcards(character_prompt[0]),
+                        "uc": replace_wildcards(character_prompt[1]),
+                        "center": center,
+                        "enabled": True,
+                    }
+                )
+
+        vibe_components = args[30:]
+        reference_image_multiple = []
+        reference_information_extracted_multiple = []
+        reference_strength_multiple = []
+
         try:
             if naiv4vibebundle_file or vibe_components[0]:
                 model_function_map = {
