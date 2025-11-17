@@ -96,11 +96,32 @@ def replace_wildcards(text: str):
     pattern = r"<([^:]+):([^>]+)>"
     matchers = re.findall(pattern, text)
     for wild_card in matchers:
-        if wild_card[1] != "随机":
+        if wild_card[1] == "随机":
+            tag = read_txt((_path := f"./wildcards/{wild_card[0]}/") + (name := random.choice(os.listdir(_path))))
+        elif wild_card[1] == "顺序":
+            if os.path.exists("./outputs/temp_wildcards.json"):
+                data = read_json("./outputs/temp_wildcards.json")
+                try:
+                    number = data[wild_card[0]] + 1
+                except KeyError:
+                    number = 0
+                    data[wild_card[0]] = number
+                if number > len(os.listdir(f"./wildcards/{wild_card[0]}")) - 1:
+                    number = 0
+                    data[wild_card[0]] = number
+                else:
+                    data[wild_card[0]] = number
+            else:
+                number = 0
+                data = {}
+                data[wild_card[0]] = number
+            with open("./outputs/temp_wildcards.json", "w", encoding="utf-8") as file:
+                json.dump(data, file, ensure_ascii=False)
+            name = (os.listdir(f"./wildcards/{wild_card[0]}")[number]).replace(".txt", "")
+            tag = read_txt(f"./wildcards/{wild_card[0]}/{name}.txt")
+        else:
             name = wild_card[1]
             tag = read_txt(f"./wildcards/{wild_card[0]}/{wild_card[1]}.txt")
-        else:
-            tag = read_txt((_path := f"./wildcards/{wild_card[0]}/") + (name := random.choice(os.listdir(_path))))
         text = text.replace(f"<{wild_card[0]}:{wild_card[1]}>", tag)
         logger.debug(f'已将 <{wild_card[0]}:{wild_card[1]}> 替换为 {name}: "{tag}"')
     (logger.info(f"共发现 {len(matchers)} 个 wildcard, 已完成替换!") if len(matchers) != 0 else ...)

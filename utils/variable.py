@@ -1,6 +1,6 @@
 import os
 
-VERSION = "1.3.2"
+VERSION = "1.3.3"
 
 MODELS = [
     "nai-diffusion-4-5-full",
