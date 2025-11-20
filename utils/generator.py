@@ -10,6 +10,7 @@ from utils import generate_random_str
 from utils.environment import env
 from utils.logger import logger
 from utils.models.headers import headers
+from utils.variable import proxies
 
 
 def inquire_anlas():
@@ -17,14 +18,7 @@ def inquire_anlas():
         rep = requests.get(
             "https://api.novelai.net/user/subscription",
             headers=headers,
-            proxies=(
-                {
-                    "http": env.proxy,
-                    "https": env.proxy,
-                }
-                if env.proxy is not None
-                else None
-            ),
+            proxies=proxies,
         )
         if rep.status_code == 200:
             return rep.json()["trainingStepsLeft"]["fixedTrainingStepsLeft"]
@@ -45,14 +39,7 @@ class Generator:
                 url=self.url,
                 json=json_data,
                 headers=headers,
-                proxies=(
-                    {
-                        "http": env.proxy,
-                        "https": env.proxy,
-                    }
-                    if env.proxy is not None
-                    else None
-                ),
+                proxies=proxies,
             )
             if (status_code := rep.status_code) != 200:
                 logger.debug(f"本次请求状态码: {status_code}")

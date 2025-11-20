@@ -1,6 +1,8 @@
 import os
 
-VERSION = "1.3.34"
+from utils.environment import env
+
+VERSION = "1.3.35"
 
 MODELS = [
     "nai-diffusion-4-5-full",
@@ -44,6 +46,15 @@ WILDCARD_TYPE = os.listdir("./wildcards")
 CHARACTER_POSITION = [f"{chr(letter)}{number}" for letter in range(ord("A"), ord("F")) for number in range(1, 6)]
 
 BASE_PATH = os.getcwd()
+
+
+if env.proxy:
+    proxies = {
+        "http": env.proxy,
+        "https": env.proxy,
+    }
+else:
+    proxies = None
 
 
 def return_skip_cfg_above_sigma(model):
