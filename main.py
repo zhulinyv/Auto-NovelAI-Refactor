@@ -707,6 +707,31 @@ with gr.Blocks(
                         with gr.Column():
                             pnginfo_image = gr.Image(type="filepath", image_mode="RGBA")
                             send_button = gr.Button("发送到图片生成", visible=False)
+                            send_info_from_json = gr.Files(type="filepath", interactive=True, label="从 json 文件导入")
+                            send_info_from_json.change(
+                                send_pnginfo_to_generate,
+                                inputs=send_info_from_json,
+                                outputs=[
+                                    positive_input,
+                                    negative_input,
+                                    width,
+                                    height,
+                                    steps,
+                                    prompt_guidance,
+                                    prompt_guidance_rescale,
+                                    variety,
+                                    decrisp,
+                                    sm,
+                                    sm_dyn,
+                                    seed,
+                                    sampler,
+                                    noise_schedule,
+                                    legacy_uc,
+                                    ai_choice,
+                                    character_components_number,
+                                ]
+                                + character_components_list,
+                            )
                             show_all_pnginfo = gr.Checkbox(False, label="显示所有信息")
                         with gr.Column():
                             source = gr.Textbox(label="Source")

@@ -6,7 +6,7 @@ import gradio as gr
 import send2trash
 import ujson as json
 
-from utils import float_to_position, format_str, get_plugin_list, list_to_str, read_txt, return_x64
+from utils import float_to_position, format_str, get_plugin_list, list_to_str, read_json, read_txt, return_x64
 from utils.image_tools import get_image_information, resize_image
 from utils.logger import logger
 from utils.variable import NOISE_SCHEDULE, RESOLUTION, SAMPLER, UC_PRESET
@@ -346,9 +346,17 @@ def return_pnginfo(image_path):
     )
 
 
-def send_pnginfo_to_generate(image_path):
-    pnginfo = get_image_information(image_path)
-    comment = json.loads(pnginfo.get("Comment", {}))
+def send_pnginfo_to_generate(image_path: str):
+    if image_path is None:
+        none_components = [gr.update() for _ in range(47)]
+        return (*none_components,)
+
+    if image_path[0].endswith(".json"):
+        pnginfo: dict = read_json(image_path[0])
+        comment = pnginfo.get("Comment", {})
+    else:
+        pnginfo = get_image_information(image_path)
+        comment = json.loads(pnginfo.get("Comment", {}))
     character_components_list = []
     if char_captions := comment.get("v4_prompt", {}).get("caption", {}).get("char_captions", []):
         for num in range(len(char_captions)):
