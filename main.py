@@ -279,7 +279,10 @@ with gr.Blocks(
                     inputs=inpaint_input_image,
                     outputs=[inpaint_input_image, strength, noise, width, height],
                 )
-            with gr.Tab(label="角色分区"):
+            character_position_tab = gr.Tab(
+                label="角色分区", visible=False if _model in ["nai-diffusion-3", "nai-diffusion-furry-3"] else True
+            )
+            with character_position_tab:
                 character_components_list = []
                 character_components_number = gr.Number(value=0, visible=False)  # 使用 Number 替代 Slider
                 add_character_button = gr.Button("添加角色")
@@ -1076,6 +1079,7 @@ with gr.Blocks(
             character_reference_tab,
             naiv4vibebundle_file_instruction,
             furry_mode,
+            character_position_tab,
         ],
     )
     sm.change(update_components_for_sm_change, inputs=sm, outputs=sm_dyn)

@@ -170,6 +170,7 @@ def update_components_for_models_change(model):
             gr.update(visible=True),  # character_reference_tab
             gr.update(visible=True),  # naiv4vibebundle_file_instruction
             gr.update(visible=True),  # furry_mode
+            gr.update(visible=True),  # character_position_tab
         )
     elif model in ["nai-diffusion-4-full", "nai-diffusion-4-curated-preview"]:
         _UC_PRESET.remove("Furry Focus")
@@ -188,6 +189,7 @@ def update_components_for_models_change(model):
             gr.update(visible=False),  # character_reference_tab
             gr.update(visible=True),  # naiv4vibebundle_file_instruction
             gr.update(visible=True),  # furry_mode
+            gr.update(visible=True),  # character_position_tab
         )
     elif model in ["nai-diffusion-3", "nai-diffusion-furry-3"]:
         _UC_PRESET.remove("Furry Focus")
@@ -207,6 +209,7 @@ def update_components_for_models_change(model):
             gr.update(visible=False),  # character_reference_tab
             gr.update(visible=False),  # naiv4vibebundle_file_instruction
             gr.update(visible=False),  # furry_mode
+            gr.update(visible=False),  # character_position_tab
         )
 
 
@@ -307,8 +310,8 @@ def return_character_reference_component(character_reference_image):
         return gr.update(visible=False), gr.update(visible=False), gr.update(visible=True)
 
 
-def return_character_reference_component_visible(nai3vibe_transfer_image):
-    if nai3vibe_transfer_image:
+def return_character_reference_component_visible(naiv4vibebundle_file):
+    if naiv4vibebundle_file:
         return gr.update(visible=False)
     else:
         return gr.update(visible=True)
