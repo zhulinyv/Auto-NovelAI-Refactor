@@ -17,7 +17,7 @@ import requests
 import send2trash
 import ujson as json
 
-from utils.variable import BASE_PATH
+from utils.variable import BASE_PATH, proxies
 
 try:
     from git import Repo
@@ -281,14 +281,7 @@ def check_update(repo_path):
 def download(url, saved_path):
     rep = requests.get(
         url,
-        proxies=(
-            {
-                "http": env.proxy,
-                "https": env.proxy,
-            }
-            if env.proxy is not None
-            else None
-        ),
+        proxies=proxies,
         stream=True,
     )
     with open(saved_path, "wb") as file:
