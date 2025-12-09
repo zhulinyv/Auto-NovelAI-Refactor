@@ -403,7 +403,9 @@ def load_plugins(directory: str):
         if plugin.endswith(".py"):
             location = os.path.join(directory, plugin)
         elif plugin != "__pycache__":
-            if os.path.exists(requirements_path := os.path.join(directory, plugin, "requirements.txt")):
+            if os.path.exists(
+                requirements_path := os.path.abspath(os.path.join(directory, plugin, "requirements.txt"))
+            ):
                 logger.debug(f"正在安装依赖: {requirements_path}")
                 install_requirements(requirements_path)
             location = os.path.join(directory, plugin, "__init__.py")
