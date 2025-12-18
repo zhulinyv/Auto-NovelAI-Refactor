@@ -50,6 +50,8 @@ def list_to_str(str_list: list[str]):
 
 
 def format_str(text):
+    if not env.format_input:
+        return text
     lines = text.splitlines(keepends=True)
     formatted_lines = []
     for line in lines:

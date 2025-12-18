@@ -211,7 +211,8 @@ def main(
                 legacy_uc=legacy_uc if model in ["nai-diffusion-4-full", "nai-diffusion-4-curated-preview"] else False,
                 seed=_seed,
                 negative_prompt=format_str(
-                    _negative_input + return_undesired_contentc_preset(model, undesired_contentc_preset)
+                    return_undesired_contentc_preset(model, undesired_contentc_preset)
+                    + (f", {_negative_input}" if undesired_contentc_preset != "None" else _negative_input)
                 ),
                 deliberate_euler_ancestral_bug=False,  # 仅在采样器为 k_euler_ancestral 时出现
                 prefer_brownian=True,  # 仅在采样器为 k_euler_ancestral 时出现

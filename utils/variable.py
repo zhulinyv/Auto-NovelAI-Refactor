@@ -2,7 +2,7 @@ import os
 
 from utils.environment import env
 
-VERSION = "1.3.5"
+VERSION = "1.3.6"
 
 MODELS = [
     "nai-diffusion-4-5-full",
@@ -62,10 +62,12 @@ def return_skip_cfg_above_sigma(model):
         value = 58
     elif model == "nai-diffusion-4-5-curated":
         value = 36.158893609242725
-    elif model in ["nai-diffusion-3", "nai-diffusion-furry-3", "nai-diffusion-4-curated-preview"]:
+    elif model in ["nai-diffusion-4-full"]:
+        value = 19
+    elif model in ["nai-diffusion-3"]:
+        value = 19.343056794463642
+    elif model in ["nai-diffusion-furry-3", "nai-diffusion-4-curated-preview"]:
         value = 11.84515480302779
-    elif model == "nai-diffusion-4-full":
-        value = 18.254609533779934
     return value
 
 
@@ -126,12 +128,12 @@ def return_undesired_contentc_preset(model, undesired_contentc_preset):
             "Heavy": "lowres, {bad}, error, fewer, extra, missing, worst quality, jpeg artifacts, bad quality, watermark, unfinished, displeasing, chromatic aberration, signature, extra digits, artistic error, username, scan, [abstract]",
             "Light": "lowres, jpeg artifacts, worst quality, watermark, blurry, very displeasing",
             "Human Focus": "lowres, {bad}, error, fewer, extra, missing, worst quality, jpeg artifacts, bad quality, watermark, unfinished, displeasing, chromatic aberration, signature, extra digits, artistic error, username, scan, [abstract], bad anatomy, bad hands, @_@, mismatched pupils, heart-shaped pupils, glowing eyes",
-            "None": "lowres",
+            "None": "",
         },
         "nai-diffusion-furry-3": {
             "Heavy": "{{worst quality}}, [displeasing], {unusual pupils}, guide lines, {{unfinished}}, {bad}, url, artist name, {{tall image}}, mosaic, {sketch page}, comic panel, impact (font), [dated], {logo}, ych, {what}, {where is your god now}, {distorted text}, repeated text, {floating head}, {1994}, {widescreen}, absolutely everyone, sequence, {compression artifacts}, hard translated, {cropped}, {commissioner name}, unknown text, high contrast",
             "Light": "{worst quality}, guide lines, unfinished, bad, url, tall image, widescreen, compression artifacts, unknown text",
-            "None": "lowres",
+            "None": "",
         },
     }
     return presets.get(model, {}).get(undesired_contentc_preset, "")

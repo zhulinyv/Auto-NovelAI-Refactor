@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     theme: Union[str, None] = None
     check_update: bool = True
 
+    format_input: bool = True
+
     model_config = SettingsConfigDict(env_file=".env", extra="allow", arbitrary_types_allowed=True)
 
 

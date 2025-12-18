@@ -985,6 +985,8 @@ with gr.Blocks(
                     "获取 Token 的方法: [**自述文件**](https://github.com/zhulinyv/Semi-Auto-NovelAI-to-Pixiv#%EF%B8%8F-%E9%85%8D%E7%BD%AE)",
                     visible=True if not env.share else False,
                 )
+                format_input = gr.Checkbox(value=env.format_input, label="格式化输入")
+                gr.Markdown("启用后, 将对输入的提示词进行格式化(删除多余空格和逗号或添加缺少的空格和逗号)")
                 proxy = gr.Textbox(value=env.proxy, label="代理地址")
                 gr.Markdown("<p>本地代理格式应为: http://127.0.0.1:xxx (xxx 为代理软件的端口号)</p>")
                 custom_path = gr.Textbox(value=env.custom_path, label="自定义路径")
