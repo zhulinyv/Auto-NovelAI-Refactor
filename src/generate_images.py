@@ -92,12 +92,16 @@ def main(
                 center = {"x": x, "y": y}
                 centers = [center]
 
-                v4_prompt_positive.append({"char_caption": replace_wildcards(character_prompt[0]), "centers": centers})
-                v4_prompt_negative.append({"char_caption": replace_wildcards(character_prompt[1]), "centers": centers})
+                v4_prompt_positive.append(
+                    {"char_caption": (v4_pro_pos := replace_wildcards(character_prompt[0])), "centers": centers}
+                )
+                v4_prompt_negative.append(
+                    {"char_caption": (v4_pro_neg := replace_wildcards(character_prompt[1])), "centers": centers}
+                )
                 characterPrompts.append(
                     {
-                        "prompt": replace_wildcards(character_prompt[0]),
-                        "uc": replace_wildcards(character_prompt[1]),
+                        "prompt": v4_pro_pos,
+                        "uc": v4_pro_neg,
                         "center": center,
                         "enabled": True,
                     }
