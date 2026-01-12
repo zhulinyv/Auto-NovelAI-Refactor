@@ -30,6 +30,7 @@ from utils.components import (
     auto_complete,
     delete_character,
     delete_wildcard,
+    enable_plugin,
     install_plugin,
     modify_wildcard,
     return_character_reference_component,
@@ -362,7 +363,7 @@ with gr.Blocks(
                 )
                 naiv4vibebundle_file.change(
                     return_character_reference_component_visible,
-                    inputs=naiv4vibebundle_file,
+                    inputs=[model, naiv4vibebundle_file],
                     outputs=character_reference_tab,
                 )
                 normalize_reference_strength_multiple = gr.Checkbox(
@@ -951,10 +952,20 @@ with gr.Blocks(
                     )
             with gr.Tab("插件商店"):
                 plugin_store_output_information = gr.Textbox(show_label=False, visible=False)
+                plugin_store_plugin_name = gr.Dropdown(
+                    value=None,
+                    choices=list(
+                        dict.fromkeys(
+                            list(read_json("./assets/plugins.json").keys())
+                            + [i.replace(".py", "") for i in os.listdir("./plugins")]
+                        )
+                    ),
+                    label="插件名称",
+                )
                 with gr.Row():
-                    plugin_store_plugin_name = gr.Textbox(label="插件名称")
                     plugin_store_install_button = gr.Button("安装/更新")
-                    plugin_store_uninstall_button = gr.Button("卸载")
+                    plugin_store_uninstall_button = gr.Button("删除")
+                    plugin_store_enable_button = gr.Button("启用/禁用")
                     plugin_store_restart_button = gr.Button("重启")
                 gr.Markdown(plugin_list())
                 plugin_store_install_button.click(
@@ -962,6 +973,9 @@ with gr.Blocks(
                 )
                 plugin_store_uninstall_button.click(
                     uninstall_plugin, inputs=plugin_store_plugin_name, outputs=plugin_store_output_information
+                )
+                plugin_store_enable_button.click(
+                    enable_plugin, inputs=plugin_store_plugin_name, outputs=plugin_store_output_information
                 )
                 plugin_store_restart_button.click(restart)
             plugins = load_plugins(Path("./plugins"))

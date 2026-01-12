@@ -129,7 +129,7 @@ def add_wildcard_to_textbox(positive_input, wildcard_type, wildcard_name):
 
 
 def modify_wildcard(wildcard_type, wildcard_name, wildcard_tags):
-    with open(f"./wildcards/{wildcard_type}/{wildcard_name}.txt", "w") as file:
+    with open(f"./wildcards/{wildcard_type}/{wildcard_name}.txt", "w", encoding="utf-8") as file:
         file.write(wildcard_tags)
     return f"已修改 <{wildcard_type}:{wildcard_name}>!"
 
@@ -310,11 +310,14 @@ def return_character_reference_component(character_reference_image):
         return gr.update(visible=False), gr.update(visible=False), gr.update(visible=True)
 
 
-def return_character_reference_component_visible(naiv4vibebundle_file):
-    if naiv4vibebundle_file:
-        return gr.update(visible=False)
+def return_character_reference_component_visible(_model, naiv4vibebundle_file):
+    if _model in ["nai-diffusion-4-5-full", "nai-diffusion-4-5-curated"]:
+        if naiv4vibebundle_file:
+            return gr.update(visible=False)
+        else:
+            return gr.update(visible=True)
     else:
-        return gr.update(visible=True)
+        return gr.update(visible=False)
 
 
 def return_image2image_visible(inpaint_input_image):
@@ -443,7 +446,25 @@ def install_plugin(name):
 
 
 def uninstall_plugin(name):
-    data = get_plugin_list()
-    shutil.rmtree("./plugins/{}".format(data[name]["name"]))
+    shutil.rmtree(f"./plugins/{name}")
 
     return gr.update(value="删除成功, 重启后生效!", visible=True)
+
+
+def enable_plugin(name):
+    try:
+        disable_list = read_json("./outputs/temp_plugins.json")["disable_plugin"]
+    except FileNotFoundError:
+        disable_list = []
+
+    FLAG = True
+    if name in disable_list:
+        disable_list.remove(name)
+    else:
+        disable_list.append(name)
+        FLAG = False
+
+    with open("./outputs/temp_plugins.json", "w", encoding="utf-8") as file:
+        json.dump({"disable_plugin": disable_list}, file, ensure_ascii=False)
+
+    return gr.update(value=f"插件 {name} 已启用!" if FLAG else f"插件 {name} 已禁用!", visible=True)

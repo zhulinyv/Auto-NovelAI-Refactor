@@ -89,7 +89,7 @@ def read_txt(path):
         return file.read()
 
 
-def read_json(path):
+def read_json(path) -> dict:
     with open(path, "r", encoding="utf-8") as file:
         return json.load(file)
 
@@ -97,36 +97,40 @@ def read_json(path):
 def replace_wildcards(text: str):
     pattern = r"<([^:]+):([^>]+)>"
     matchers = re.findall(pattern, text)
-    for wild_card in matchers:
-        if wild_card[1] == "随机":
-            tag = read_txt((_path := f"./wildcards/{wild_card[0]}/") + (name := random.choice(os.listdir(_path))))
-        elif wild_card[1] == "顺序":
-            if os.path.exists("./outputs/temp_wildcards.json"):
-                data = read_json("./outputs/temp_wildcards.json")
-                try:
-                    number = data[wild_card[0]] + 1
-                except KeyError:
-                    number = 0
-                    data[wild_card[0]] = number
-                if number > len(os.listdir(f"./wildcards/{wild_card[0]}")) - 1:
-                    number = 0
-                    data[wild_card[0]] = number
+    matchers_number = 0
+    while matchers:
+        for wild_card in matchers:
+            if wild_card[1] == "随机":
+                tag = read_txt((_path := f"./wildcards/{wild_card[0]}/") + (name := random.choice(os.listdir(_path))))
+            elif wild_card[1] == "顺序":
+                if os.path.exists("./outputs/temp_wildcards.json"):
+                    data = read_json("./outputs/temp_wildcards.json")
+                    try:
+                        number = data[wild_card[0]] + 1
+                    except KeyError:
+                        number = 0
+                        data[wild_card[0]] = number
+                    if number > len(os.listdir(f"./wildcards/{wild_card[0]}")) - 1:
+                        number = 0
+                        data[wild_card[0]] = number
+                    else:
+                        data[wild_card[0]] = number
                 else:
+                    number = 0
+                    data = {}
                     data[wild_card[0]] = number
+                with open("./outputs/temp_wildcards.json", "w", encoding="utf-8") as file:
+                    json.dump(data, file, ensure_ascii=False)
+                name = (os.listdir(f"./wildcards/{wild_card[0]}")[number]).replace(".txt", "")
+                tag = read_txt(f"./wildcards/{wild_card[0]}/{name}.txt")
             else:
-                number = 0
-                data = {}
-                data[wild_card[0]] = number
-            with open("./outputs/temp_wildcards.json", "w", encoding="utf-8") as file:
-                json.dump(data, file, ensure_ascii=False)
-            name = (os.listdir(f"./wildcards/{wild_card[0]}")[number]).replace(".txt", "")
-            tag = read_txt(f"./wildcards/{wild_card[0]}/{name}.txt")
-        else:
-            name = wild_card[1]
-            tag = read_txt(f"./wildcards/{wild_card[0]}/{wild_card[1]}.txt")
-        text = text.replace(f"<{wild_card[0]}:{wild_card[1]}>", tag)
-        logger.debug(f'已将 <{wild_card[0]}:{wild_card[1]}> 替换为 {name}: "{tag}"')
-    (logger.info(f"共发现 {len(matchers)} 个 wildcard, 已完成替换!") if len(matchers) != 0 else ...)
+                name = wild_card[1]
+                tag = read_txt(f"./wildcards/{wild_card[0]}/{wild_card[1]}.txt")
+            matchers_number += 1
+            text = text.replace(f"<{wild_card[0]}:{wild_card[1]}>", tag)
+            logger.debug(f'已将 <{wild_card[0]}:{wild_card[1]}> 替换为 {name}: "{tag}"')
+        matchers = re.findall(pattern, text)
+    (logger.info(f"共发现 {matchers_number} 个 wildcard, 已完成替换!") if matchers_number != 0 else ...)
     return format_str(text)
 
 
@@ -392,9 +396,17 @@ def install_requirements(path):
 
 
 def load_plugins(directory: str):
+    try:
+        disable_list = read_json("./outputs/temp_plugins.json")["disable_plugin"]
+    except FileNotFoundError:
+        disable_list = []
+
     plugins = {}
     plugin_list = os.listdir(directory)
     for plugin in plugin_list:
+        if plugin in disable_list:
+            logger.warning(f"插件 {plugin} 已禁用!")
+            continue
         if plugin.endswith(".py"):
             location = os.path.join(directory, plugin)
         elif plugin != "__pycache__":
@@ -441,30 +453,38 @@ def get_plugin_list():
 
 def plugin_list():
     plugins = get_plugin_list()
+    _plugin_list = list(plugins.keys())
+    try:
+        disable_list = read_json("./outputs/temp_plugins.json")["disable_plugin"]
+    except FileNotFoundError:
+        disable_list = []
 
     md = """| 名称(Name) | 描述(Description) | 仓库(URL) | 作者(Author) | 状态(Status) |
 | :---: | :---: | :---: | :---: | :---: |
 """
-    for plugin in list(plugins.keys()):
+    for plugin in _plugin_list:
         if os.path.exists(
             path := "./plugins/{}".format(
                 plugins[plugin]["name"],
             )
         ):
-            if not env.check_update:
-                status = "已安装"
+            if plugin in disable_list:
+                status = "已禁用"
             else:
-                _status, commit = check_update(path)
-                if _status:
+                if not env.check_update:
                     status = "已安装"
                 else:
-                    if commit not in [
-                        "远程分支不存在",
-                        "更新检查已关闭",
-                    ]:
-                        status = "更新可用"
+                    _status, commit = check_update(path)
+                    if _status:
+                        status = "已安装"
                     else:
-                        status = "版本检查失败"
+                        if commit not in [
+                            "远程分支不存在",
+                            "更新检查已关闭",
+                        ]:
+                            status = "更新可用"
+                        else:
+                            status = "版本检查失败"
         else:
             status = "未安装"
         md += "| {} | {} | [{}]({}) | {} | {} |\n".format(
@@ -475,4 +495,9 @@ def plugin_list():
             plugins[plugin]["author"],
             status,
         )
+    for p in os.listdir("./plugins"):
+        if p in _plugin_list:
+            pass
+        else:
+            md += f"| {p.replace('.py', '')} | 本地插件 | 本地插件 | 未知 | 已安装 |\n"
     return md
