@@ -10,5 +10,11 @@
         "description": "[Auto-NovelAI-Refactor](https://github.com/zhulinyv/Auto-NovelAI-Refactor) 的批量打码插件",
         "url": "https://github.com/zhulinyv/anr_plugin_auto_mosaics",
         "author": "[zhulinyv](https://github.com/zhulinyv)"
+    },
+    "anr_plugin_stories_to_images": {
+        "name": "anr_plugin_stories_to_images",
+        "description": "[Auto-NovelAI-Refactor](https://github.com/zhulinyv/Auto-NovelAI-Refactor) 的推文生图插件",
+        "url": "https://github.com/zhulinyv/anr_plugin_stories_to_images",
+        "author": "[zhulinyv](https://github.com/zhulinyv)"
     }
 }
