@@ -102,6 +102,7 @@ def replace_wildcards(text: str):
         for wild_card in matchers:
             if wild_card[1] == "随机":
                 tag = read_txt((_path := f"./wildcards/{wild_card[0]}/") + (name := random.choice(os.listdir(_path))))
+                name = name.replace(".txt", "")
             elif wild_card[1] == "顺序":
                 if os.path.exists("./outputs/temp_wildcards.json"):
                     data = read_json("./outputs/temp_wildcards.json")
@@ -128,10 +129,37 @@ def replace_wildcards(text: str):
                 tag = read_txt(f"./wildcards/{wild_card[0]}/{wild_card[1]}.txt")
             matchers_number += 1
             text = text.replace(f"<{wild_card[0]}:{wild_card[1]}>", tag)
-            logger.debug(f'已将 <{wild_card[0]}:{wild_card[1]}> 替换为 {name}: "{tag}"')
+            logger.opt(colors=True).debug(
+                f'已将 <c>\<{wild_card[0]}:{wild_card[1]}></c> 替换为 <c>{name}</c>: "{tag}"'  # noqa
+            )
         matchers = re.findall(pattern, text)
     (logger.info(f"共发现 {matchers_number} 个 wildcard, 已完成替换!") if matchers_number != 0 else ...)
     return format_str(text)
+
+
+def find_and_replace_wildcards_from_dict(data: dict):
+    data["input"] = (pos_pro := replace_wildcards(data["input"]))
+    data["parameters"]["negative_prompt"] = (neg_pro := replace_wildcards(data["parameters"]["negative_prompt"]))
+
+    if data["model"] not in ["nai-diffusion-3", "nai-diffusion-furry-3"]:
+        data["parameters"]["v4_prompt"]["caption"]["base_caption"] = pos_pro
+        data["parameters"]["v4_negative_prompt"]["caption"]["base_caption"] = neg_pro
+
+        for i in range(len(data["parameters"]["v4_prompt"]["caption"]["char_captions"])):
+            data["parameters"]["v4_prompt"]["caption"]["char_captions"][i]["char_caption"] = (
+                char_pos_pro := replace_wildcards(
+                    data["parameters"]["v4_prompt"]["caption"]["char_captions"][i]["char_caption"]
+                )
+            )
+            data["parameters"]["v4_negative_prompt"]["caption"]["char_captions"][i]["char_caption"] = (
+                char_neg_pro := replace_wildcards(
+                    data["parameters"]["v4_negative_prompt"]["caption"]["char_captions"][i]["char_caption"]
+                )
+            )
+            data["parameters"]["characterPrompts"][i]["prompt"] = char_pos_pro
+            data["parameters"]["characterPrompts"][i]["uc"] = char_neg_pro
+
+    return data
 
 
 def sleep_for_cool(seconds):

@@ -3,11 +3,10 @@ import random
 import ujson as json
 
 from utils import (
-    format_str,
+    find_and_replace_wildcards_from_dict,
     playsound,
     position_to_float,
     read_json,
-    replace_wildcards,
     return_last_value,
     return_x64,
     sleep_for_cool,
@@ -72,8 +71,10 @@ def main(
     image_list = []
 
     for i in range(quantity):
+        _positive_input = positive_input
+        _negative_input = negative_input
         if furry_mode == "🐾" and model not in ["nai-diffusion-3", "nai-diffusion-furry-3"]:
-            positive_input = "fur dataset, " + positive_input
+            _positive_input = "fur dataset, " + positive_input
 
         director_reference_images = []
         director_reference_descriptions = []
@@ -92,16 +93,12 @@ def main(
                 center = {"x": x, "y": y}
                 centers = [center]
 
-                v4_prompt_positive.append(
-                    {"char_caption": (v4_pro_pos := replace_wildcards(character_prompt[0])), "centers": centers}
-                )
-                v4_prompt_negative.append(
-                    {"char_caption": (v4_pro_neg := replace_wildcards(character_prompt[1])), "centers": centers}
-                )
+                v4_prompt_positive.append({"char_caption": (character_prompt[0]), "centers": centers})
+                v4_prompt_negative.append({"char_caption": (character_prompt[1]), "centers": centers})
                 characterPrompts.append(
                     {
-                        "prompt": v4_pro_pos,
-                        "uc": v4_pro_neg,
+                        "prompt": character_prompt[0],
+                        "uc": character_prompt[1],
                         "center": center,
                         "enabled": True,
                     }
@@ -185,15 +182,10 @@ def main(
             else:
                 logger.info("正在生成图片...")
 
-            _positive_input = replace_wildcards(positive_input)
-            _negative_input = replace_wildcards(negative_input)
-
             _seed = random.randint(1000000000, 9999999999) if seed == "-1" else int(seed)
 
             json_data = func(
-                _input=format_str(
-                    _positive_input + return_quality_tags(model) if add_quality_tags else _positive_input
-                ),
+                _input=_positive_input + return_quality_tags(model) if add_quality_tags else _positive_input,
                 width=return_x64(width),
                 height=return_x64(height),
                 scale=prompt_guidance,
@@ -214,10 +206,8 @@ def main(
                 use_order=True,
                 legacy_uc=legacy_uc if model in ["nai-diffusion-4-full", "nai-diffusion-4-curated-preview"] else False,
                 seed=_seed,
-                negative_prompt=format_str(
-                    return_undesired_contentc_preset(model, undesired_contentc_preset)
-                    + (f", {_negative_input}" if undesired_contentc_preset != "None" else _negative_input)
-                ),
+                negative_prompt=return_undesired_contentc_preset(model, undesired_contentc_preset)
+                + (f", {_negative_input}" if undesired_contentc_preset != "None" else _negative_input),
                 deliberate_euler_ancestral_bug=False,  # 仅在采样器为 k_euler_ancestral 时出现
                 prefer_brownian=True,  # 仅在采样器为 k_euler_ancestral 时出现
                 use_new_shared_trial=True,
@@ -272,7 +262,10 @@ def main(
                     color_correct=False,
                 )
 
-            image_data = generator.generate(json_data)
+            with open("./outputs/temp_last_origin.json", "w", encoding="utf-8") as file:
+                json.dump(json_data, file, ensure_ascii=False, indent=4)
+
+            image_data = generator.generate(find_and_replace_wildcards_from_dict(json_data))
             if image_data:
                 path = generator.save(image_data, _type, json_data["parameters"]["seed"])
                 image_list.append(path)
