@@ -101,7 +101,7 @@ def auto_complete(input_box):
     )
 
     def update_input(origin_tag, tag: str):
-        value = format_str(origin_tag).split(", ")[:-1] + [tag.split(",")[0]]
+        value = format_str(origin_tag).split(",")[:-1] + [tag.split(",")[0]]
         return gr.update(value=list_to_str(value)), gr.update(choices=[], visible=False)
 
     suggestions_radio.change(
