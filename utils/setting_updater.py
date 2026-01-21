@@ -22,7 +22,9 @@ def _modify_env(**kwargs: dict):
     return
 
 
-def modify_env(token, proxy, custom_path, cool_time, port, share, start_sound, finish_sound, check_update, theme):
+def modify_env(
+    token, proxy, custom_path, cool_time, port, share, start_sound, finish_sound, check_update, theme, format_input
+):
     _modify_env(
         token=f'"{token}"'.replace("\n", ""),
         proxy=f'"{proxy}"'.replace("\n", ""),
@@ -34,5 +36,6 @@ def modify_env(token, proxy, custom_path, cool_time, port, share, start_sound, f
         finish_sound=finish_sound,
         check_update=check_update,
         theme=f'"{theme}"',
+        format_input=format_input,
     )
     return gr.update(value="修改已保存, 重启后生效!", visible=True)

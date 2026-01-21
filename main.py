@@ -1071,6 +1071,7 @@ with gr.Blocks(
                         finish_sound,
                         check_update,
                         theme,
+                        format_input,
                     ],
                     outputs=setting_output_information,
                 )
