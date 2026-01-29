@@ -269,6 +269,8 @@ with gr.Blocks(
                     interactive=True,
                 )
                 inpaint_input_image = gr.Sketchpad(
+                    width=650,
+                    height=650,
                     sources=["upload", "clipboard", "webcam"],
                     type="pil",
                     label="基础图片(可选)",
@@ -910,7 +912,9 @@ with gr.Blocks(
                         selector_output_path = gr.Textbox(label="目录1")
                         _selector_output_path = gr.Textbox(label="目录2")
                 with gr.Row():
-                    selector_output_image = gr.Gallery(scale=7, preview=True, label="Image")
+                    with gr.Column(scale=2):
+                        selector_output_image = gr.Gallery(preview=True, label="Image")
+                        selector_send_image = gr.Button("发送到法术解析")
                     with gr.Column(scale=1):
                         selector_next_button = gr.Button("跳过")
                         selector_move_button = gr.Button("移动到目录1")
@@ -950,6 +954,7 @@ with gr.Blocks(
                         inputs=[selector_current_img],
                         outputs=[selector_output_image, selector_current_img],
                     )
+                    selector_send_image.click(fn=lambda x: x, inputs=selector_current_img, outputs=pnginfo_image)
             with gr.Tab("插件商店"):
                 plugin_store_output_information = gr.Textbox(show_label=False, visible=False)
                 plugin_store_plugin_name = gr.Dropdown(

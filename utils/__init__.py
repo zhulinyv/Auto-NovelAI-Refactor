@@ -130,7 +130,7 @@ def replace_wildcards(text: str):
             matchers_number += 1
             text = text.replace(f"<{wild_card[0]}:{wild_card[1]}>", tag)
             logger.opt(colors=True).debug(
-                f'已将 <c>\<{wild_card[0]}:{wild_card[1]}></c> 替换为 <c>{name}</c>: "{tag}"'  # noqa
+                f'已将 <c>{wild_card[0]}:{wild_card[1]}</c> 替换为 <c>{name}</c>: "<c>{tag}</c>"'  # noqa
             )
         matchers = re.findall(pattern, text)
     (logger.info(f"共发现 {matchers_number} 个 wildcard, 已完成替换!") if matchers_number != 0 else ...)
