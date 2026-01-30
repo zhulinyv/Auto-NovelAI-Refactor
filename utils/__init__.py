@@ -130,7 +130,9 @@ def replace_wildcards(text: str):
             matchers_number += 1
             text = text.replace(f"<{wild_card[0]}:{wild_card[1]}>", tag)
             logger.opt(colors=True).debug(
-                f'已将 <c>{wild_card[0]}:{wild_card[1]}</c> 替换为 <c>{name}</c>: "<c>{tag}</c>"'  # noqa
+                r'已将 <c>\<{}:{}></c> 替换为 <c>{}</c>: "<c>{}</c>"'.format(
+                    wild_card[0], wild_card[1], name, tag.replace("<", r"\<")
+                )
             )
         matchers = re.findall(pattern, text)
     (logger.info(f"共发现 {matchers_number} 个 wildcard, 已完成替换!") if matchers_number != 0 else ...)
@@ -345,7 +347,7 @@ def show_first_img(input_path):
             img_path = None
         file_list.remove(img_path)
         array_data = np.array(file_list)
-        np.save("./outputs/temp.npy", array_data)
+        np.save("./outputs/temp_selector.npy", array_data)
         with Image.open(img_path) as img:
             return [np.array(img)], img_path
     except Exception:
@@ -355,8 +357,8 @@ def show_first_img(input_path):
 
 def show_next_img():
     try:
-        if os.path.exists("./outputs/temp.npy"):
-            file_list = np.load("./outputs/temp.npy")
+        if os.path.exists("./outputs/temp_selector.npy"):
+            file_list = np.load("./outputs/temp_selector.npy")
             file_list = list(file_list)
             new_list = []
             for file in file_list:
@@ -367,11 +369,11 @@ def show_next_img():
                 if file_list != []:
                     file_list.remove(file_list[0])
                     array_data = np.array(file_list)
-                    np.save("./outputs/temp.npy", array_data)
+                    np.save("./outputs/temp_selector.npy", array_data)
                     with Image.open(img_path) as img:
                         return [np.array(img)], img_path
             except Exception:
-                os.remove("./outputs/temp.npy")
+                os.remove("./outputs/temp_selector.npy")
         return None, None
     except Exception:
         logger.error("未输入图片目录或输入的目录为空!")

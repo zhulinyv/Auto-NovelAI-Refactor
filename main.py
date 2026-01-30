@@ -69,6 +69,20 @@ with gr.Blocks(
     theme=env.theme if env.theme != "空" else None,
     title="Auto-NovelAI-Refactor",
 ) as anr:
+    announcement = gr.Row()
+    with announcement:
+        with gr.Column(scale=2):
+            updata_warning = gr.Markdown(
+                '<span style="color: red; font-size: 20px;">wilcards 内容即将迎来大调整, 请有需要的用户备份根目录下 ./wildcards 文件夹</span>',
+                show_label=False,
+            )
+        user_read = gr.Checkbox(label="我已知晓", interactive=True, scale=1)
+        gr.HTML("")
+        user_read.change(
+            lambda: gr.update(visible=False),
+            inputs=None,
+            outputs=announcement,
+        )
     with gr.Row():
         model = gr.Dropdown(
             choices=MODELS,
