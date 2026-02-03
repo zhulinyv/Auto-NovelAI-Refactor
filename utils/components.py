@@ -354,7 +354,7 @@ def return_pnginfo(image_path):
 
 def send_pnginfo_to_generate(image_path: str):
     if image_path is None:
-        none_components = [gr.update() for _ in range(47)]
+        none_components = [gr.update() for _ in range(49)]
         return (*none_components,)
 
     if image_path[0].endswith(".json"):
@@ -414,6 +414,8 @@ def send_pnginfo_to_generate(image_path: str):
         comment.get("sampler", "k_euler_ancestral"),
         comment.get("noise_schedule", "karras"),
         comment.get("v4_prompt", {}).get("legacy_uc", False),
+        gr.update(value=False),
+        gr.update(value="None"),
         *character_components_list,
     )
 

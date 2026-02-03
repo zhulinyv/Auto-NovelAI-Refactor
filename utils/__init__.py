@@ -382,9 +382,11 @@ def show_next_img():
 
 def move_current_img(current_img, output_path):
     try:
+        if not os.path.exists(output_path):
+            os.makedirs(output_path)
         img_name = os.path.basename(current_img)
         shutil.move(current_img, str(Path(output_path) / img_name))
-        logger.info(f"已将 {current_img} 移动到 {output_path}")
+        logger.opt(colors=True).info(f"已将 <c>{current_img}</c> 移动到 <c>{output_path}</c>")
         return show_next_img()
     except Exception:
         logger.error("未输入要移动的目录!")
@@ -395,7 +397,7 @@ def del_current_img(current_img):
     try:
         if current_img:
             send2trash.send2trash(current_img)
-            logger.info(f"已将 {current_img} 移动到回收站")
+            logger.opt(colors=True).info(f"已将 <c>{current_img}</c> 移动到回收站")
             return show_next_img()
         else:
             logger.error("当前未选择图片!")
@@ -408,9 +410,11 @@ def del_current_img(current_img):
 
 def copy_current_img(current_img, output_path):
     try:
+        if not os.path.exists(output_path):
+            os.makedirs(output_path)
         img_name = os.path.basename(current_img)
         shutil.copyfile(current_img, str(Path(output_path) / img_name))
-        logger.info(f"已将 {current_img} 复制到 {output_path}")
+        logger.opt(colors=True).info(f"已将 <c>{current_img}</c> 复制到 <c>{output_path}</c>")
         return show_next_img()
     except Exception:
         logger.error("未输入要复制的目录!")

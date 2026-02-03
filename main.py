@@ -747,6 +747,8 @@ with gr.Blocks(
                                     sampler,
                                     noise_schedule,
                                     legacy_uc,
+                                    add_quality_tags,
+                                    undesired_contentc_preset,
                                     ai_choice,
                                     character_components_number,
                                 ]
@@ -795,6 +797,8 @@ with gr.Blocks(
                             sampler,
                             noise_schedule,
                             legacy_uc,
+                            add_quality_tags,
+                            undesired_contentc_preset,
                             ai_choice,
                             character_components_number,
                         ]
