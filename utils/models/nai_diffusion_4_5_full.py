@@ -73,7 +73,7 @@ def vibe_transfer(**kwargs):
 
 def character(**kwargs):
     json_data = text2image(**kwargs)
-    json_data["parameters"]["director_reference_images"] = kwargs["director_reference_images"]
+    json_data["parameters"]["director_reference_images_cached"] = kwargs["director_reference_images_cached"]
     json_data["parameters"]["director_reference_descriptions"] = kwargs["director_reference_descriptions"]
     json_data["parameters"]["director_reference_information_extracted"] = kwargs[
         "director_reference_information_extracted"

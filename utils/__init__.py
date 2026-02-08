@@ -1,8 +1,10 @@
 import asyncio
+import hashlib
 import importlib
 import os
 import random
 import re
+import secrets
 import shutil
 import subprocess
 import sys
@@ -40,6 +42,10 @@ def generate_random_str(randomlength):
     for i in range(randomlength):
         random_str += base_str[random.randint(0, length)]
     return random_str
+
+
+def generate_hash_string():
+    return hashlib.sha256(secrets.token_bytes(32)).hexdigest()
 
 
 def list_to_str(str_list: list[str]):

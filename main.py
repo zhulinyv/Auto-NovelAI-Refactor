@@ -25,15 +25,16 @@ from utils import (
 )
 from utils.components import (
     add_character,
+    add_precise_reference,
     add_wildcard,
     add_wildcard_to_textbox,
     auto_complete,
+    del_precise_reference,
     delete_character,
     delete_wildcard,
     enable_plugin,
     install_plugin,
     modify_wildcard,
-    return_character_reference_component,
     return_character_reference_component_visible,
     return_image2image_visible,
     return_pnginfo,
@@ -57,6 +58,7 @@ from utils.setting_updater import modify_env
 from utils.variable import (
     BASE_PATH,
     CHARACTER_POSITION,
+    CR_MODE,
     MODELS,
     NOISE_SCHEDULE,
     RESOLUTION,
@@ -360,16 +362,56 @@ with gr.Blocks(
                 visible=True if _model in ["nai-diffusion-4-5-full", "nai-diffusion-4-5-curated"] else False,
             )
             with character_reference_tab:
-                character_reference_image = gr.Image(label="Character Reference Image", type="filepath")
-                with gr.Row():
-                    fidelity = gr.Slider(0, 1, 1, step=0.05, label="Fidelity", visible=False)
-                    style_aware = gr.Checkbox(True, label="Style Aware", visible=False, interactive=True)
+                # character_reference_image = gr.Image(label="Character Reference Image", type="filepath")
+                # with gr.Row():
+                #     fidelity = gr.Slider(0, 1, 1, step=0.05, label="Fidelity", visible=False)
+                #     style_aware = gr.Checkbox(True, label="Style Aware", visible=False, interactive=True)
+
+                precise_reference_components_list = []
+                precise_reference_components_number = gr.Number(value=0, visible=False)
+                precise_reference_add_btn = gr.Button("添加角色")
+                precise_reference_del_btn = gr.Button("删除角色")
+                gr.Markdown("<hr>")
+
+                for i in range(10):
+                    with gr.Row():
+                        precise_reference_components_list.append(
+                            gr.Image(type="filepath", show_label=False, visible=False, interactive=True)
+                        )
+                        with gr.Column():
+                            with gr.Row():
+                                precise_reference_components_list.append(
+                                    gr.Checkbox(False, label="启用", visible=False, interactive=True)
+                                )
+                                precise_reference_components_list.append(
+                                    gr.Dropdown(
+                                        CR_MODE,
+                                        value="character&style",
+                                        show_label=False,
+                                        visible=False,
+                                        interactive=True,
+                                    )
+                                )
+                            precise_reference_components_list.append(
+                                gr.Slider(0, 1, 1, step=0.05, label="Strength", visible=False, interactive=True)
+                            )
+                            precise_reference_components_list.append(
+                                gr.Slider(0, 1, 1, step=0.05, label="Fidelity", visible=False, interactive=True)
+                            )
+                    precise_reference_components_list.append(gr.Markdown("<hr>", visible=False))
+
             vibe_transfer_tab = gr.Tab(label="风格迁移", visible=True, interactive=True)
-            character_reference_image.change(
-                return_character_reference_component,
-                inputs=character_reference_image,
-                outputs=[style_aware, fidelity, vibe_transfer_tab],
+            precise_reference_add_btn.click(
+                add_precise_reference,
+                inputs=precise_reference_components_number,
+                outputs=[vibe_transfer_tab, precise_reference_components_number] + precise_reference_components_list,
             )
+            precise_reference_del_btn.click(
+                del_precise_reference,
+                inputs=precise_reference_components_number,
+                outputs=[vibe_transfer_tab, precise_reference_components_number] + precise_reference_components_list,
+            )
+
             with vibe_transfer_tab:
                 naiv4vibebundle_file = gr.File(
                     type="filepath",
@@ -405,7 +447,7 @@ with gr.Blocks(
                         nai3vibe_transfer_image_count,
                     )
                     nai3vibe_transfer_del_button.click(
-                        lambda x: x - 1,
+                        lambda x: x - 1 if x >= 1 else x,
                         nai3vibe_transfer_image_count,
                         nai3vibe_transfer_image_count,
                     )
@@ -456,12 +498,13 @@ with gr.Blocks(
                                 noise,
                                 naiv4vibebundle_file,
                                 normalize_reference_strength_multiple,
-                                character_reference_image,
-                                style_aware,
-                                fidelity,
+                                # character_reference_image,
+                                # style_aware,
+                                # fidelity,
                                 ai_choice,
                             ]
                             + character_components_list
+                            + precise_reference_components_list
                             + nai3vibe_transfer_components_list,
                             outputs=[output_image, output_information],
                         )

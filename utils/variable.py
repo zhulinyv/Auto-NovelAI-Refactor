@@ -2,7 +2,7 @@ import os
 
 from utils.environment import env
 
-VERSION = "1.3.14"
+VERSION = "1.4.0"
 
 MODELS = [
     "nai-diffusion-4-5-full",
@@ -44,6 +44,8 @@ UC_PRESET = ["Heavy", "Light", "Furry Focus", "Human Focus", "None"]
 WILDCARD_TYPE = os.listdir("./wildcards")
 
 CHARACTER_POSITION = [f"{chr(letter)}{number}" for letter in range(ord("A"), ord("F")) for number in range(1, 6)]
+
+CR_MODE = ["character&style", "character", "style"]
 
 BASE_PATH = os.getcwd()
 

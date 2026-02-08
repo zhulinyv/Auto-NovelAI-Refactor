@@ -4,6 +4,7 @@ import ujson as json
 
 from utils import (
     find_and_replace_wildcards_from_dict,
+    generate_hash_string,
     playsound,
     position_to_float,
     read_json,
@@ -58,9 +59,6 @@ def main(
     noise,
     naiv4vibebundle_file,
     normalize_reference_strength_multiple,
-    character_reference_image,
-    style_aware,
-    fidelity,
     ai_choice,
     *args,
 ):
@@ -76,7 +74,7 @@ def main(
         if furry_mode == "🐾" and model not in ["nai-diffusion-3", "nai-diffusion-furry-3"]:
             _positive_input = "fur dataset, " + positive_input
 
-        director_reference_images = []
+        director_reference_images_cached = []
         director_reference_descriptions = []
         director_reference_information_extracted = []
         director_reference_strength_values = []
@@ -104,7 +102,9 @@ def main(
                     }
                 )
 
-        vibe_components = args[30:]
+        precise_reference_components = args[30:90]
+
+        vibe_components = args[90:]
         reference_image_multiple = []
         reference_information_extracted_multiple = []
         reference_strength_multiple = []
@@ -140,23 +140,29 @@ def main(
                         )
                         reference_strength_multiple.append(vibe_image["importInfo"]["strength"])
             else:
-                if character_reference_image and model in ["nai-diffusion-4-5-full", "nai-diffusion-4-5-curated"]:
-                    process_image_by_orientation(character_reference_image).save(
-                        image_path := "./outputs/temp_character_reference_image.png"
-                    )
-                    director_reference_images = [image_to_base64(image_path)]
-                    director_reference_descriptions = [
-                        {
-                            "caption": {
-                                "base_caption": "character&style" if style_aware else "character",
-                                "char_captions": [],
-                            },
-                            "legacy_uc": False,
-                        }
-                    ]
-                    director_reference_information_extracted = [1]
-                    director_reference_strength_values = [1]
-                    director_reference_secondary_strength_values = [1 - fidelity]
+                if precise_reference_components[0] and model in ["nai-diffusion-4-5-full", "nai-diffusion-4-5-curated"]:
+                    precise_reference_images = [list(chunk) for chunk in zip(*[iter(precise_reference_components)] * 6)]
+                    for precise_reference_image in precise_reference_images:
+                        if not precise_reference_image[1]:
+                            continue
+                        process_image_by_orientation(precise_reference_image[0]).save(
+                            image_path := "./outputs/temp_character_reference_image.png"
+                        )
+                        director_reference_images_cached.append(
+                            {"cache_secret_key": generate_hash_string(), "data": image_to_base64(image_path)}
+                        )
+                        director_reference_descriptions.append(
+                            {
+                                "caption": {
+                                    "base_caption": precise_reference_image[2],
+                                    "char_captions": [],
+                                },
+                                "legacy_uc": False,
+                            }
+                        )
+                        director_reference_information_extracted.append(1)
+                        director_reference_strength_values.append(precise_reference_image[3])
+                        director_reference_secondary_strength_values.append(round(1 - precise_reference_image[4], 2))
                     model_function_map = {
                         "nai-diffusion-4-5-full": nai45fchar,  # noqa
                         "nai-diffusion-4-5-curated": nai45cchar,  # noqa
@@ -219,7 +225,7 @@ def main(
                 v4_prompt_positive=v4_prompt_positive,
                 v4_prompt_negative=v4_prompt_negative,
                 characterPrompts=characterPrompts,
-                director_reference_images=director_reference_images,
+                director_reference_images_cached=director_reference_images_cached,
                 director_reference_descriptions=director_reference_descriptions,
                 director_reference_information_extracted=director_reference_information_extracted,
                 director_reference_strength_values=director_reference_strength_values,

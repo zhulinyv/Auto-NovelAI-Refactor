@@ -292,6 +292,80 @@ def delete_character(character_components_number):
         )
 
 
+def add_precise_reference(precise_reference_components_number):
+    if precise_reference_components_number < 10:
+        precise_reference_components_number += 1
+        update_visible_list = []
+        for _ in range(precise_reference_components_number):
+            for i in range(6):
+                if i == 1:
+                    update_visible_list.append(gr.update(value=True, visible=True))
+                else:
+                    update_visible_list.append(gr.update(visible=True))
+        for _ in range(10 - precise_reference_components_number):
+            for i in range(6):
+                if i == 1:
+                    update_visible_list.append(gr.update(value=False, visible=False))
+                else:
+                    update_visible_list.append(gr.update(visible=False))
+        if precise_reference_components_number < 1:
+            return (
+                gr.update(visible=True),
+                gr.update(value=precise_reference_components_number),
+                *update_visible_list,
+            )
+        else:
+            return (
+                gr.update(visible=False),
+                gr.update(value=precise_reference_components_number),
+                *update_visible_list,
+            )
+    else:
+        update_visible_list = [gr.update(visible=True) for _ in range(60)]
+        return (
+            gr.update(visible=False),
+            gr.update(value=precise_reference_components_number),
+            *update_visible_list,
+        )
+
+
+def del_precise_reference(precise_reference_components_number):
+    if precise_reference_components_number > 0:
+        precise_reference_components_number -= 1
+        update_visible_list = []
+        for _ in range(precise_reference_components_number):
+            for i in range(6):
+                if i == 1:
+                    update_visible_list.append(gr.update(value=True, visible=True))
+                else:
+                    update_visible_list.append(gr.update(visible=True))
+        for _ in range(10 - precise_reference_components_number):
+            for i in range(6):
+                if i == 1:
+                    update_visible_list.append(gr.update(value=False, visible=False))
+                else:
+                    update_visible_list.append(gr.update(visible=False))
+        if precise_reference_components_number < 1:
+            return (
+                gr.update(visible=True),
+                gr.update(value=precise_reference_components_number),
+                *update_visible_list,
+            )
+        else:
+            return (
+                gr.update(visible=False),
+                gr.update(value=precise_reference_components_number),
+                *update_visible_list,
+            )
+    else:
+        update_visible_list = [gr.update(visible=False) for _ in range(60)]
+        return (
+            gr.update(visible=True),
+            gr.update(value=precise_reference_components_number),
+            *update_visible_list,
+        )
+
+
 def return_position_interactive(ai_choice):
     components_list = []
     for _ in range(6):
