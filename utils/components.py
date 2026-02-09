@@ -411,8 +411,12 @@ def return_image2image_visible(inpaint_input_image):
         return gr.update(), gr.update(visible=False), gr.update(visible=False), gr.update(), gr.update()
 
 
-def return_pnginfo(image_path):
-    if not image_path:
+def return_pnginfo(image):
+    if not image:
+        return gr.update(visible=False), None, None, None, None, None, None
+    try:
+        image.save(image_path := "./outputs/temp_pnginfo.png")
+    except OSError:
         return gr.update(visible=False), None, None, None, None, None, None
     pnginfo = get_image_information(image_path)
     return (

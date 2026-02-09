@@ -304,8 +304,9 @@ with gr.Blocks(
             with character_position_tab:
                 character_components_list = []
                 character_components_number = gr.Number(value=0, visible=False)  # 使用 Number 替代 Slider
-                add_character_button = gr.Button("添加角色")
-                delete_character_button = gr.Button("删除角色")
+                with gr.Row():
+                    add_character_button = gr.Button("添加角色")
+                    delete_character_button = gr.Button("删除角色")
                 character_position_table = gr.Dataframe(
                     value=pd.DataFrame(
                         [
@@ -362,17 +363,15 @@ with gr.Blocks(
                 visible=True if _model in ["nai-diffusion-4-5-full", "nai-diffusion-4-5-curated"] else False,
             )
             with character_reference_tab:
-                # character_reference_image = gr.Image(label="Character Reference Image", type="filepath")
-                # with gr.Row():
-                #     fidelity = gr.Slider(0, 1, 1, step=0.05, label="Fidelity", visible=False)
-                #     style_aware = gr.Checkbox(True, label="Style Aware", visible=False, interactive=True)
-
                 precise_reference_components_list = []
                 precise_reference_components_number = gr.Number(value=0, visible=False)
-                precise_reference_add_btn = gr.Button("添加角色")
-                precise_reference_del_btn = gr.Button("删除角色")
+                with gr.Row():
+                    precise_reference_add_btn = gr.Button("添加角色")
+                    precise_reference_del_btn = gr.Button("删除角色")
                 gr.Markdown("<hr>")
-
+                gr.Markdown(
+                    "添加角色并启用时, 每张图片消耗 5 点数; 由于 Gradio 动态渲染限制, ANR 不能无限添加角色参考图, 目前上限为 10 张, 如需添加更多请加群反馈"
+                )
                 for i in range(10):
                     with gr.Row():
                         precise_reference_components_list.append(
@@ -498,9 +497,6 @@ with gr.Blocks(
                                 noise,
                                 naiv4vibebundle_file,
                                 normalize_reference_strength_multiple,
-                                # character_reference_image,
-                                # style_aware,
-                                # fidelity,
                                 ai_choice,
                             ]
                             + character_components_list
@@ -768,7 +764,7 @@ with gr.Blocks(
                 with gr.Tab("读取信息"):
                     with gr.Row():
                         with gr.Column():
-                            pnginfo_image = gr.Image(type="filepath", image_mode="RGBA")
+                            pnginfo_image = gr.Image(type="pil", image_mode="RGBA")
                             send_button = gr.Button("发送到图片生成", visible=False)
                             send_info_from_json = gr.Files(type="filepath", interactive=True, label="从 json 文件导入")
                             send_info_from_json.change(
