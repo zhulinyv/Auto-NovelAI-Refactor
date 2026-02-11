@@ -290,6 +290,7 @@ with gr.Blocks(
                     sources=["upload", "clipboard", "webcam"],
                     type="pil",
                     label="基础图片(可选)",
+                    layers=False,
                 )
                 strength = gr.Slider(0.01, 0.99, 0.7, step=0.01, label="强度", visible=False, interactive=True)
                 noise = gr.Slider(0, 10, 0, step=0.01, label="噪声", visible=False, interactive=True)
@@ -526,11 +527,16 @@ with gr.Blocks(
                         wildcard_modify = gr.Button("修改", size="sm")
                         wildcard_delete = gr.Button("删除", size="sm")
                 with gr.Tab("创建新卡片"):
-                    new_wildcard_type = gr.Textbox(label="分类")
+                    with gr.Row():
+                        select_new_wildcard_type = gr.Dropdown(
+                            choices=WILDCARD_TYPE, value=None, label="从已有分类中选择", interactive=True
+                        )
+                        new_wildcard_type = gr.Textbox(label="分类")
+                        select_new_wildcard_type.change(lambda x: x, select_new_wildcard_type, new_wildcard_type)
                     new_wildcard_name = gr.Textbox(label="名称")
                     new_wildcard_tags = gr.Textbox(label="提示词", lines=2)
                     wildcard_add = gr.Button("添加卡片")
-                    wildcard_refresh = gr.Button("刷新列表")
+                wildcard_refresh = gr.Button("刷新列表")
 
                 wildcard_type.change(update_wildcard_names, inputs=wildcard_type, outputs=wildcard_name)
                 wildcard_name.change(
@@ -549,8 +555,11 @@ with gr.Blocks(
                     outputs=negative_input,
                 )
                 wildcard_refresh.click(
-                    lambda: gr.update(choices=os.listdir("./wildcards")),
-                    outputs=wildcard_type,
+                    lambda: (
+                        gr.update(choices=os.listdir("./wildcards")),
+                        gr.update(choices=os.listdir("./wildcards")),
+                    ),
+                    outputs=[wildcard_type, select_new_wildcard_type],
                 )
         with gr.Column(scale=2):
             with gr.Tab("图片生成"):
@@ -766,7 +775,9 @@ with gr.Blocks(
                         with gr.Column():
                             pnginfo_image = gr.Image(type="pil", image_mode="RGBA")
                             send_button = gr.Button("发送到图片生成", visible=False)
-                            send_info_from_json = gr.Files(type="filepath", interactive=True, label="从 json 文件导入")
+                            send_info_from_json = gr.Files(
+                                type="filepath", visible=False, interactive=True, label="*.json 文件"
+                            )
                             send_info_from_json.change(
                                 send_pnginfo_to_generate,
                                 inputs=send_info_from_json,
@@ -793,7 +804,14 @@ with gr.Blocks(
                                 ]
                                 + character_components_list,
                             )
-                            show_all_pnginfo = gr.Checkbox(False, label="显示所有信息")
+                            with gr.Row():
+                                show_all_pnginfo = gr.Checkbox(False, label="显示所有信息")
+                                show_send_info_from_json = gr.Checkbox(False, label="从 json 文件导入")
+                                show_send_info_from_json.change(
+                                    lambda x: gr.update(visible=True if x else False),
+                                    inputs=show_send_info_from_json,
+                                    outputs=send_info_from_json,
+                                )
                         with gr.Column():
                             source = gr.Textbox(label="Source")
                             generation_time = gr.Textbox(label="Generation time")
@@ -974,10 +992,12 @@ with gr.Blocks(
                         selector_send_image = gr.Button("发送到法术解析")
                     with gr.Column(scale=1):
                         selector_next_button = gr.Button("跳过")
-                        selector_move_button = gr.Button("移动到目录1")
-                        _selector_move_button = gr.Button("移动到目录2")
-                        selector_copy_button = gr.Button("复制到目录1")
-                        _selector_copy_button = gr.Button("复制到目录2")
+                        with gr.Row():
+                            selector_move_button = gr.Button("移动到目录1", min_width=50)
+                            _selector_move_button = gr.Button("移动到目录2", min_width=50)
+                        with gr.Row():
+                            selector_copy_button = gr.Button("复制到目录1", min_width=50)
+                            _selector_copy_button = gr.Button("复制到目录2", min_width=50)
                         selector_delete_button = gr.Button("删除")
                     selector_current_img = gr.Textbox(visible=False)
                     selector_select_button.click(

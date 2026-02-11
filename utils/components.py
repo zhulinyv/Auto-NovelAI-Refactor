@@ -5,6 +5,7 @@ import shutil
 import gradio as gr
 import send2trash
 import ujson as json
+from PIL import Image
 
 from utils import float_to_position, format_str, get_plugin_list, list_to_str, read_json, read_txt, return_x64
 from utils.image_tools import get_image_information, resize_image
@@ -397,6 +398,11 @@ def return_character_reference_component_visible(_model, naiv4vibebundle_file):
 def return_image2image_visible(inpaint_input_image):
     if inpaint_input_image["background"]:
         w, h = (inpaint_input_image["background"]).size
+        if w * h > 1536 * 2048:
+            (inpaint_input_image["background"]).thumbnail(
+                (1536, 2048) if w < h else (2048, 1536), Image.Resampling.LANCZOS
+            )
+            w, h = (inpaint_input_image["background"]).size
         if w % 64 == 0 and h % 64 == 0:
             return gr.update(), gr.update(visible=True), gr.update(visible=True), gr.update(value=w), gr.update(value=h)
         (inpaint_input_image["background"]).save(image_path := "./outputs/temp_inpaint_image.png")
