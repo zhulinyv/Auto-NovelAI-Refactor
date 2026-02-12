@@ -93,7 +93,12 @@ def is_fully_transparent(image_path):
 def resize_image(image_path):
     with Image.open(image_path) as image:
         w, h = image.size
-        new_size = (return_x64(w), return_x64(h))
+        nw, nh = return_x64(w), return_x64(h)
+        if nw > w and nh < h:
+            nw = nw - 64 if nw > 64 else nw
+        if nw < w and nh > h:
+            nh = nh - 64 if nh > 64 else nh
+        new_size = (nw, nh)
         image = image.resize(new_size, Image.Resampling.LANCZOS)
         image.save(image_path)
     return image_path
@@ -199,11 +204,13 @@ def process_white_regions(image_path, output_path):
     return output_path
 
 
-def get_image_information(image_path):
-    with Image.open(image_path) as image:
-        try:
-            pnginfo = extract_data(image)
-        except Exception:
+def get_image_information(image: Image.Image):
+    try:
+        pnginfo = extract_data(image)
+    except Exception:
+        pnginfo = image.info
+    else:
+        if pnginfo is None:
             pnginfo = image.info
     return pnginfo
 

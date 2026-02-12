@@ -37,6 +37,7 @@ from utils.components import (
     modify_wildcard,
     return_character_reference_component_visible,
     return_image2image_visible,
+    return_inpaint_input_image_mode,
     return_pnginfo,
     return_position_interactive,
     send_pnginfo_to_generate,
@@ -75,7 +76,7 @@ with gr.Blocks(
     with announcement:
         with gr.Column(scale=2):
             updata_warning = gr.Markdown(
-                '<span style="color: red; font-size: 20px;">wilcards 内容即将迎来大调整, 请有需要的用户备份根目录下 ./wildcards 文件夹</span>',
+                '<span style="color: green; font-size: 20px;">新增涂鸦重绘功能!</span>',
                 show_label=False,
             )
         user_read = gr.Checkbox(label="我已知晓", interactive=True, scale=1)
@@ -284,20 +285,46 @@ with gr.Blocks(
                     visible=(True if _model in ["nai-diffusion-4-full", "nai-diffusion-4-curated-preview"] else False),
                     interactive=True,
                 )
-                inpaint_input_image = gr.Sketchpad(
-                    width=650,
-                    height=650,
-                    sources=["upload", "clipboard", "webcam"],
-                    type="pil",
-                    label="基础图片(可选)",
-                    layers=False,
+                with gr.Column():
+                    inpaint_input_image_mode = gr.Radio(
+                        ["图生图", "局部重绘", "涂鸦重绘"],
+                        value="图生图",
+                        show_label=False,
+                        visible=False,
+                        interactive=True,
+                    )
+                    inpaint_input_image = gr.ImageEditor(
+                        width=650,
+                        height=650,
+                        sources=["upload", "clipboard", "webcam"],
+                        brush=False,
+                        eraser=False,
+                        type="pil",
+                        label="基础图片(可选)",
+                        layers=False,
+                    )
+                inpaint_i2i_strength = gr.Slider(
+                    0.01, 1, 1, step=0.01, label="Mask Strength", visible=False, interactive=True
                 )
                 strength = gr.Slider(0.01, 0.99, 0.7, step=0.01, label="强度", visible=False, interactive=True)
                 noise = gr.Slider(0, 10, 0, step=0.01, label="噪声", visible=False, interactive=True)
                 inpaint_input_image.change(
                     return_image2image_visible,
                     inputs=inpaint_input_image,
-                    outputs=[inpaint_input_image, strength, noise, width, height],
+                    outputs=[
+                        inpaint_input_image,
+                        strength,
+                        noise,
+                        width,
+                        height,
+                        inpaint_input_image_mode,
+                        inpaint_i2i_strength,
+                    ],
+                )
+                inpaint_input_image_mode.change(
+                    return_inpaint_input_image_mode,
+                    [inpaint_input_image_mode, inpaint_input_image],
+                    [inpaint_input_image, inpaint_i2i_strength],
                 )
             character_position_tab = gr.Tab(
                 label="角色分区", visible=False if _model in ["nai-diffusion-3", "nai-diffusion-furry-3"] else True
@@ -494,6 +521,8 @@ with gr.Blocks(
                                 sm_dyn,
                                 legacy_uc,
                                 inpaint_input_image,
+                                inpaint_input_image_mode,
+                                inpaint_i2i_strength,
                                 strength,
                                 noise,
                                 naiv4vibebundle_file,

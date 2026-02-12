@@ -78,16 +78,16 @@ def format_str(text):
     return "".join(formatted_lines)
 
 
-def return_x64(_int: int):
-    if _int <= 64:
-        _int = 64
-    elif _int % 64 == 0:
+def return_x64(num: int):
+    if num <= 64:
+        num = 64
+    elif num % 64 == 0:
         pass
-    elif _int / 64 % 1 >= 0.5:
-        _int = (_int // 64 + 1) * 64
+    elif num / 64 % 1 >= 0.5:
+        num = (num // 64 + 1) * 64
     else:
-        _int = (_int // 64) * 64
-    return _int
+        num = (num // 64) * 64
+    return num
 
 
 def read_txt(path):
@@ -149,7 +149,12 @@ def find_and_replace_wildcards_from_dict(data: dict):
     data["input"] = (pos_pro := replace_wildcards(data["input"]))
     data["parameters"]["negative_prompt"] = (neg_pro := replace_wildcards(data["parameters"]["negative_prompt"]))
 
-    if data["model"] not in ["nai-diffusion-3", "nai-diffusion-furry-3"]:
+    if data["model"] not in [
+        "nai-diffusion-3",
+        "nai-diffusion-furry-3",
+        "nai-diffusion-3-inpainting",
+        "nai-diffusion-furry-3-inpainting",
+    ]:
         data["parameters"]["v4_prompt"]["caption"]["base_caption"] = pos_pro
         data["parameters"]["v4_negative_prompt"]["caption"]["base_caption"] = neg_pro
 
@@ -279,11 +284,14 @@ try:
     from playsound import playsound as _playsound
 
     def playsound(file_path):
-        if file_path == "./assets/llss.mp3" and not env.start_sound:
-            return
-        elif file_path == "./assets/finish.mp3" and not env.finish_sound:
-            return
-        _playsound(file_path)
+        try:
+            if file_path == "./assets/llss.mp3" and not env.start_sound:
+                return
+            elif file_path == "./assets/finish.mp3" and not env.finish_sound:
+                return
+            _playsound(file_path)
+        except Exception as e:
+            logger.warning(f"playsound 播放失败: {e}")
         return
 
 except Exception:

@@ -1,6 +1,7 @@
 import random
 
 import ujson as json
+from PIL import Image
 
 from utils import (
     find_and_replace_wildcards_from_dict,
@@ -55,6 +56,8 @@ def main(
     sm_dyn,
     legacy_uc,
     inpaint_input_image,
+    inpaint_input_image_mode,
+    inpaint_i2i_strength,
     strength,
     noise,
     naiv4vibebundle_file,
@@ -233,8 +236,22 @@ def main(
             )
 
             if inpaint_input_image["background"]:
-                (inpaint_input_image["background"]).save(image_path := "./outputs/temp_inpaint_image.png")
-                (inpaint_input_image["layers"][0]).save(mask_path := "./outputs/temp_inpaint_mask.png")
+                w, h = (inpaint_input_image["background"]).size
+                if w != width or h != height:
+                    inpaint_image = (inpaint_input_image["background"]).resize(
+                        (width, height), Image.Resampling.LANCZOS
+                    )
+                    inpaint_mask = (inpaint_input_image["layers"][0]).resize((width, height), Image.Resampling.LANCZOS)
+                    inpaint_composite = (inpaint_input_image["composite"]).resize(
+                        (width, height), Image.Resampling.LANCZOS
+                    )
+                else:
+                    inpaint_image = inpaint_input_image["background"]
+                    inpaint_mask = inpaint_input_image["layers"][0]
+                    inpaint_composite = inpaint_input_image["composite"]
+                inpaint_image.save(image_path := "./outputs/temp_inpaint_image.png")
+                inpaint_mask.save(mask_path := "./outputs/temp_inpaint_mask.png")
+                inpaint_composite.save(composite_path := "./outputs/temp_inpaint_composite.png")
 
                 if is_fully_transparent(mask_path):
                     model_function_map = {
@@ -262,7 +279,8 @@ def main(
                     json_data,
                     strength=strength,
                     noise=noise,
-                    image=image_to_base64(image_path),
+                    inpaint_i2i_strength=inpaint_i2i_strength,
+                    image=image_to_base64(composite_path if inpaint_input_image_mode == "涂鸦重绘" else image_path),
                     mask=image_to_base64(process_white_regions(change_the_mask_color(mask_path), mask_path)),
                     extra_noise_seed=_seed,
                     color_correct=False,

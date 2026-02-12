@@ -85,6 +85,7 @@ def inpaint(json_data, **kwargs):
     json_data = image2image(json_data, **kwargs)
     json_data["model"] = "nai-diffusion-4-curated-inpainting"
     json_data["action"] = "infill"
+    json_data["parameters"]["inpaintImg2ImgStrength"] = kwargs["inpaint_i2i_strength"]
     json_data["parameters"]["mask"] = kwargs["mask"]
     json_data["parameters"]["add_original_image"] = False
     return json_data

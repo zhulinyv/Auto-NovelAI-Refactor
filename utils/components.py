@@ -404,7 +404,15 @@ def return_image2image_visible(inpaint_input_image):
             )
             w, h = (inpaint_input_image["background"]).size
         if w % 64 == 0 and h % 64 == 0:
-            return gr.update(), gr.update(visible=True), gr.update(visible=True), gr.update(value=w), gr.update(value=h)
+            return (
+                gr.update(),
+                gr.update(visible=True),
+                gr.update(visible=True),
+                gr.update(value=w),
+                gr.update(value=h),
+                gr.update(visible=True),
+                gr.update(visible=True),
+            )
         (inpaint_input_image["background"]).save(image_path := "./outputs/temp_inpaint_image.png")
         return (
             gr.update(value=resize_image(image_path)),
@@ -412,19 +420,25 @@ def return_image2image_visible(inpaint_input_image):
             gr.update(visible=True),
             gr.update(value=return_x64(w)),
             gr.update(value=return_x64(h)),
+            gr.update(visible=True),
+            gr.update(visible=True),
         )
     else:
-        return gr.update(), gr.update(visible=False), gr.update(visible=False), gr.update(), gr.update()
+        return (
+            gr.update(),
+            gr.update(visible=False),
+            gr.update(visible=False),
+            gr.update(),
+            gr.update(),
+            gr.update(visible=False),
+            gr.update(visible=False),
+        )
 
 
 def return_pnginfo(image):
     if not image:
         return gr.update(visible=False), None, None, None, None, None, None
-    try:
-        image.save(image_path := "./outputs/temp_pnginfo.png")
-    except OSError:
-        return gr.update(visible=False), None, None, None, None, None, None
-    pnginfo = get_image_information(image_path)
+    pnginfo = get_image_information(image)
     return (
         gr.update(visible=True if pnginfo.get("Software") == "NovelAI" else False),
         pnginfo.get("Source"),
@@ -554,3 +568,20 @@ def enable_plugin(name):
         json.dump({"disable_plugin": disable_list}, file, ensure_ascii=False)
 
     return gr.update(value=f"插件 {name} 已启用!" if FLAG else f"插件 {name} 已禁用!", visible=True)
+
+
+def return_inpaint_input_image_mode(inpaint_input_image_mode, inpaint_input_image):
+    if inpaint_input_image_mode == "图生图":
+        return gr.update(value=inpaint_input_image["background"], brush=False, eraser=False), gr.update(visible=False)
+    elif inpaint_input_image_mode == "局部重绘":
+        return gr.update(
+            value=inpaint_input_image["background"],
+            brush=gr.Brush(colors=["#000000"], color_mode="fixed"),
+            eraser=gr.Eraser(),
+        ), gr.update(visible=True)
+    elif inpaint_input_image_mode == "涂鸦重绘":
+        return gr.update(
+            value=inpaint_input_image["background"],
+            brush=gr.Brush(),
+            eraser=gr.Eraser(),
+        ), gr.update(visible=True)
