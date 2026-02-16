@@ -15,7 +15,7 @@
 
 - 目前已实现的功能:
 
-<img src=https://i.postimg.cc/PqcdndWj/image.png  alt="Auto-NovelAI-Refactor" width="500"/>
+<img src=https://github.com/user-attachments/assets/775b7e40-0354-4758-8ec4-c16bda59598e  alt="Auto-NovelAI-Refactor" width="500"/>
 
 
 ## 💿 部署
@@ -57,7 +57,7 @@
 
 #### 5️⃣ 整合包下载
 
-- 如果上述操作你觉得难以上手或出现问题, 请立即加群下载整合包, 解压即用
+- 如果上述操作你觉得难以上手或出现问题, 请加群下载整合包, 解压即用
 
 
 ## ⚙️ 配置
@@ -82,8 +82,6 @@
 
 本项目使用 [SmilingWolf/wd-tagger](https://huggingface.co/spaces/SmilingWolf/wd-tagger) 反推提示词
 
-本项目使用 [涩涩法典梦神版](https://share.weiyun.com/Xf8NXoNA) 提供的各种动作提示词
-
 本项目使用 [novelai-image-metadata](https://github.com/NovelAI/novelai-image-metadata) 修改元数据
 
 本项目使用 [realcugan-ncnn-vulkan](https://github.com/nihui/realcugan-ncnn-vulkan) | [Anime4KCPP](https://github.com/TianZerL/Anime4KCPP) | [waifu2x-caffe](https://github.com/lltcggie/waifu2x-caffe) 超分降噪图片
@@ -100,4 +98,4 @@
 </p>
 
 <hr>
-<img src="https://count.getloli.com/@zhulinyv?name=zhulinyv&theme=moebooru-h&padding=6&offset=0&align=top&scale=1.5&pixelated=1&darkmode=auto&prefix=769854"></img>
+<img src="https://count.getloli.com/@zhulinyv?name=zhulinyv&theme=asoul&padding=6&offset=0&align=top&scale=1.5&pixelated=1&darkmode=auto&prefix=769854"></img>
