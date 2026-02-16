@@ -310,7 +310,7 @@ with gr.Blocks(
                 noise = gr.Slider(0, 10, 0, step=0.01, label="噪声", visible=False, interactive=True)
                 inpaint_input_image.change(
                     return_image2image_visible,
-                    inputs=inpaint_input_image,
+                    inputs=[inpaint_input_image, inpaint_input_image_mode],
                     outputs=[
                         inpaint_input_image,
                         strength,
@@ -805,7 +805,12 @@ with gr.Blocks(
                             pnginfo_image = gr.Image(type="pil", image_mode="RGBA")
                             send_button = gr.Button("发送到图片生成", visible=False)
                             send_info_from_json = gr.Files(
-                                type="filepath", visible=False, interactive=True, label="*.json 文件"
+                                type="filepath",
+                                visible=False,
+                                interactive=True,
+                                label="*.json 文件",
+                                file_count="single",
+                                file_types=[".json"],
                             )
                             send_info_from_json.change(
                                 send_pnginfo_to_generate,

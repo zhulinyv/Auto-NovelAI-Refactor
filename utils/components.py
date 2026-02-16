@@ -395,7 +395,7 @@ def return_character_reference_component_visible(_model, naiv4vibebundle_file):
         return gr.update(visible=False)
 
 
-def return_image2image_visible(inpaint_input_image):
+def return_image2image_visible(inpaint_input_image, inpaint_input_image_mode):
     if inpaint_input_image["background"]:
         w, h = (inpaint_input_image["background"]).size
         if w * h > 1536 * 2048:
@@ -411,7 +411,7 @@ def return_image2image_visible(inpaint_input_image):
                 gr.update(value=w),
                 gr.update(value=h),
                 gr.update(visible=True),
-                gr.update(visible=True),
+                gr.update(visible=False if inpaint_input_image_mode == "图生图" else True),
             )
         (inpaint_input_image["background"]).save(image_path := "./outputs/temp_inpaint_image.png")
         return (
@@ -421,7 +421,7 @@ def return_image2image_visible(inpaint_input_image):
             gr.update(value=return_x64(w)),
             gr.update(value=return_x64(h)),
             gr.update(visible=True),
-            gr.update(visible=True),
+            gr.update(visible=False if inpaint_input_image_mode == "图生图" else True),
         )
     else:
         return (
@@ -450,13 +450,13 @@ def return_pnginfo(image):
     )
 
 
-def send_pnginfo_to_generate(image_path: str):
+def send_pnginfo_to_generate(image_path):
     if image_path is None:
         none_components = [gr.update() for _ in range(49)]
         return (*none_components,)
 
-    if image_path[0].endswith(".json"):
-        pnginfo: dict = read_json(image_path[0])
+    if isinstance(image_path, str):
+        pnginfo: dict = read_json(image_path)
         comment = pnginfo.get("Comment", {})
     else:
         pnginfo = get_image_information(image_path)

@@ -210,23 +210,24 @@ def stop_generate():
     return
 
 
-def tagger(image_path, model_repo, general_thresh, general_mcut_enabled, character_thresh, character_mcut_enabled):
-    def format_dict(_dict):
-        try:
-            _list = _dict["confidences"]
-            _dict = {}
-            for i in _list:
-                _dict.update({i["label"]: i["confidence"]})
-            return _dict
-        except KeyError:
-            return None
+def format_dict(_dict):
+    try:
+        _list = _dict["confidences"]
+        _dict = {}
+        for i in _list:
+            _dict.update({i["label"]: i["confidence"]})
+        return _dict
+    except KeyError:
+        return None
 
+
+def tagger(image_path, model_repo, general_thresh, general_mcut_enabled, character_thresh, character_mcut_enabled):
     logger.info("正在尝试反推...")
-    client = Client("SmilingWolf/wd-tagger", verbose=False)
 
     times = 0
     while times < 5:
         try:
+            client = Client("SmilingWolf/wd-tagger", verbose=False)
             result = client.predict(
                 image=handle_file(image_path),
                 model_repo=model_repo,
@@ -242,6 +243,7 @@ def tagger(image_path, model_repo, general_thresh, general_mcut_enabled, charact
             logger.error(f"出现错误: {e}")
             logger.info("正在重试...")
             times += 1
+            result = [f"出现错误: {e}", {}, {}, {}]
     return result[0], format_dict(result[1]), format_dict(result[2]), format_dict(result[3])
 
 
