@@ -160,7 +160,6 @@ def update_components_for_models_change(model):
         return (
             gr.update(visible=False),  # decrisp
             gr.update(visible=False),  # sm
-            gr.update(visible=False),  # sm_dyn
             gr.update(visible=False),  # legacy_uc
             gr.update(choices=_SAMPLER),  # sampler
             gr.update(choices=_NOISE_SCHEDULE),  # noise_schedule
@@ -179,7 +178,6 @@ def update_components_for_models_change(model):
         return (
             gr.update(visible=False),  # decrisp
             gr.update(visible=False),  # sm
-            gr.update(visible=False),  # sm_dyn
             gr.update(visible=True),  # legacy_uc
             gr.update(choices=_SAMPLER),  # sampler
             gr.update(choices=_NOISE_SCHEDULE),  # noise_schedule
@@ -199,7 +197,6 @@ def update_components_for_models_change(model):
         return (
             gr.update(visible=True),  # decrisp
             gr.update(visible=True),  # sm
-            gr.update(visible=True),  # sm_dyn
             gr.update(visible=False),  # legacy_uc
             gr.update(choices=SAMPLER),  # sampler
             gr.update(choices=NOISE_SCHEDULE),  # noise_schedule
@@ -218,14 +215,14 @@ def update_components_for_sm_change(sm):
     if sm:
         return gr.update(visible=True)
     else:
-        return gr.update(visible=False)
+        return gr.update(value=False, visible=False)
 
 
 def update_components_for_sampler_change(sampler):
     if sampler == "ddim_v3":
-        return gr.update(visible=False)
+        return gr.update(visible=False), gr.update(value=False, interactive=False)
     else:
-        return gr.update(visible=True)
+        return gr.update(visible=True), gr.update(interactive=True)
 
 
 def add_character(character_components_number):

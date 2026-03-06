@@ -217,6 +217,7 @@ assets/waifu2x-caffe
 Git/
 Python/
 plugins/
+.idea/
 /wildcards/**
 !/wildcards/**/
 !/wildcards/动作/后视鸭子坐.txt

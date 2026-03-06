@@ -14,6 +14,8 @@ from utils.variable import proxies
 
 
 def inquire_anlas():
+    if env.skip_inquire_anlas:
+        return "已跳过剩余点数计算"
     try:
         rep = requests.get(
             "https://api.novelai.net/user/subscription",

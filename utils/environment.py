@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     finish_sound: bool = True
     theme: Union[str, None] = None
     check_update: bool = True
+    skip_inquire_anlas: bool = False
 
     format_input: bool = True
 

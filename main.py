@@ -76,7 +76,7 @@ with gr.Blocks(
     with announcement:
         with gr.Column(scale=2):
             updata_warning = gr.Markdown(
-                '<span style="color: green; font-size: 20px;">新增涂鸦重绘功能!</span>',
+                '<span style="color: yellow; font-size: 20px;">如果觉得 ANR 还不错, 不妨去仓库点个 Star 🌟!</span>',
                 show_label=False,
             )
         user_read = gr.Checkbox(label="我已知晓", interactive=True, scale=1)
@@ -246,7 +246,11 @@ with gr.Blocks(
                     sm_dyn = gr.Checkbox(
                         value=parameters.get("sm_dyn", False),
                         label="DYN",
-                        visible=True if _model in ["nai-diffusion-3", "nai-diffusion-furry-3"] else False,
+                        visible=(
+                            True
+                            if _model in ["nai-diffusion-3", "nai-diffusion-furry-3"] and parameters.get("sm", False)
+                            else False
+                        ),
                         interactive=True,
                     )
                 with gr.Row():
@@ -1133,6 +1137,9 @@ with gr.Blocks(
                     start_sound = gr.Checkbox(value=env.start_sound, label="启动提示音")
                     finish_sound = gr.Checkbox(value=env.finish_sound, label="完成提示音")
                 check_update = gr.Checkbox(value=env.check_update, label="启动时检查更新")
+                gr.Markdown("可以较小提升启动速度")
+                skip_inquire_anlas = gr.Checkbox(value=env.skip_inquire_anlas, label="跳过剩余点数计算")
+                gr.Markdown("跳过可减少生成下一张图片中间的等待时间")
                 theme = gr.Dropdown(
                     value=env.theme,
                     choices=[
@@ -1188,6 +1195,7 @@ with gr.Blocks(
                         check_update,
                         theme,
                         format_input,
+                        skip_inquire_anlas,
                     ],
                     outputs=setting_output_information,
                 )
@@ -1201,7 +1209,6 @@ with gr.Blocks(
         outputs=[
             decrisp,
             sm,
-            sm_dyn,
             legacy_uc,
             sampler,
             noise_schedule,
@@ -1216,7 +1223,7 @@ with gr.Blocks(
         ],
     )
     sm.change(update_components_for_sm_change, inputs=sm, outputs=sm_dyn)
-    sampler.change(update_components_for_sampler_change, inputs=sampler, outputs=noise_schedule)
+    sampler.change(update_components_for_sampler_change, inputs=sampler, outputs=[noise_schedule, sm])
 
 
 anr.launch(
