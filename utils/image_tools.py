@@ -232,3 +232,13 @@ def return_array_image(path):
     if path:
         with Image.open(path) as image:
             return np.array(image)
+
+
+def is_pure_white(image: Image.Image) -> bool:
+    if image.mode != "RGB":
+        image = image.convert("RGB")
+    extrema = image.getextrema()
+    for min_val, max_val in extrema:
+        if min_val != 255 or max_val != 255:
+            return False
+    return True

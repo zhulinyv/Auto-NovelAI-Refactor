@@ -40,14 +40,14 @@ from utils.components import (
     return_inpaint_input_image_mode,
     return_pnginfo,
     return_position_interactive,
+    send_image_to_image2image,
     send_pnginfo_to_generate,
     uninstall_plugin,
     update_components_for_models_change,
     update_components_for_sampler_change,
     update_components_for_sm_change,
     update_from_dropdown,
-    update_from_height,
-    update_from_width,
+    update_from_width_or_height,
     update_repo,
     update_wildcard_names,
     update_wildcard_tags,
@@ -158,16 +158,29 @@ with gr.Blocks(
     with gr.Row():
         with gr.Column(scale=1):
             with gr.Tab(label="参数设置"):
-                resolution = gr.Dropdown(
-                    choices=RESOLUTION + ["自定义"],
-                    value=(
-                        "自定义"
-                        if (res := "{}x{}".format(parameters.get("width"), parameters.get("height"))) not in RESOLUTION
-                        else res
-                    ),
-                    label="分辨率预设",
-                    interactive=True,
-                )
+                with gr.Row():
+                    resolution = gr.Dropdown(
+                        choices=RESOLUTION + ["自定义"],
+                        value=(
+                            "自定义"
+                            if (res := "{}x{}".format(parameters.get("width"), parameters.get("height")))
+                            not in RESOLUTION
+                            else res
+                        ),
+                        label="分辨率预设",
+                        interactive=True,
+                    )
+                    enhance_enable = gr.Checkbox(False, label="Enhance")
+                with gr.Row():
+                    upscale_amount = gr.Radio(
+                        ["1x", "1.5x", "2x"], value="1.5x", label="放大倍数", visible=False, interactive=True
+                    )
+                    magnitude = gr.Slider(1, 5, 1, step=1, label="Magnitude", visible=False, interactive=True)
+                    enhance_enable.change(
+                        lambda x: (gr.update(visible=True if x else False), gr.update(visible=True if x else False)),
+                        enhance_enable,
+                        outputs=[upscale_amount, magnitude],
+                    )
                 with gr.Row():
                     width = gr.Slider(
                         minimum=0,
@@ -191,14 +204,14 @@ with gr.Blocks(
                     outputs=[width, height],
                 )
                 width.change(
-                    fn=update_from_width,
+                    fn=update_from_width_or_height,
                     inputs=[width, height, resolution],
-                    outputs=resolution,
+                    outputs=[resolution, upscale_amount],
                 )
                 height.change(
-                    fn=update_from_height,
+                    fn=update_from_width_or_height,
                     inputs=[width, height, resolution],
-                    outputs=resolution,
+                    outputs=[resolution, upscale_amount],
                 )
                 steps = gr.Slider(
                     minimum=1,
@@ -316,7 +329,7 @@ with gr.Blocks(
                     return_image2image_visible,
                     inputs=[inpaint_input_image, inpaint_input_image_mode],
                     outputs=[
-                        inpaint_input_image,
+                        # inpaint_input_image,
                         strength,
                         noise,
                         width,
@@ -327,8 +340,9 @@ with gr.Blocks(
                 )
                 inpaint_input_image_mode.change(
                     return_inpaint_input_image_mode,
-                    [inpaint_input_image_mode, inpaint_input_image],
+                    inpaint_input_image_mode,
                     [inpaint_input_image, inpaint_i2i_strength],
+                    trigger_mode="once",
                 )
             character_position_tab = gr.Tab(
                 label="角色分区", visible=False if _model in ["nai-diffusion-3", "nai-diffusion-furry-3"] else True
@@ -532,6 +546,9 @@ with gr.Blocks(
                                 naiv4vibebundle_file,
                                 normalize_reference_strength_multiple,
                                 ai_choice,
+                                enhance_enable,
+                                upscale_amount,
+                                magnitude,
                             ]
                             + character_components_list
                             + precise_reference_components_list
@@ -598,7 +615,18 @@ with gr.Blocks(
             with gr.Tab("图片生成"):
                 with gr.Column(scale=2):
                     output_image = gr.Gallery(label="输出图片", interactive=False, show_label=False)
-                    output_information = gr.Textbox(label="输出信息", interactive=False, show_label=False)
+                    send_output_image_to_base_image = gr.Button("发送到图生图", visible=False)
+                    output_image.change(
+                        lambda x: gr.update(visible=True) if len(x) == 1 else gr.update(visible=False),
+                        inputs=output_image,
+                        outputs=send_output_image_to_base_image,
+                    )
+                    send_output_image_to_base_image.click(
+                        send_image_to_image2image,
+                        output_image,
+                        inpaint_input_image,
+                    )
+                    output_information = gr.Markdown(show_label=False)
                     wildcard_modify.click(
                         modify_wildcard,
                         inputs=[wildcard_type, wildcard_name, wildcard_tags],

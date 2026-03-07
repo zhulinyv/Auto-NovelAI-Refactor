@@ -2,7 +2,7 @@ import os
 
 from utils.environment import env
 
-VERSION = "1.5.3"
+VERSION = "1.5.5"
 
 MODELS = [
     "nai-diffusion-4-5-full",

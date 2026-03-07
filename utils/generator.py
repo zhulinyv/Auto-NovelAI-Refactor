@@ -12,6 +12,8 @@ from utils.logger import logger
 from utils.models.headers import headers
 from utils.variable import proxies
 
+ANLAS = -1
+
 
 def inquire_anlas():
     if env.skip_inquire_anlas:
@@ -46,7 +48,9 @@ class Generator:
             if (status_code := rep.status_code) != 200:
                 logger.debug(f"本次请求状态码: {status_code}")
                 logger.debug(rep.json()["message"])
-            logger.opt(colors=True).success(f"请求成功! <y>剩余点数: {inquire_anlas()}</y>")
+            global ANLAS
+            ANLAS = inquire_anlas()
+            logger.opt(colors=True).success(f"请求成功! <y>剩余点数: {ANLAS}</y>")
             with zipfile.ZipFile(io.BytesIO(rep.content), mode="r") as zip:
                 if json_data.get("req_type") == "bg-removal":
                     with (

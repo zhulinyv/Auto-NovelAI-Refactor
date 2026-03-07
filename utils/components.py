@@ -1,6 +1,7 @@
 import csv
 import os
 import shutil
+import subprocess
 
 import gradio as gr
 import send2trash
@@ -8,7 +9,7 @@ import ujson as json
 from PIL import Image
 
 from utils import float_to_position, format_str, get_plugin_list, list_to_str, read_json, read_txt, return_x64
-from utils.image_tools import get_image_information, resize_image
+from utils.image_tools import get_image_information, is_pure_white
 from utils.logger import logger
 from utils.variable import NOISE_SCHEDULE, RESOLUTION, SAMPLER, UC_PRESET
 
@@ -35,20 +36,18 @@ def update_from_dropdown(resolution_choice):
     return width, height
 
 
-def update_from_width(width, height, current_resolution):
+def update_from_width_or_height(width, height, current_resolution):
     new_resolution = get_resolution_from_sliders(width, height)
-    if new_resolution != current_resolution:
-        return new_resolution
-    else:
-        return gr.update()
 
-
-def update_from_height(width, height, current_resolution):
-    new_resolution = get_resolution_from_sliders(width, height)
-    if new_resolution != current_resolution:
-        return new_resolution
+    if width * height <= 512 * 768:
+        choices = ["1x", "1.5x", "2x"]
     else:
-        return gr.update()
+        choices = ["1x", "1.5x"]
+
+    if new_resolution != current_resolution:
+        return new_resolution, gr.update(choices=choices, value="1x")
+    else:
+        return gr.update(), gr.update(choices=choices, value="1x")
 
 
 def load_tags(csv_filename="./assets/danbooru_e621_merged_with_zh.csv"):
@@ -402,7 +401,7 @@ def return_image2image_visible(inpaint_input_image, inpaint_input_image_mode):
             w, h = (inpaint_input_image["background"]).size
         if w % 64 == 0 and h % 64 == 0:
             return (
-                gr.update(),
+                # gr.update(),
                 gr.update(visible=True),
                 gr.update(visible=True),
                 gr.update(value=w),
@@ -410,19 +409,20 @@ def return_image2image_visible(inpaint_input_image, inpaint_input_image_mode):
                 gr.update(visible=True),
                 gr.update(visible=False if inpaint_input_image_mode == "图生图" else True),
             )
-        (inpaint_input_image["background"]).save(image_path := "./outputs/temp_inpaint_image.png")
+        # (inpaint_input_image["background"]).save(image_path := "./outputs/temp_inpaint_image.png")
+        WRONG_IMAGE_FLAG = is_pure_white(inpaint_input_image["background"])
         return (
-            gr.update(value=resize_image(image_path)),
+            # gr.update(value=resize_image(image_path)),
             gr.update(visible=True),
             gr.update(visible=True),
-            gr.update(value=return_x64(w)),
-            gr.update(value=return_x64(h)),
+            gr.update(value=return_x64(w)) if not WRONG_IMAGE_FLAG else gr.update(),
+            gr.update(value=return_x64(h)) if not WRONG_IMAGE_FLAG else gr.update(),
             gr.update(visible=True),
             gr.update(visible=False if inpaint_input_image_mode == "图生图" else True),
         )
     else:
         return (
-            gr.update(),
+            # gr.update(),
             gr.update(visible=False),
             gr.update(visible=False),
             gr.update(),
@@ -543,7 +543,24 @@ def install_plugin(name):
 
 
 def uninstall_plugin(name):
-    shutil.rmtree(f"./plugins/{name}")
+    os.chmod(path := f"./plugins/{name}", 0o777)
+    try:
+        shutil.rmtree(path)
+    except Exception:
+        subprocess.run(
+            ["del", os.path.abspath(path), "/s", "/q", "/f"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            shell=True,
+            check=True,
+        )
+        subprocess.run(
+            ["rmdir", os.path.abspath(path), "/s", "/q"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            shell=True,
+            check=True,
+        )
 
     return gr.update(value="删除成功, 重启后生效!", visible=True)
 
@@ -567,18 +584,34 @@ def enable_plugin(name):
     return gr.update(value=f"插件 {name} 已启用!" if FLAG else f"插件 {name} 已禁用!", visible=True)
 
 
-def return_inpaint_input_image_mode(inpaint_input_image_mode, inpaint_input_image):
+def return_inpaint_input_image_mode(inpaint_input_image_mode):
     if inpaint_input_image_mode == "图生图":
-        return gr.update(value=inpaint_input_image["background"], brush=False, eraser=False), gr.update(visible=False)
+        return gr.update(
+            # value=inpaint_input_image["background"],
+            brush=False,
+            eraser=False,
+        ), gr.update(visible=False)
     elif inpaint_input_image_mode == "局部重绘":
         return gr.update(
-            value=inpaint_input_image["background"],
+            # value=inpaint_input_image["background"],
             brush=gr.Brush(colors=["#000000"], color_mode="fixed"),
             eraser=gr.Eraser(),
         ), gr.update(visible=True)
     elif inpaint_input_image_mode == "涂鸦重绘":
         return gr.update(
-            value=inpaint_input_image["background"],
+            # value=inpaint_input_image["background"],
             brush=gr.Brush(),
             eraser=gr.Eraser(),
         ), gr.update(visible=True)
+
+
+def send_image_to_image2image(image):
+    data = {}
+    with Image.open(image[0][0]) as img:
+        img.save("test.png")
+        w, h = img.size
+        bg_img = img.copy()
+        data["background"] = bg_img
+        data["layers"] = [Image.new("RGBA", (w, h), (0, 0, 0, 0))]
+        data["composite"] = bg_img.copy()
+    return gr.update(value=data)

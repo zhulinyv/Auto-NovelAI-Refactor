@@ -322,6 +322,8 @@ def check_update(repo_path):
             local_commit = current_branch.commit.hexsha
             remote_commit = repo.references[remote_ref].commit.hexsha
 
+            repo.close()
+
             return local_commit == remote_commit, local_commit + " (更新可用)"
         else:
             return False, "更新检查已关闭"

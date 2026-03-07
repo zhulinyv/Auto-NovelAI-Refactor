@@ -218,6 +218,7 @@ Git/
 Python/
 plugins/
 .idea/
+.vscode
 /wildcards/**
 !/wildcards/**/
 !/wildcards/动作/后视鸭子坐.txt

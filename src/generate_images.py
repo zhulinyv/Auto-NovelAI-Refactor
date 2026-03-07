@@ -13,14 +13,16 @@ from utils import (
     return_x64,
     sleep_for_cool,
 )
+from utils import generator as _generator
 from utils.environment import env
-from utils.generator import Generator, inquire_anlas
+from utils.generator import Generator
 from utils.image_tools import (
     change_the_mask_color,
     image_to_base64,
     is_fully_transparent,
     process_image_by_orientation,
     process_white_regions,
+    resize_image,
 )
 from utils.logger import logger
 from utils.models import *  # noqa
@@ -63,6 +65,9 @@ def main(
     naiv4vibebundle_file,
     normalize_reference_strength_multiple,
     ai_choice,
+    enhance_enable,
+    upscale_amount: str,
+    magnitude,
     *args,
 ):
     with open("./outputs/temp_break.json", "w") as f:
@@ -280,8 +285,12 @@ def main(
                     strength=strength,
                     noise=noise,
                     inpaint_i2i_strength=inpaint_i2i_strength,
-                    image=image_to_base64(composite_path if inpaint_input_image_mode == "涂鸦重绘" else image_path),
-                    mask=image_to_base64(process_white_regions(change_the_mask_color(mask_path), mask_path)),
+                    image=image_to_base64(
+                        resize_image(composite_path if inpaint_input_image_mode == "涂鸦重绘" else image_path)
+                    ),
+                    mask=image_to_base64(
+                        resize_image(process_white_regions(change_the_mask_color(mask_path), mask_path))
+                    ),
                     extra_noise_seed=_seed,
                     color_correct=False,
                 )
@@ -292,7 +301,45 @@ def main(
             image_data = generator.generate(find_and_replace_wildcards_from_dict(json_data))
             if image_data:
                 path = generator.save(image_data, _type, json_data["parameters"]["seed"])
-                image_list.append(path)
+                if not enhance_enable:
+                    image_list.append(path)
+
+            if enhance_enable:
+                logger.info("正在 Enhance 图片...")
+                model_function_map = {
+                    "nai-diffusion-4-5-full": nai45fi2i,  # noqa
+                    "nai-diffusion-4-5-curated": nai45ci2i,  # noqa
+                    "nai-diffusion-4-full": nai4fi2i,  # noqa
+                    "nai-diffusion-4-curated-preview": nai4cpi2i,  # noqa
+                    "nai-diffusion-3": nai3i2i,  # noqa
+                    "nai-diffusion-furry-3": naif3i2i,  # noqa
+                }
+                _type = "image2image"
+                func = model_function_map.get(model)
+
+                _upscale_amount = float(upscale_amount.replace("x", ""))
+                new_width = return_x64(int(width * _upscale_amount))
+                new_height = return_x64(int(height * _upscale_amount))
+
+                json_data = func(
+                    json_data,
+                    strength=strength,
+                    noise=noise,
+                    image=image_to_base64(resize_image(path)),
+                    extra_noise_seed=_seed,
+                    color_correct=False,
+                )
+                _seed = random.randint(1000000000, 9999999999) if seed == "-1" else int(seed)
+                json_data["parameters"]["seed"] = _seed
+                json_data["parameters"]["extra_noise_seed"] = _seed
+                json_data["parameters"]["width"] = new_width
+                json_data["parameters"]["height"] = new_height
+
+                image_data = generator.generate(find_and_replace_wildcards_from_dict(json_data))
+                if image_data:
+                    path = generator.save(image_data, _type, json_data["parameters"]["seed"])
+                    image_list.append(path)
+
             if quantity != 1 and i != quantity - 1:
                 sleep_for_cool(env.cool_time)
         except Exception as e:
@@ -301,4 +348,4 @@ def main(
 
     playsound("./assets/finish.mp3")
 
-    return image_list, f"处理完成! 剩余点数: {inquire_anlas()}"
+    return image_list, f"处理完成! 剩余点数: {_generator.ANLAS}"
