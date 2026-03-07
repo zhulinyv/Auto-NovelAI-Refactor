@@ -536,7 +536,13 @@ def install_plugin(name):
         return output
 
     logger.info(f"正在安装 {name}...")
-    git.Git().clone(data[name]["url"], plugin_path)
+    for i in range(3):
+        try:
+            git.Git().clone(data[name]["url"], plugin_path)
+            break
+        except Exception as e:
+            logger.error(f"出现错误: {e}")
+            logger.warning(f"正在重试 {i+1}/3")
     logger.success("安装完成!")
 
     return gr.update(value="安装完成, 重启后生效!", visible=True)

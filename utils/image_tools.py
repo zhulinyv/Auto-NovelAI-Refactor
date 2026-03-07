@@ -217,7 +217,8 @@ def get_image_information(image: Image.Image):
 
 def revert_image_info(image_path1, image_path2):
     try:
-        _pnginfo = get_image_information(image_path1)
+        with Image.open(image_path1) as image:
+            _pnginfo = get_image_information(image)
         metadata = PngInfo()
         for k, v in _pnginfo.items():
             metadata.add_text(k, v)
