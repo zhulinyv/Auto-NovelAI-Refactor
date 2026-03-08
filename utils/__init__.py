@@ -128,7 +128,7 @@ def replace_wildcards(text: str):
                     data[wild_card[0]] = number
                 with open("./outputs/temp_wildcards.json", "w", encoding="utf-8") as file:
                     json.dump(data, file, ensure_ascii=False)
-                name = (os.listdir(f"./wildcards/{wild_card[0]}")[number]).replace(".txt", "")
+                name = (sorted(os.listdir(f"./wildcards/{wild_card[0]}"))[number]).replace(".txt", "")
                 tag = read_txt(f"./wildcards/{wild_card[0]}/{name}.txt")
             else:
                 name = wild_card[1]

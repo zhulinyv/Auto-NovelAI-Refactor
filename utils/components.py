@@ -113,7 +113,7 @@ def auto_complete(input_box):
 
 def update_wildcard_names(wildcard_type):
     return gr.update(
-        choices=["随机", "顺序"] + [file.split(".")[0] for file in os.listdir(f"./wildcards/{wildcard_type}")]
+        choices=["随机", "顺序"] + sorted([file.split(".")[0] for file in os.listdir(f"./wildcards/{wildcard_type}")])
     )
 
 
