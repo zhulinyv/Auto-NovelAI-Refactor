@@ -20,6 +20,7 @@ from utils.image_tools import (
     change_the_mask_color,
     image_to_base64,
     is_fully_transparent,
+    is_pure_white,
     process_image_by_orientation,
     process_white_regions,
     resize_image,
@@ -240,7 +241,7 @@ def main(
                 director_reference_secondary_strength_values=director_reference_secondary_strength_values,
             )
 
-            if inpaint_input_image["background"]:
+            if inpaint_input_image["background"] and not is_pure_white(inpaint_input_image["background"]):
                 w, h = (inpaint_input_image["background"]).size
                 if w != width or h != height:
                     inpaint_image = (inpaint_input_image["background"]).resize(
