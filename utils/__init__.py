@@ -241,7 +241,7 @@ def tagger(image_path, model_repo, general_thresh, general_mcut_enabled, charact
             break
         except Exception as e:
             logger.error(f"出现错误: {e}")
-            logger.info("正在重试...")
+            logger.info("正在重试...") if times < 5 else ...
             times += 1
             result = [f"出现错误: {e}", {}, {}, {}]
     return result[0], format_dict(result[1]), format_dict(result[2]), format_dict(result[3])
