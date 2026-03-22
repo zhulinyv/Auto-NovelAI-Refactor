@@ -617,7 +617,11 @@ with gr.Blocks(
                     output_image = gr.Gallery(label="输出图片", interactive=False, show_label=False)
                     send_output_image_to_base_image = gr.Button("发送到图生图", visible=False)
                     output_image.change(
-                        lambda x: gr.update(visible=True) if len(x) == 1 else gr.update(visible=False),
+                        lambda x: (
+                            gr.update(visible=False)
+                            if x is None
+                            else gr.update(visible=True) if len(x) == 1 else gr.update(visible=False)
+                        ),
                         inputs=output_image,
                         outputs=send_output_image_to_base_image,
                     )

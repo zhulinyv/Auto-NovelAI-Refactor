@@ -22,5 +22,17 @@
         "description": "[Auto-NovelAI-Refactor](https://github.com/zhulinyv/Auto-NovelAI-Refactor) 的随机画风插件",
         "url": "https://github.com/zhulinyv/anr_plugin_random_artists",
         "author": "[zhulinyv](https://github.com/zhulinyv)"
+    },
+    "anr_plugin_video_to_frames": {
+        "name": "anr_plugin_video_to_frames",
+        "description": "[Auto-NovelAI-Refactor](https://github.com/zhulinyv/Auto-NovelAI-Refactor) 的视频处理插件",
+        "url": "https://github.com/zhulinyv/anr_plugin_video_to_frames",
+        "author": "[zhulinyv](https://github.com/zhulinyv)"
+    },
+    "anr_plugin_image_compression": {
+        "name": "anr_plugin_image_compression",
+        "description": "[Auto-NovelAI-Refactor](https://github.com/zhulinyv/Auto-NovelAI-Refactor) 的图片压缩插件",
+        "url": "https://github.com/zhulinyv/anr_plugin_image_compression",
+        "author": "[zhulinyv](https://github.com/zhulinyv)"
     }
 }
