@@ -1172,6 +1172,14 @@ with gr.Blocks(
                 gr.Markdown("可以较小提升启动速度")
                 skip_inquire_anlas = gr.Checkbox(value=env.skip_inquire_anlas, label="跳过剩余点数计算")
                 gr.Markdown("跳过可减少生成下一张图片中间的等待时间")
+                smtp_num = gr.Slider(0, 999, env.smtp_num, step=1, label="超过指定数量时启用 SMTP", interactive=True)
+                gr.Markdown("当设置为 0 时生成结束不发送邮件")
+                with gr.Row():
+                    smtp_mail = gr.Textbox(env.smtp_mail, label="发送/接收邮件的 QQ 邮箱", interactive=True)
+                    smtp_token = gr.Textbox(
+                        env.smtp_token, label="SMTP TOKEN", visible=True if not env.share else False, interactive=True
+                    )
+                gr.Markdown("目前仅支持 QQ 邮箱, SMTP TOKEN 可以去 QQ 邮箱官网获取")
                 theme = gr.Dropdown(
                     value=env.theme,
                     choices=[

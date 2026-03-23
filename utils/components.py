@@ -7,6 +7,7 @@ import gradio as gr
 import send2trash
 import ujson as json
 from PIL import Image
+from rich.progress import Progress
 
 from utils import float_to_position, format_str, get_plugin_list, list_to_str, read_json, read_txt, return_x64
 from utils.image_tools import get_image_information, is_pure_white
@@ -518,9 +519,12 @@ def send_pnginfo_to_generate(image_path):
 def update_repo(path):
     logger.info("正在尝试更新...")
     try:
-        repo = git.Repo(path)
-        repo.git.pull()
-        logger.success("更新完成, 重启后生效!")
+        with Progress(transient=True) as progress:
+            task = progress.add_task("正在更新:", total=None)
+            repo = git.Repo(path)
+            repo.git.pull()
+            logger.success("更新完成, 重启后生效!")
+            progress.advance(task)
         return gr.update(value="更新完成, 重启后生效!", visible=True)
     except Exception as e:
         logger.error(f"更新失败, 出现错误: {e}")
@@ -536,13 +540,16 @@ def install_plugin(name):
         return output
 
     logger.info(f"正在安装 {name}...")
-    for i in range(3):
-        try:
-            git.Git().clone(data[name]["url"], plugin_path)
-            break
-        except Exception as e:
-            logger.error(f"出现错误: {e}")
-            logger.warning(f"正在重试 {i+1}/3")
+    with Progress(transient=True) as progress:
+        task = progress.add_task("正在安装:", total=None)
+        for i in range(3):
+            try:
+                git.Git().clone(data[name]["url"], plugin_path)
+                break
+            except Exception as e:
+                logger.error(f"出现错误: {e}")
+                logger.warning(f"正在重试 {i+1}/3")
+        progress.advance(task)
     logger.success("安装完成!")
 
     return gr.update(value="安装完成, 重启后生效!", visible=True)

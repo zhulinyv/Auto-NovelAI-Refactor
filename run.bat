@@ -1,5 +1,10 @@
 @echo off
 
+if "%1" == "max" goto begin
+start /max "" "%~f0" max & exit
+
+:begin
+
 if exist "Python" (
     set PYTHON=Python\python.exe
 ) else (

@@ -3,7 +3,7 @@ from urllib.request import getproxies
 
 from utils import check_update, playsound, read_json
 from utils.environment import env
-from utils.logger import logger
+from utils.logger import logger, loguru_to_rich
 from utils.variable import BASE_PATH, VERSION
 
 if not os.path.exists("./outputs"):
@@ -41,14 +41,16 @@ if is_updated:
 else:
     is_updated = commit
 
-logger.opt(colors=True).success(
-    f"""<c>
+logger.success(
+    loguru_to_rich(
+        f"""<c>
  █████╗ ███╗   ██╗██████╗     <y>###################################################</y>
-██╔══██╗████╗  ██║██╔══██╗    <y># This project is completely <r><i><u>OPEN SOURCE</u></i></r> and <r><i><u>FREE</u></i></r> #</y>
+██╔══██╗████╗  ██║██╔══██╗    <y># This project is completely <r>OPEN SOURCE</r> and <r>FREE</r> #</y>
 ███████║██╔██╗ ██║██████╔╝    <y>###################################################</y>
 ██╔══██║██║╚██╗██║██╔══██╗    Version:    {VERSION}
 ██║  ██║██║ ╚████║██║  ██║    Author:     https://github.com/zhulinyv
 ╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝    Repository: https://github.com/zhulinyv/Auto-NovelAI-Refactor</c>"""
+    )
 )
 
 playsound("./assets/llss.mp3")

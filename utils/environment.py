@@ -27,6 +27,10 @@ class Settings(BaseSettings):
 
     format_input: bool = True
 
+    smtp_num: int = 0
+    smtp_mail: Union[str, None] = None
+    smtp_token: Union[str, None] = None
+
     model_config = SettingsConfigDict(env_file=".env", extra="allow", arbitrary_types_allowed=True)
 
 

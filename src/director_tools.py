@@ -4,6 +4,7 @@ from pathlib import Path
 
 import ujson as json
 from PIL import Image
+from rich.progress import Progress
 
 from utils import format_str, playsound, read_json, sleep_for_cool
 from utils.environment import env
@@ -30,29 +31,33 @@ def before_process(director_input_path, director_input_image):
 def remove_bg(director_input_path, director_input_image):
     image_list = []
 
-    for image_path in before_process(director_input_path, director_input_image):
-        try:
-            _break = read_json("./outputs/temp_break.json")
-            if _break["break"]:
-                logger.warning("已停止生成!")
-                break
+    with Progress(transient=True) as progress:
+        task = progress.add_task("正在生成:", total=None)
+        for image_path in before_process(director_input_path, director_input_image):
+            try:
+                _break = read_json("./outputs/temp_break.json")
+                if _break["break"]:
+                    logger.warning("已停止生成!")
+                    break
 
-            logger.info(f"正在处理 {os.path.basename(image_path)} ...")
+                logger.info(f"正在处理 {os.path.basename(image_path)} ...")
 
-            with Image.open(image_path) as image:
-                w, h = image.size
+                with Image.open(image_path) as image:
+                    w, h = image.size
 
-            json_data = director.remove_bg(width=w, height=h, image=image_to_base64(image_path))
-            masked, generated, blend = generator.generate(json_data)
+                json_data = director.remove_bg(width=w, height=h, image=image_to_base64(image_path))
+                masked, generated, blend = generator.generate(json_data)
 
-            for image_data in [masked, generated, blend]:
-                if image_data:
-                    path = generator.save(masked, "director/remove_bg", random.randint(1000000000, 9999999999))
-                    image_list.append(path)
-                    sleep_for_cool(env.cool_time)
-        except Exception as e:
-            logger.error(f"出现错误: {e}")
-            sleep_for_cool(5)
+                for image_data in [masked, generated, blend]:
+                    if image_data:
+                        path = generator.save(masked, "director/remove_bg", random.randint(1000000000, 9999999999))
+                        image_list.append(path)
+                        sleep_for_cool(env.cool_time)
+            except Exception as e:
+                logger.error(f"出现错误: {e}")
+                sleep_for_cool(5)
+
+            progress.advance(task)
 
     playsound("./assets/finish.mp3")
 
@@ -62,28 +67,32 @@ def remove_bg(director_input_path, director_input_image):
 def line_art(director_input_path, director_input_image):
     image_list = []
 
-    for image_path in before_process(director_input_path, director_input_image):
-        try:
-            _break = read_json("./outputs/temp_break.json")
-            if _break["break"]:
-                logger.warning("已停止生成!")
-                break
+    with Progress(transient=True) as progress:
+        task = progress.add_task("正在生成:", total=None)
+        for image_path in before_process(director_input_path, director_input_image):
+            try:
+                _break = read_json("./outputs/temp_break.json")
+                if _break["break"]:
+                    logger.warning("已停止生成!")
+                    break
 
-            logger.info(f"正在处理 {os.path.basename(image_path)} ...")
+                logger.info(f"正在处理 {os.path.basename(image_path)} ...")
 
-            with Image.open(image_path) as image:
-                w, h = image.size
+                with Image.open(image_path) as image:
+                    w, h = image.size
 
-            json_data = director.line_art(width=w, height=h, image=image_to_base64(image_path))
-            image_data = generator.generate(json_data)
+                json_data = director.line_art(width=w, height=h, image=image_to_base64(image_path))
+                image_data = generator.generate(json_data)
 
-            if image_data:
-                path = generator.save(image_data, "director/line_art", random.randint(1000000000, 9999999999))
-                image_list.append(path)
-                sleep_for_cool(env.cool_time)
-        except Exception as e:
-            logger.error(f"出现错误: {e}")
-            sleep_for_cool(5)
+                if image_data:
+                    path = generator.save(image_data, "director/line_art", random.randint(1000000000, 9999999999))
+                    image_list.append(path)
+                    sleep_for_cool(env.cool_time)
+            except Exception as e:
+                logger.error(f"出现错误: {e}")
+                sleep_for_cool(5)
+
+            progress.advance(task)
 
     playsound("./assets/finish.mp3")
 
@@ -93,28 +102,32 @@ def line_art(director_input_path, director_input_image):
 def sketch(director_input_path, director_input_image):
     image_list = []
 
-    for image_path in before_process(director_input_path, director_input_image):
-        try:
-            _break = read_json("./outputs/temp_break.json")
-            if _break["break"]:
-                logger.warning("已停止生成!")
-                break
+    with Progress(transient=True) as progress:
+        task = progress.add_task("正在生成:", total=None)
+        for image_path in before_process(director_input_path, director_input_image):
+            try:
+                _break = read_json("./outputs/temp_break.json")
+                if _break["break"]:
+                    logger.warning("已停止生成!")
+                    break
 
-            logger.info(f"正在处理 {os.path.basename(image_path)} ...")
+                logger.info(f"正在处理 {os.path.basename(image_path)} ...")
 
-            with Image.open(image_path) as image:
-                w, h = image.size
+                with Image.open(image_path) as image:
+                    w, h = image.size
 
-            json_data = director.sketch(width=w, height=h, image=image_to_base64(image_path))
-            image_data = generator.generate(json_data)
+                json_data = director.sketch(width=w, height=h, image=image_to_base64(image_path))
+                image_data = generator.generate(json_data)
 
-            if image_data:
-                path = generator.save(image_data, "director/sketch", random.randint(1000000000, 9999999999))
-                image_list.append(path)
-                sleep_for_cool(env.cool_time)
-        except Exception as e:
-            logger.error(f"出现错误: {e}")
-            sleep_for_cool(5)
+                if image_data:
+                    path = generator.save(image_data, "director/sketch", random.randint(1000000000, 9999999999))
+                    image_list.append(path)
+                    sleep_for_cool(env.cool_time)
+            except Exception as e:
+                logger.error(f"出现错误: {e}")
+                sleep_for_cool(5)
+
+            progress.advance(task)
 
     playsound("./assets/finish.mp3")
 
@@ -124,34 +137,38 @@ def sketch(director_input_path, director_input_image):
 def colorize(director_input_path, director_input_image, colorize_defry, colorize_prompt):
     image_list = []
 
-    for image_path in before_process(director_input_path, director_input_image):
-        try:
-            _break = read_json("./outputs/temp_break.json")
-            if _break["break"]:
-                logger.warning("已停止生成!")
-                break
+    with Progress(transient=True) as progress:
+        task = progress.add_task("正在生成:", total=None)
+        for image_path in before_process(director_input_path, director_input_image):
+            try:
+                _break = read_json("./outputs/temp_break.json")
+                if _break["break"]:
+                    logger.warning("已停止生成!")
+                    break
 
-            logger.info(f"正在处理 {os.path.basename(image_path)} ...")
+                logger.info(f"正在处理 {os.path.basename(image_path)} ...")
 
-            with Image.open(image_path) as image:
-                w, h = image.size
+                with Image.open(image_path) as image:
+                    w, h = image.size
 
-            json_data = director.colorize(
-                width=w,
-                height=h,
-                image=image_to_base64(image_path),
-                defry=colorize_defry,
-                prompt=format_str(colorize_prompt),
-            )
-            image_data = generator.generate(json_data)
+                json_data = director.colorize(
+                    width=w,
+                    height=h,
+                    image=image_to_base64(image_path),
+                    defry=colorize_defry,
+                    prompt=format_str(colorize_prompt),
+                )
+                image_data = generator.generate(json_data)
 
-            if image_data:
-                path = generator.save(image_data, "director/colorize", random.randint(1000000000, 9999999999))
-                image_list.append(path)
-                sleep_for_cool(env.cool_time)
-        except Exception as e:
-            logger.error(f"出现错误: {e}")
-            sleep_for_cool(5)
+                if image_data:
+                    path = generator.save(image_data, "director/colorize", random.randint(1000000000, 9999999999))
+                    image_list.append(path)
+                    sleep_for_cool(env.cool_time)
+            except Exception as e:
+                logger.error(f"出现错误: {e}")
+                sleep_for_cool(5)
+
+            progress.advance(task)
 
     playsound("./assets/finish.mp3")
 
@@ -161,36 +178,47 @@ def colorize(director_input_path, director_input_image, colorize_defry, colorize
 def emotion(director_input_path, director_input_image, emotion_tag: str, emotion_strength, emotion_prompt):
     image_list = []
 
-    for image_path in before_process(director_input_path, director_input_image):
-        try:
-            _break = read_json("./outputs/temp_break.json")
-            if _break["break"]:
-                logger.warning("已停止生成!")
-                break
+    with Progress(transient=True) as progress:
+        task = progress.add_task("正在生成:", total=None)
+        for image_path in before_process(director_input_path, director_input_image):
+            try:
+                _break = read_json("./outputs/temp_break.json")
+                if _break["break"]:
+                    logger.warning("已停止生成!")
+                    break
 
-            logger.info(f"正在处理 {os.path.basename(image_path)} ...")
+                logger.info(f"正在处理 {os.path.basename(image_path)} ...")
 
-            with Image.open(image_path) as image:
-                w, h = image.size
+                with Image.open(image_path) as image:
+                    w, h = image.size
 
-            emotion_defry = {"Normal": 0, "Slightly Weak": 1, "Weak": 2, "Even Weaker": 3, "Very Weak": 4, "Weakest": 5}
+                emotion_defry = {
+                    "Normal": 0,
+                    "Slightly Weak": 1,
+                    "Weak": 2,
+                    "Even Weaker": 3,
+                    "Very Weak": 4,
+                    "Weakest": 5,
+                }
 
-            json_data = director.emotion(
-                width=w,
-                height=h,
-                image=image_to_base64(image_path),
-                defry=emotion_defry.get(emotion_strength),
-                prompt=format_str(emotion_tag.lower() + f";;{emotion_prompt}"),
-            )
-            image_data = generator.generate(json_data)
+                json_data = director.emotion(
+                    width=w,
+                    height=h,
+                    image=image_to_base64(image_path),
+                    defry=emotion_defry.get(emotion_strength),
+                    prompt=format_str(emotion_tag.lower() + f";;{emotion_prompt}"),
+                )
+                image_data = generator.generate(json_data)
 
-            if image_data:
-                path = generator.save(image_data, "director/emotion", random.randint(1000000000, 9999999999))
-                image_list.append(path)
-                sleep_for_cool(env.cool_time)
-        except Exception as e:
-            logger.error(f"出现错误: {e}")
-            sleep_for_cool(5)
+                if image_data:
+                    path = generator.save(image_data, "director/emotion", random.randint(1000000000, 9999999999))
+                    image_list.append(path)
+                    sleep_for_cool(env.cool_time)
+            except Exception as e:
+                logger.error(f"出现错误: {e}")
+                sleep_for_cool(5)
+
+            progress.advance(task)
 
     playsound("./assets/finish.mp3")
 
@@ -200,28 +228,32 @@ def emotion(director_input_path, director_input_image, emotion_tag: str, emotion
 def declutter(director_input_path, director_input_image):
     image_list = []
 
-    for image_path in before_process(director_input_path, director_input_image):
-        try:
-            _break = read_json("./outputs/temp_break.json")
-            if _break["break"]:
-                logger.warning("已停止生成!")
-                break
+    with Progress(transient=True) as progress:
+        task = progress.add_task("正在生成:", total=None)
+        for image_path in before_process(director_input_path, director_input_image):
+            try:
+                _break = read_json("./outputs/temp_break.json")
+                if _break["break"]:
+                    logger.warning("已停止生成!")
+                    break
 
-            logger.info(f"正在处理 {os.path.basename(image_path)} ...")
+                logger.info(f"正在处理 {os.path.basename(image_path)} ...")
 
-            with Image.open(image_path) as image:
-                w, h = image.size
+                with Image.open(image_path) as image:
+                    w, h = image.size
 
-            json_data = director.declutter(width=w, height=h, image=image_to_base64(image_path))
-            image_data = generator.generate(json_data)
+                json_data = director.declutter(width=w, height=h, image=image_to_base64(image_path))
+                image_data = generator.generate(json_data)
 
-            if image_data:
-                path = generator.save(image_data, "director/declutter", random.randint(1000000000, 9999999999))
-                image_list.append(path)
-                sleep_for_cool(env.cool_time)
-        except Exception as e:
-            logger.error(f"出现错误: {e}")
-            sleep_for_cool(5)
+                if image_data:
+                    path = generator.save(image_data, "director/declutter", random.randint(1000000000, 9999999999))
+                    image_list.append(path)
+                    sleep_for_cool(env.cool_time)
+            except Exception as e:
+                logger.error(f"出现错误: {e}")
+                sleep_for_cool(5)
+
+            progress.advance(task)
 
     playsound("./assets/finish.mp3")
 

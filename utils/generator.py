@@ -8,7 +8,7 @@ import ujson as json
 
 from utils import generate_random_str
 from utils.environment import env
-from utils.logger import logger
+from utils.logger import logger, loguru_to_rich
 from utils.models.headers import headers
 from utils.variable import proxies
 
@@ -50,7 +50,7 @@ class Generator:
                 logger.debug(rep.json()["message"])
             global ANLAS
             ANLAS = inquire_anlas()
-            logger.opt(colors=True).success(f"请求成功! <y>剩余点数: {ANLAS}</y>")
+            logger.success(loguru_to_rich(f"请求成功! <y>剩余点数: {ANLAS}</y>"))
             with zipfile.ZipFile(io.BytesIO(rep.content), mode="r") as zip:
                 if json_data.get("req_type") == "bg-removal":
                     with (

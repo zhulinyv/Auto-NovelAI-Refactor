@@ -6,11 +6,13 @@ import random
 import re
 import secrets
 import shutil
+import smtplib
 import subprocess
 import sys
 import time
 import tkinter as tk
 import zipfile
+from email.mime.text import MIMEText
 from pathlib import Path
 from tkinter.filedialog import askopenfilename
 
@@ -18,6 +20,7 @@ import numpy as np
 import requests
 import send2trash
 import ujson as json
+from rich.progress import Progress
 
 from utils.variable import BASE_PATH, proxies
 
@@ -31,7 +34,7 @@ from PIL import Image
 from PIL.PngImagePlugin import PngInfo
 
 from utils.environment import env
-from utils.logger import logger
+from utils.logger import logger, loguru_to_rich
 from utils.naimeta import inject_data
 
 
@@ -135,9 +138,11 @@ def replace_wildcards(text: str):
                 tag = read_txt(f"./wildcards/{wild_card[0]}/{wild_card[1]}.txt")
             matchers_number += 1
             text = text.replace(f"<{wild_card[0]}:{wild_card[1]}>", tag)
-            logger.opt(colors=True).debug(
-                r'已将 <c>\<{}:{}></c> 替换为 <c>{}</c>: "<c>{}</c>"'.format(
-                    wild_card[0], wild_card[1], name, tag.replace("<", r"\<")
+            logger.debug(
+                loguru_to_rich(
+                    r'已将 <c>\<{}:{}></c> 替换为 <c>{}</c>: "<c>{}</c>"'.format(
+                        wild_card[0], wild_card[1], name, tag.replace("<", r"\<")
+                    )
                 )
             )
         matchers = re.findall(pattern, text)
@@ -333,14 +338,17 @@ def check_update(repo_path):
 
 
 def download(url, saved_path):
-    rep = requests.get(
-        url,
-        proxies=proxies,
-        stream=True,
-    )
-    with open(saved_path, "wb") as file:
-        for chunk in rep.iter_content(chunk_size=256):
-            file.write(chunk)
+    with Progress(transient=True) as progress:
+        task = progress.add_task("正在下载:", total=None)
+        rep = requests.get(
+            url,
+            proxies=proxies,
+            stream=True,
+        )
+        with open(saved_path, "wb") as file:
+            for chunk in rep.iter_content(chunk_size=256):
+                file.write(chunk)
+        progress.advance(task)
     return
 
 
@@ -404,7 +412,7 @@ def move_current_img(current_img, output_path):
             os.makedirs(output_path)
         img_name = os.path.basename(current_img)
         shutil.move(current_img, str(Path(output_path) / img_name))
-        logger.opt(colors=True).info(f"已将 <c>{current_img}</c> 移动到 <c>{output_path}</c>")
+        logger.info(loguru_to_rich(f"已将 <c>{current_img}</c> 移动到 <c>{output_path}</c>"))
         return show_next_img()
     except Exception:
         logger.error("未输入要移动的目录!")
@@ -415,7 +423,7 @@ def del_current_img(current_img):
     try:
         if current_img:
             send2trash.send2trash(current_img)
-            logger.opt(colors=True).info(f"已将 <c>{current_img}</c> 移动到回收站")
+            logger.info(loguru_to_rich(f"已将 <c>{current_img}</c> 移动到回收站"))
             return show_next_img()
         else:
             logger.error("当前未选择图片!")
@@ -432,7 +440,7 @@ def copy_current_img(current_img, output_path):
             os.makedirs(output_path)
         img_name = os.path.basename(current_img)
         shutil.copyfile(current_img, str(Path(output_path) / img_name))
-        logger.opt(colors=True).info(f"已将 <c>{current_img}</c> 复制到 <c>{output_path}</c>")
+        logger.info(loguru_to_rich(f"已将 <c>{current_img}</c> 复制到 <c>{output_path}</c>"))
         return show_next_img()
     except Exception:
         logger.error("未输入要复制的目录!")
@@ -553,3 +561,32 @@ def plugin_list():
         else:
             md += f"| {p.replace('.py', '')} | 本地插件 | 本地插件 | 未知 | 已安装 |\n"
     return md
+
+
+def send_mail():
+    if env.smtp_num == 0:
+        return
+
+    mail_host = "smtp.qq.com"
+
+    mail_user = env.smtp_mail
+    mail_pass = env.smtp_token
+
+    sender = env.smtp_mail
+    receiver_email = env.smtp_mail
+
+    message = MIMEText("Auto-NovelAI-Refactor 生成结束", "plain", "utf-8")
+    message["From"] = sender
+    message["To"] = receiver_email
+    message["Subject"] = "ANR 完成提醒"
+
+    try:
+        smptObj = smtplib.SMTP_SSL(mail_host, smtplib.SMTP_SSL_PORT)
+        smptObj.login(mail_user, mail_pass)
+        smptObj.sendmail(sender, receiver_email, message.as_string())
+        logger.success("发送邮件成功!")
+    except smtplib.SMTPException as e:
+        logger.error(f"发送失败: {e}")
+    finally:
+        smptObj.quit()
+    return

@@ -4,6 +4,7 @@ import subprocess
 from pathlib import Path
 
 import ujson as json
+from rich.progress import Progress
 
 from utils import download, extract, playsound, read_json
 from utils.image_tools import return_array_image, revert_image_info
@@ -48,33 +49,36 @@ def realcugan_ncnn_vulkan(upscale_input_path, upscale_input_image, realcugan_noi
         extract("./outputs/temp.zip", "./assets/realcugan-ncnn-vulkan")
 
     image_list = []
-    for image in before_process(upscale_input_path, upscale_input_image):
-        _break = read_json("./outputs/temp_break.json")
-        if _break["break"]:
-            logger.warning("已停止生成!")
-            break
+    with Progress(transient=True) as progress:
+        task = progress.add_task("正在生成:", total=None)
+        for image in before_process(upscale_input_path, upscale_input_image):
+            _break = read_json("./outputs/temp_break.json")
+            if _break["break"]:
+                logger.warning("已停止生成!")
+                break
 
-        name, extension = os.path.splitext(os.path.basename(image))
-        output_path = f"{os.path.dirname(os.path.abspath(image))}\\{name}_realcugan_ncnn_vulkan_noise_{realcugan_noise}_scale_{realcugan_scale}{extension}"
+            name, extension = os.path.splitext(os.path.basename(image))
+            output_path = f"{os.path.dirname(os.path.abspath(image))}\\{name}_realcugan_ncnn_vulkan_noise_{realcugan_noise}_scale_{realcugan_scale}{extension}"
 
-        code = f'.\\assets\\realcugan-ncnn-vulkan\\realcugan-ncnn-vulkan.exe -i "{os.path.abspath(image)}" -o "{output_path}" -n {realcugan_noise} -s {realcugan_scale} -m {realcugan_model}'
+            code = f'.\\assets\\realcugan-ncnn-vulkan\\realcugan-ncnn-vulkan.exe -i "{os.path.abspath(image)}" -o "{output_path}" -n {realcugan_noise} -s {realcugan_scale} -m {realcugan_model}'
 
-        logger.debug(code)
-        result = run_cmd(code)
-        logger.info("\n" + result)
-        if os.path.exists(output_path):
-            logger.success("超分完成!")
-            logger.info(f"图片已保存到 {output_path}")
+            logger.debug(code)
+            result = run_cmd(code)
+            logger.info("\n" + result)
+            if os.path.exists(output_path):
+                logger.success("超分完成!")
+                logger.info(f"图片已保存到 {output_path}")
 
-            logger.debug("正在还原元数据...")
-            if revert_image_info(image, output_path):
-                logger.success("还原成功!")
+                logger.debug("正在还原元数据...")
+                if revert_image_info(image, output_path):
+                    logger.success("还原成功!")
+                else:
+                    logger.error("还原失败!")
+
+                image_list.append(return_array_image(output_path))
             else:
-                logger.error("还原失败!")
-
-            image_list.append(return_array_image(output_path))
-        else:
-            logger.error("超分失败! 请查看上方输出日志!")
+                logger.error("超分失败! 请查看上方输出日志!")
+            progress.advance(task)
     playsound("./assets/finish.mp3")
     return image_list
 
@@ -98,39 +102,42 @@ def anime4k(
         extract("./outputs/temp.zip", "./assets/Anime4K")
 
     image_list = []
-    for image in before_process(upscale_input_path, upscale_input_image):
-        _break = read_json("./outputs/temp_break.json")
-        if _break["break"]:
-            logger.warning("已停止生成!")
-            break
+    with Progress(transient=True) as progress:
+        task = progress.add_task("正在生成:", total=None)
+        for image in before_process(upscale_input_path, upscale_input_image):
+            _break = read_json("./outputs/temp_break.json")
+            if _break["break"]:
+                logger.warning("已停止生成!")
+                break
 
-        name, extension = os.path.splitext(os.path.basename(image))
-        output_path = f"{os.path.dirname(os.path.abspath(image))}\\{name}_Anime4K_noise_{anime4k_HDNLevel}_scale_{anime4k_zoomFactor}{extension}"
+            name, extension = os.path.splitext(os.path.basename(image))
+            output_path = f"{os.path.dirname(os.path.abspath(image))}\\{name}_Anime4K_noise_{anime4k_HDNLevel}_scale_{anime4k_zoomFactor}{extension}"
 
-        code = f'.\\assets\\Anime4K\\Anime4KCPP_CLI.exe -i "{os.path.abspath(image)}" -o "{output_path}" -z {anime4k_zoomFactor}'
-        if anime4k_GPUMode:
-            code += " -q"
-        if anime4k_CNNMode:
-            code += " -w"
-            if anime4k_HDN:
-                code += " -H -L {}".format(anime4k_HDNLevel)
+            code = f'.\\assets\\Anime4K\\Anime4KCPP_CLI.exe -i "{os.path.abspath(image)}" -o "{output_path}" -z {anime4k_zoomFactor}'
+            if anime4k_GPUMode:
+                code += " -q"
+            if anime4k_CNNMode:
+                code += " -w"
+                if anime4k_HDN:
+                    code += " -H -L {}".format(anime4k_HDNLevel)
 
-        logger.debug(code)
-        result = run_cmd(code)
-        logger.info("\n" + result)
-        if os.path.exists(output_path):
-            logger.success("超分完成!")
-            logger.info(f"图片已保存到 {output_path}")
+            logger.debug(code)
+            result = run_cmd(code)
+            logger.info("\n" + result)
+            if os.path.exists(output_path):
+                logger.success("超分完成!")
+                logger.info(f"图片已保存到 {output_path}")
 
-            logger.debug("正在还原元数据...")
-            if revert_image_info(image, output_path):
-                logger.success("还原成功!")
+                logger.debug("正在还原元数据...")
+                if revert_image_info(image, output_path):
+                    logger.success("还原成功!")
+                else:
+                    logger.error("还原失败!")
+
+                image_list.append(return_array_image(output_path))
             else:
-                logger.error("还原失败!")
-
-            image_list.append(return_array_image(output_path))
-        else:
-            logger.error("超分失败! 请查看上方输出日志!")
+                logger.error("超分失败! 请查看上方输出日志!")
+            progress.advance(task)
     playsound("./assets/finish.mp3")
     return image_list
 
@@ -155,37 +162,40 @@ def waifu2x_caffe(
         extract("./outputs/temp.zip", "./assets/waifu2x-caffe")
 
     image_list = []
-    for image in before_process(upscale_input_path, upscale_input_image):
-        _break = read_json("./outputs/temp_break.json")
-        if _break["break"]:
-            logger.warning("已停止生成!")
-            break
+    with Progress(transient=True) as progress:
+        task = progress.add_task("正在生成:", total=None)
+        for image in before_process(upscale_input_path, upscale_input_image):
+            _break = read_json("./outputs/temp_break.json")
+            if _break["break"]:
+                logger.warning("已停止生成!")
+                break
 
-        name, extension = os.path.splitext(os.path.basename(image))
-        output_path = f"{os.path.dirname(os.path.abspath(image))}\\{name}_waifu2x-caffe_noise_{waifu2x_caffe_noise}_scale_{waifu2x_caffe_scale}{extension}"
+            name, extension = os.path.splitext(os.path.basename(image))
+            output_path = f"{os.path.dirname(os.path.abspath(image))}\\{name}_waifu2x-caffe_noise_{waifu2x_caffe_noise}_scale_{waifu2x_caffe_scale}{extension}"
 
-        code = os.path.abspath("./assets/waifu2x-caffe/waifu2x-caffe-cui.exe")
-        code += f' -i "{os.path.abspath(image)}" -o "{output_path}" -m {waifu2x_caffe_mode} -s {waifu2x_caffe_scale} -n {waifu2x_caffe_noise} -p {waifu2x_caffe_process} --model_dir models/{waifu2x_caffe_model}'
+            code = os.path.abspath("./assets/waifu2x-caffe/waifu2x-caffe-cui.exe")
+            code += f' -i "{os.path.abspath(image)}" -o "{output_path}" -m {waifu2x_caffe_mode} -s {waifu2x_caffe_scale} -n {waifu2x_caffe_noise} -p {waifu2x_caffe_process} --model_dir models/{waifu2x_caffe_model}'
 
-        if waifu2x_caffe_tta:
-            code += " -t 1"
+            if waifu2x_caffe_tta:
+                code += " -t 1"
 
-        with open("./outputs/temp_waifu2x_caffe.bat", "w") as temp:
-            temp.write(code)
-        os.system(os.path.abspath("./outputs/temp_waifu2x_caffe.bat"))
+            with open("./outputs/temp_waifu2x_caffe.bat", "w") as temp:
+                temp.write(code)
+            os.system(os.path.abspath("./outputs/temp_waifu2x_caffe.bat"))
 
-        if os.path.exists(output_path):
-            logger.success("超分完成!")
-            logger.info(f"图片已保存到 {output_path}")
+            if os.path.exists(output_path):
+                logger.success("超分完成!")
+                logger.info(f"图片已保存到 {output_path}")
 
-            logger.debug("正在还原元数据...")
-            if revert_image_info(image, output_path):
-                logger.success("还原成功!")
+                logger.debug("正在还原元数据...")
+                if revert_image_info(image, output_path):
+                    logger.success("还原成功!")
+                else:
+                    logger.error("还原失败!")
+
+                image_list.append(return_array_image(output_path))
             else:
-                logger.error("还原失败!")
-
-            image_list.append(return_array_image(output_path))
-        else:
-            logger.error("超分失败! 请查看上方输出日志!")
+                logger.error("超分失败! 请查看上方输出日志!")
+            progress.advance(task)
     playsound("./assets/finish.mp3")
     return image_list
