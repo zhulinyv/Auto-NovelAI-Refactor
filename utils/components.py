@@ -441,6 +441,7 @@ def return_pnginfo(image):
     comment = pnginfo.get("Comment")
     if isinstance(comment, PngImagePlugin.iTXt):
         comment = str(comment)
+        logger.warning("SANP 已弃用, 请迁移到 ANR")
     else:
         pass
 
