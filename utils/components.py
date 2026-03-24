@@ -6,7 +6,7 @@ import subprocess
 import gradio as gr
 import send2trash
 import ujson as json
-from PIL import Image
+from PIL import Image, PngImagePlugin
 from rich.progress import Progress
 
 from utils import float_to_position, format_str, get_plugin_list, list_to_str, read_json, read_txt, return_x64
@@ -437,11 +437,18 @@ def return_pnginfo(image):
     if not image:
         return gr.update(visible=False), None, None, None, None, None, None
     pnginfo = get_image_information(image)
+
+    comment = pnginfo.get("Comment")
+    if isinstance(comment, PngImagePlugin.iTXt):
+        comment = str(comment)
+    else:
+        pass
+
     return (
         gr.update(visible=True if pnginfo.get("Software") == "NovelAI" else False),
         pnginfo.get("Source"),
         pnginfo.get("Generation time"),
-        pnginfo.get("Comment"),
+        comment,
         pnginfo.get("Description"),
         pnginfo.get("Software"),
         pnginfo,
