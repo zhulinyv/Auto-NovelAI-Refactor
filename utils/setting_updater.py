@@ -35,6 +35,9 @@ def modify_env(
     theme,
     format_input,
     skip_inquire_anlas,
+    smtp_num,
+    smtp_mail,
+    smtp_token,
 ):
     _modify_env(
         token=f'"{token}"'.replace("\n", ""),
@@ -49,5 +52,8 @@ def modify_env(
         theme=f'"{theme}"',
         format_input=format_input,
         skip_inquire_anlas=skip_inquire_anlas,
+        smtp_num=smtp_num,
+        smtp_mail=f'"{smtp_mail}"',
+        smtp_token=f'"{smtp_token}"',
     )
     return gr.update(value="修改已保存, 重启后生效!", visible=True)

@@ -1236,6 +1236,9 @@ with gr.Blocks(
                         theme,
                         format_input,
                         skip_inquire_anlas,
+                        smtp_num,
+                        smtp_mail,
+                        smtp_token,
                     ],
                     outputs=setting_output_information,
                 )
