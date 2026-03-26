@@ -449,7 +449,7 @@ def copy_current_img(current_img, output_path):
 
 def install_requirements(path):
     # logger.debug(f"开始安装所需依赖 {path}...")
-    command = f"{sys.executable} -s -m pip install -r {path}"
+    command = f'"{sys.executable}" -s -m pip install -r "{path}"'
     subprocess.call(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     # logger.success("安装完成!")
     return
