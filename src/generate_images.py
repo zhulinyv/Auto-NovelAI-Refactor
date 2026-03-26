@@ -146,11 +146,17 @@ def main(
                         }
                         vibe_data = read_json(naiv4vibebundle_file)
                         vibe_model_name = model_vibe_map.get(model)
-                        for vibe_image in vibe_data["vibes"]:
+                        try:
+                            for vibe_image in vibe_data["vibes"]:
+                                reference_image_multiple.append(
+                                    return_last_value(vibe_image["encodings"][vibe_model_name])["encoding"]
+                                )
+                                reference_strength_multiple.append(vibe_image["importInfo"]["strength"])
+                        except KeyError:
                             reference_image_multiple.append(
-                                return_last_value(vibe_image["encodings"][vibe_model_name])["encoding"]
+                                return_last_value(vibe_data["encodings"][vibe_model_name])["encoding"]
                             )
-                            reference_strength_multiple.append(vibe_image["importInfo"]["strength"])
+                            reference_strength_multiple.append(vibe_data["importInfo"]["strength"])
                 else:
                     if precise_reference_components[0] and model in [
                         "nai-diffusion-4-5-full",
