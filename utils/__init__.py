@@ -140,7 +140,7 @@ def replace_wildcards(text: str):
             text = text.replace(f"<{wild_card[0]}:{wild_card[1]}>", tag)
             logger.debug(
                 loguru_to_rich(
-                    r'已将 <c>\<{}:{}></c> 替换为 <c>{}</c>: "<c>{}</c>"'.format(
+                    r'已将 <c><{}:{}></c> 替换为 <c>{}</c>: "<c>{}</c>"'.format(
                         wild_card[0], wild_card[1], name, tag.replace("<", r"\<")
                     )
                 )

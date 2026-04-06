@@ -44,6 +44,7 @@ class Generator:
                 json=json_data,
                 headers=headers,
                 proxies=proxies,
+                timeout=30,
             )
             if (status_code := rep.status_code) != 200:
                 logger.debug(f"本次请求状态码: {status_code}")
