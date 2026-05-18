@@ -1,5 +1,6 @@
 import base64
 from io import BytesIO
+from pathlib import Path
 
 import numpy as np
 from PIL import Image
@@ -204,7 +205,11 @@ def process_white_regions(image_path, output_path):
     return output_path
 
 
-def get_image_information(image: Image.Image):
+def get_image_information(image):
+    if isinstance(image, (str, Path)):
+        with Image.open(image) as opened_image:
+            return get_image_information(opened_image)
+
     try:
         pnginfo = extract_data(image)
     except Exception:

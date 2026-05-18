@@ -1,9 +1,12 @@
 import io
+import json
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from PIL import Image
+from PIL.PngImagePlugin import PngInfo
 
 from utils.errors import NovelAIAPIError
 from utils.generator import Generator, _safe_output_path
@@ -149,3 +152,154 @@ def test_share_mode_rejects_paths_outside_outputs(monkeypatch, tmp_path):
 
     assert is_share_path_allowed(outputs / "image.png")
     assert not is_share_path_allowed(outside / "image.png")
+
+
+class FakeImageGenerator:
+    def __init__(self, image_data=b"image"):
+        self.image_data = image_data
+        self.requests = []
+
+    def generate(self, json_data):
+        self.requests.append(json_data)
+        return self.image_data
+
+    def save(self, image_data, image_type, seed):
+        path = Path("outputs") / f"{image_type}_{seed}.png"
+        path.write_bytes(image_data)
+        return str(path)
+
+
+def _generation_args(inpaint_input_image=None, inpaint_input_image_mode="图生图", enhance_enable=False):
+    character_components = []
+    for _ in range(6):
+        character_components.extend(["", "", "Center", False, None])
+    precise_reference_components = [None] * 60
+    vibe_components = [None]
+
+    return (
+        "nai-diffusion-3",
+        "prompt",
+        "",
+        "",
+        False,
+        "None",
+        1,
+        64,
+        64,
+        1,
+        5,
+        0,
+        False,
+        "1",
+        "k_euler",
+        "karras",
+        False,
+        False,
+        False,
+        False,
+        inpaint_input_image,
+        inpaint_input_image_mode,
+        0.5,
+        0.5,
+        0,
+        None,
+        False,
+        True,
+        enhance_enable,
+        "1x",
+        1.0,
+        *character_components,
+        *precise_reference_components,
+        *vibe_components,
+    )
+
+
+def _prepare_generation_test(monkeypatch, tmp_path, fake_generator):
+    import src.generate_images as generate_images
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "outputs").mkdir()
+    monkeypatch.setattr(generate_images, "image_generator", fake_generator)
+    monkeypatch.setattr(generate_images, "playsound", lambda path: None)
+    monkeypatch.setattr(generate_images, "sleep_for_cool", lambda seconds: None)
+    monkeypatch.setattr(generate_images, "send_mail", lambda: None)
+    monkeypatch.setattr(generate_images.env, "smtp_num", 0)
+    return generate_images
+
+
+def test_generate_images_allows_missing_editor_value_for_text2image(monkeypatch, tmp_path):
+    fake_generator = FakeImageGenerator()
+    generate_images = _prepare_generation_test(monkeypatch, tmp_path, fake_generator)
+
+    images, message = generate_images.main(*_generation_args(inpaint_input_image=None))
+
+    assert len(images) == 1
+    assert "处理完成" in message
+    assert fake_generator.requests[0]["action"] == "generate"
+
+
+def test_generate_images_allows_image2image_without_editor_layers(monkeypatch, tmp_path):
+    fake_generator = FakeImageGenerator()
+    generate_images = _prepare_generation_test(monkeypatch, tmp_path, fake_generator)
+    background = Image.new("RGB", (64, 64), (1, 2, 3))
+    editor_value = {"background": background, "layers": [], "composite": background.copy()}
+
+    images, message = generate_images.main(*_generation_args(inpaint_input_image=editor_value))
+
+    assert len(images) == 1
+    assert "处理完成" in message
+    request = fake_generator.requests[0]
+    assert request["action"] == "img2img"
+    assert "mask" not in request["parameters"]
+
+
+def test_generate_images_reports_empty_generation_as_failure(monkeypatch, tmp_path):
+    fake_generator = FakeImageGenerator(image_data=None)
+    generate_images = _prepare_generation_test(monkeypatch, tmp_path, fake_generator)
+
+    images, message = generate_images.main(*_generation_args(inpaint_input_image=None))
+
+    assert images == []
+    assert message == "Generation failed: NovelAI returned empty image data"
+
+
+def test_send_pnginfo_to_generate_accepts_single_file_json_list(tmp_path):
+    from utils.components import send_pnginfo_to_generate
+
+    metadata = {"Comment": {"prompt": "from json", "uc": "negative", "width": 64, "height": 128}}
+    metadata_path = tmp_path / "metadata.json"
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+    values = send_pnginfo_to_generate([str(metadata_path)])
+
+    assert values[0] == "from json"
+    assert values[1] == "negative"
+    assert values[2] == 64
+    assert values[3] == 128
+
+
+def test_send_pnginfo_to_generate_reads_png_path(tmp_path):
+    from utils.components import send_pnginfo_to_generate
+
+    comment = {"prompt": "from png", "uc": "negative", "width": 128, "height": 64}
+    metadata = PngInfo()
+    metadata.add_text("Comment", json.dumps(comment))
+    image_path = tmp_path / "image.png"
+    Image.new("RGB", (64, 64), (1, 2, 3)).save(image_path, pnginfo=metadata)
+
+    values = send_pnginfo_to_generate(str(image_path))
+
+    assert values[0] == "from png"
+    assert values[1] == "negative"
+    assert values[2] == 128
+    assert values[3] == 64
+
+
+def test_send_mail_skips_missing_credentials(monkeypatch):
+    import utils
+
+    monkeypatch.setattr(utils.env, "smtp_num", 1)
+    monkeypatch.setattr(utils.env, "smtp_mail", None)
+    monkeypatch.setattr(utils.env, "smtp_token", None)
+
+    utils.send_mail()

@@ -610,6 +610,9 @@ def plugin_list():
 def send_mail():
     if env.smtp_num == 0:
         return
+    if not env.smtp_mail or not env.smtp_token:
+        logger.warning("未配置邮箱账号或授权码，已跳过邮件提醒")
+        return
 
     mail_host = "smtp.qq.com"
 
@@ -624,13 +627,18 @@ def send_mail():
     message["To"] = receiver_email
     message["Subject"] = "ANR 完成提醒"
 
+    smtp_obj = None
     try:
-        smptObj = smtplib.SMTP_SSL(mail_host, smtplib.SMTP_SSL_PORT)
-        smptObj.login(mail_user, mail_pass)
-        smptObj.sendmail(sender, receiver_email, message.as_string())
+        smtp_obj = smtplib.SMTP_SSL(mail_host, smtplib.SMTP_SSL_PORT)
+        smtp_obj.login(mail_user, mail_pass)
+        smtp_obj.sendmail(sender, receiver_email, message.as_string())
         logger.success("发送邮件成功!")
     except smtplib.SMTPException as e:
         logger.error(f"发送失败: {e}")
     finally:
-        smptObj.quit()
+        if smtp_obj is not None:
+            try:
+                smtp_obj.quit()
+            except smtplib.SMTPException as e:
+                logger.error(f"关闭 SMTP 连接失败: {e}")
     return

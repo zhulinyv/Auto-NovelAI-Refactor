@@ -394,13 +394,12 @@ def return_character_reference_component_visible(_model, naiv4vibebundle_file):
 
 
 def return_image2image_visible(inpaint_input_image, inpaint_input_image_mode):
-    if inpaint_input_image["background"]:
-        w, h = (inpaint_input_image["background"]).size
+    background = inpaint_input_image.get("background") if isinstance(inpaint_input_image, dict) else None
+    if background:
+        w, h = background.size
         if w * h > 1536 * 2048:
-            (inpaint_input_image["background"]).thumbnail(
-                (1536, 2048) if w < h else (2048, 1536), Image.Resampling.LANCZOS
-            )
-            w, h = (inpaint_input_image["background"]).size
+            background.thumbnail((1536, 2048) if w < h else (2048, 1536), Image.Resampling.LANCZOS)
+            w, h = background.size
         if w % 64 == 0 and h % 64 == 0:
             return (
                 # gr.update(),
@@ -412,7 +411,7 @@ def return_image2image_visible(inpaint_input_image, inpaint_input_image_mode):
                 gr.update(visible=False if inpaint_input_image_mode == "图生图" else True),
             )
         # (inpaint_input_image["background"]).save(image_path := "./outputs/temp_inpaint_image.png")
-        WRONG_IMAGE_FLAG = is_pure_white(inpaint_input_image["background"])
+        WRONG_IMAGE_FLAG = is_pure_white(background)
         return (
             # gr.update(value=resize_image(image_path)),
             gr.update(visible=True),
@@ -458,16 +457,21 @@ def return_pnginfo(image):
 
 
 def send_pnginfo_to_generate(image_path):
+    if isinstance(image_path, (list, tuple)):
+        image_path = image_path[0] if image_path else None
+
     if image_path is None:
         none_components = [gr.update() for _ in range(49)]
         return (*none_components,)
 
-    if isinstance(image_path, str):
+    if isinstance(image_path, str) and image_path.lower().endswith(".json"):
         pnginfo: dict = read_json(image_path)
         comment = pnginfo.get("Comment", {})
     else:
         pnginfo = get_image_information(image_path)
-        comment = json.loads(pnginfo.get("Comment", {}))
+        comment = pnginfo.get("Comment", {})
+        if isinstance(comment, str):
+            comment = json.loads(comment)
     character_components_list = []
     if char_captions := comment.get("v4_prompt", {}).get("caption", {}).get("char_captions", []):
         for num in range(len(char_captions)):
