@@ -10,6 +10,7 @@ from PIL import Image, PngImagePlugin
 from rich.progress import Progress
 
 from utils import float_to_position, format_str, get_plugin_list, list_to_str, read_json, read_txt, return_x64
+from utils.environment import env
 from utils.image_tools import get_image_information, is_pure_white
 from utils.logger import logger
 from utils.variable import NOISE_SCHEDULE, RESOLUTION, SAMPLER, UC_PRESET
@@ -540,7 +541,12 @@ def update_repo(path):
 
 
 def install_plugin(name):
+    if env.share:
+        return gr.update(value="共享模式下禁止安装或更新插件", visible=True)
+
     data = get_plugin_list()
+    if not name or name not in data:
+        return gr.update(value="请选择有效插件", visible=True)
     plugin_path = "./plugins/{}".format(data[name]["name"])
 
     if os.path.exists(plugin_path):
@@ -564,7 +570,17 @@ def install_plugin(name):
 
 
 def uninstall_plugin(name):
-    os.chmod(path := f"./plugins/{name}", 0o777)
+    if env.share:
+        return gr.update(value="共享模式下禁止删除插件", visible=True)
+    if not name:
+        return gr.update(value="请选择有效插件", visible=True)
+
+    plugins_root = os.path.abspath("./plugins")
+    path = os.path.abspath(f"./plugins/{name}")
+    if path == plugins_root or os.path.commonpath([plugins_root, path]) != plugins_root:
+        return gr.update(value="非法插件路径", visible=True)
+
+    os.chmod(path, 0o777)
     try:
         shutil.rmtree(path)
     except Exception:
@@ -587,6 +603,11 @@ def uninstall_plugin(name):
 
 
 def enable_plugin(name):
+    if env.share:
+        return gr.update(value="共享模式下禁止启用或禁用插件", visible=True)
+    if not name:
+        return gr.update(value="请选择有效插件", visible=True)
+
     try:
         disable_list = read_json("./outputs/temp_plugins.json")["disable_plugin"]
     except FileNotFoundError:

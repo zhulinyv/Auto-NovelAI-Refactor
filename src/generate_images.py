@@ -17,6 +17,7 @@ from utils import (
     sleep_for_cool,
 )
 from utils.environment import env
+from utils.errors import NovelAIAPIError
 from utils.image_tools import (
     change_the_mask_color,
     image_to_base64,
@@ -28,6 +29,7 @@ from utils.image_tools import (
 )
 from utils.logger import logger
 from utils.models import *  # noqa
+from utils.runtime_state import single_job
 from utils.variable import (
     return_quality_tags,
     return_skip_cfg_above_sigma,
@@ -38,6 +40,7 @@ from utils.variable import (
 image_generator = generator.Generator("https://image.novelai.net/ai/generate-image")
 
 
+@single_job("image generation", busy_return=lambda message: ([], message))
 def main(
     model,
     positive_input,
@@ -129,7 +132,7 @@ def main(
                         "nai-diffusion-4-full": nai4fvibe,  # noqa
                         "nai-diffusion-4-curated-preview": nai4cpvibe,  # noqa
                         "nai-diffusion-3": nai3vibe,  # noqa
-                        "nai-diffusion-furry-3": nai3vibe,  # noqa
+                        "nai-diffusion-furry-3": naif3vibe,  # noqa
                     }
                     if model in ["nai-diffusion-3", "nai-diffusion-furry-3"]:
                         vibe_images = [list(chunk) for chunk in zip(*[iter(vibe_components)] * 3)]
@@ -367,6 +370,9 @@ def main(
 
                 if quantity != 1 and i != quantity - 1:
                     sleep_for_cool(env.cool_time)
+            except NovelAIAPIError as e:
+                logger.error(f"Generation failed: {e}")
+                return image_list, f"Generation failed: {e}"
             except Exception as e:
                 logger.error(f"出现错误: {e}")
                 sleep_for_cool(5)
