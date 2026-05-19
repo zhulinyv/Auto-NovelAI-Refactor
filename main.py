@@ -231,7 +231,7 @@ with gr.Blocks(
                 )
                 prompt_guidance_rescale = gr.Slider(
                     minimum=0,
-                    maximum=10,
+                    maximum=1,
                     value=parameters.get("cfg_rescale", 0),
                     label="提示词重采样系数",
                     step=0.02,
