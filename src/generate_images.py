@@ -38,8 +38,6 @@ from utils.variable import (
 )
 
 image_generator = generator.Generator("https://image.novelai.net/ai/generate-image")
-IMAGE2IMAGE_MODE = "图生图"
-SCRIBBLE_MODE = "涂鸦重绘"
 
 
 def _resize_editor_image(image, size):
@@ -57,7 +55,7 @@ def _prepare_inpaint_inputs(inpaint_input_image, inpaint_input_image_mode, width
         return None
 
     layers = inpaint_input_image.get("layers") or []
-    if inpaint_input_image_mode == IMAGE2IMAGE_MODE:
+    if inpaint_input_image_mode == "图生图":
         mask = Image.new("RGBA", background.size, (0, 0, 0, 0))
     else:
         mask = next((layer for layer in layers if layer is not None), None)
@@ -334,7 +332,7 @@ def main(
                         "noise": noise,
                         "inpaint_i2i_strength": inpaint_i2i_strength,
                         "image": image_to_base64(
-                            resize_image(composite_path if inpaint_input_image_mode == SCRIBBLE_MODE else image_path)
+                            resize_image(composite_path if inpaint_input_image_mode == "涂鸦重绘" else image_path)
                         ),
                         "extra_noise_seed": _seed,
                         "color_correct": False,
@@ -350,10 +348,12 @@ def main(
 
                 image_data = image_generator.generate(find_and_replace_wildcards_from_dict(json_data))
                 if not image_data:
-                    raise NovelAIAPIError("NovelAI returned empty image data")
+                    logger.error("NovelAI 未返回图片数据!")
+                    raise NovelAIAPIError()
                 path = image_generator.save(image_data, _type, json_data["parameters"]["seed"])
                 if not path:
-                    raise NovelAIAPIError("Generated image could not be saved")
+                    logger.error("图片保存失败!")
+                    raise NovelAIAPIError()
                 if not enhance_enable:
                     image_list.append(path)
 
@@ -376,10 +376,7 @@ def main(
 
                     def return_strength(mag):
                         strengths = [0.2, 0.4, 0.5, 0.6, 0.7]
-                        index = int(mag) - 1
-                        if index < 0 or index >= len(strengths):
-                            raise ValueError("Enhance magnitude must be between 1 and 5")
-                        return strengths[index]
+                        return strengths[mag - 1]
 
                     json_data = func(
                         json_data,
@@ -397,17 +394,16 @@ def main(
 
                     image_data = image_generator.generate(find_and_replace_wildcards_from_dict(json_data))
                     if not image_data:
-                        raise NovelAIAPIError("NovelAI returned empty enhanced image data")
+                        logger.error("NovelAI 未返回图片数据!")
+                        raise NovelAIAPIError()
                     path = image_generator.save(image_data, _type, json_data["parameters"]["seed"])
                     if not path:
-                        raise NovelAIAPIError("Enhanced image could not be saved")
+                        logger.error("图片保存失败!")
+                        raise NovelAIAPIError()
                     image_list.append(path)
 
                 if quantity != 1 and i != quantity - 1:
                     sleep_for_cool(env.cool_time)
-            except NovelAIAPIError as e:
-                logger.error(f"Generation failed: {e}")
-                return image_list, f"Generation failed: {e}"
             except Exception as e:
                 logger.error(f"出现错误: {e}")
                 sleep_for_cool(5)
@@ -415,7 +411,7 @@ def main(
             progress.advance(task)
 
     if not image_list:
-        return image_list, "Generation failed: no images were produced"
+        return image_list, "生成失败!"
 
     playsound("./assets/finish.mp3")
     if env.smtp_num > 0 and quantity >= env.smtp_num:

@@ -8,12 +8,10 @@ from rich.progress import Progress
 
 from utils import format_str, playsound, read_json, sleep_for_cool
 from utils.environment import env
-from utils.errors import NovelAIAPIError
 from utils.generator import Generator
 from utils.image_tools import image_to_base64
 from utils.logger import logger
 from utils.models import director
-from utils.path_safety import is_share_path_allowed
 from utils.runtime_state import single_job
 
 generator = Generator("https://image.novelai.net/ai/augment-image")
@@ -26,9 +24,6 @@ def before_process(director_input_path, director_input_image):
     if director_input_image:
         image_list = [director_input_image]
     else:
-        if not is_share_path_allowed(director_input_path):
-            logger.error("共享模式下批处理路径必须位于 outputs 目录内")
-            return []
         image_list = [Path(director_input_path) / file for file in os.listdir(director_input_path)]
 
     return image_list
@@ -60,9 +55,6 @@ def remove_bg(director_input_path, director_input_image):
                         path = generator.save(image_data, "director/remove_bg", random.randint(1000000000, 9999999999))
                         image_list.append(path)
                         sleep_for_cool(env.cool_time)
-            except NovelAIAPIError as e:
-                logger.error(f"Director request failed: {e}")
-                break
             except Exception as e:
                 logger.error(f"出现错误: {e}")
                 sleep_for_cool(5)
@@ -99,9 +91,6 @@ def line_art(director_input_path, director_input_image):
                     path = generator.save(image_data, "director/line_art", random.randint(1000000000, 9999999999))
                     image_list.append(path)
                     sleep_for_cool(env.cool_time)
-            except NovelAIAPIError as e:
-                logger.error(f"Director request failed: {e}")
-                break
             except Exception as e:
                 logger.error(f"出现错误: {e}")
                 sleep_for_cool(5)
@@ -138,9 +127,6 @@ def sketch(director_input_path, director_input_image):
                     path = generator.save(image_data, "director/sketch", random.randint(1000000000, 9999999999))
                     image_list.append(path)
                     sleep_for_cool(env.cool_time)
-            except NovelAIAPIError as e:
-                logger.error(f"Director request failed: {e}")
-                break
             except Exception as e:
                 logger.error(f"出现错误: {e}")
                 sleep_for_cool(5)
@@ -183,9 +169,6 @@ def colorize(director_input_path, director_input_image, colorize_defry, colorize
                     path = generator.save(image_data, "director/colorize", random.randint(1000000000, 9999999999))
                     image_list.append(path)
                     sleep_for_cool(env.cool_time)
-            except NovelAIAPIError as e:
-                logger.error(f"Director request failed: {e}")
-                break
             except Exception as e:
                 logger.error(f"出现错误: {e}")
                 sleep_for_cool(5)
@@ -237,9 +220,6 @@ def emotion(director_input_path, director_input_image, emotion_tag: str, emotion
                     path = generator.save(image_data, "director/emotion", random.randint(1000000000, 9999999999))
                     image_list.append(path)
                     sleep_for_cool(env.cool_time)
-            except NovelAIAPIError as e:
-                logger.error(f"Director request failed: {e}")
-                break
             except Exception as e:
                 logger.error(f"出现错误: {e}")
                 sleep_for_cool(5)
@@ -276,9 +256,6 @@ def declutter(director_input_path, director_input_image):
                     path = generator.save(image_data, "director/declutter", random.randint(1000000000, 9999999999))
                     image_list.append(path)
                     sleep_for_cool(env.cool_time)
-            except NovelAIAPIError as e:
-                logger.error(f"Director request failed: {e}")
-                break
             except Exception as e:
                 logger.error(f"出现错误: {e}")
                 sleep_for_cool(5)

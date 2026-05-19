@@ -45,33 +45,21 @@ def _response_error_message(rep):
 
 
 def _safe_output_path(image_type, seed):
-    custom_path = env.custom_path or "<type>/<date>/<seed>_<index>"
+    custom_path = env.custom_path or "<类型>/<日期>/<种子>_<随机字符>"
     base_path = (
-        f"./outputs/{custom_path}"
-        .replace("<类型>", image_type)
+        f"./outputs/{custom_path}".replace("<类型>", image_type)
         .replace("<日期>", str(date.today()))
         .replace("<种子>", str(seed))
         .replace("<随机字符>", generate_random_str(6))
-        .replace("<绫诲瀷>", image_type)
-        .replace("<鏃ユ湡>", str(date.today()))
-        .replace("<绉嶅瓙>", str(seed))
-        .replace("<闅忔満瀛楃>", generate_random_str(6))
-        .replace("<type>", image_type)
-        .replace("<date>", str(date.today()))
-        .replace("<seed>", str(seed))
-        .replace("<random>", generate_random_str(6))
     )
-    outputs_root = Path("./outputs").resolve()
-    target = Path(base_path).resolve()
-    if not target.is_relative_to(outputs_root):
-        raise ValueError("custom_path must stay inside ./outputs")
+    if not os.path.exists(_path := base_path.rsplit("/", 1)[0]):
+        os.makedirs(_path, exist_ok=True)
+    base_path = base_path.replace("<编号>", str(len(os.listdir(_path))).zfill(5))
+    base_path += ".png"
 
+    target = Path(base_path).resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
-    index = str(len(os.listdir(target.parent))).zfill(5)
-    target = Path(str(target).replace("<编号>", index).replace("<缂栧彿>", index).replace("<index>", index) + ".png")
-    target = target.resolve()
-    if not target.is_relative_to(outputs_root):
-        raise ValueError("custom_path must stay inside ./outputs")
+
     return target
 
 
@@ -98,7 +86,7 @@ class Generator:
 
         global ANLAS
         ANLAS = inquire_anlas()
-        logger.success(loguru_to_rich(f"Request succeeded! <y>Remaining points: {ANLAS}</y>"))
+        logger.success(loguru_to_rich(f"请求成功! <y>剩余点数: {ANLAS}</y>"))
 
         try:
             with zipfile.ZipFile(io.BytesIO(rep.content), mode="r") as zip_file:

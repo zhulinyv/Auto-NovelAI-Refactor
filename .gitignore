@@ -207,6 +207,7 @@ __marimo__/
 
 # ---------- #
 test.*
+tests/
 outputs/
 .env
 last.json
