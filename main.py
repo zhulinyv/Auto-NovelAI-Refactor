@@ -1,5 +1,4 @@
 import os
-import string
 from pathlib import Path
 
 import gradio as gr
@@ -1274,5 +1273,5 @@ anr.launch(
     share=env.share,
     server_port=env.port,
     favicon_path="./assets/logo.ico",
-    allowed_paths=[f"{d}:" for d in string.ascii_uppercase if Path(f"{d}:").exists()],
+    allowed_paths=[str(Path.cwd() / "outputs"), str(Path.cwd() / "assets"), str(Path.cwd() / "wildcards")],
 )

@@ -9,6 +9,8 @@ from rich.progress import Progress
 from utils import download, extract, playsound, read_json
 from utils.image_tools import return_array_image, revert_image_info
 from utils.logger import logger
+from utils.path_safety import is_share_path_allowed
+from utils.runtime_state import single_job
 
 
 def before_process(upscale_input_path, upscale_input_image):
@@ -18,6 +20,9 @@ def before_process(upscale_input_path, upscale_input_image):
     if upscale_input_image:
         image_list = [upscale_input_image]
     else:
+        if not is_share_path_allowed(upscale_input_path):
+            logger.error("共享模式下批处理路径必须位于 outputs 目录内")
+            return []
         image_list = [Path(upscale_input_path) / file for file in os.listdir(upscale_input_path)]
 
     if platform.system() != "Windows":
@@ -38,6 +43,7 @@ def run_cmd(code):
         return
 
 
+@single_job("realcugan upscale", busy_return=lambda message: [])
 def realcugan_ncnn_vulkan(upscale_input_path, upscale_input_image, realcugan_noise, realcugan_scale, realcugan_model):
     if not os.path.exists("./assets/realcugan-ncnn-vulkan"):
         logger.debug("正在下载 realcugan-ncnn-vulkan 超分引擎")
@@ -83,6 +89,7 @@ def realcugan_ncnn_vulkan(upscale_input_path, upscale_input_image, realcugan_noi
     return image_list
 
 
+@single_job("Anime4K upscale", busy_return=lambda message: [])
 def anime4k(
     upscale_input_path,
     upscale_input_image,
@@ -142,6 +149,7 @@ def anime4k(
     return image_list
 
 
+@single_job("waifu2x-caffe upscale", busy_return=lambda message: [])
 def waifu2x_caffe(
     upscale_input_path,
     upscale_input_image,

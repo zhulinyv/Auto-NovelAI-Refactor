@@ -36,6 +36,7 @@ from PIL.PngImagePlugin import PngInfo
 from utils.environment import env
 from utils.logger import logger, loguru_to_rich
 from utils.naimeta import inject_data
+from utils.path_safety import is_share_path_allowed
 
 
 def generate_random_str(randomlength):
@@ -266,6 +267,9 @@ async def tk_asksavefile_asy(init_dir=os.getcwd(), suffix="") -> str:
 
 
 def remove_pnginfo(image, path, choices, info):
+    if path and not is_share_path_allowed(path):
+        return "共享模式下批处理路径必须位于 outputs 目录内"
+
     if image:
         file_list = [image]
     else:
@@ -344,10 +348,13 @@ def download(url, saved_path):
             url,
             proxies=proxies,
             stream=True,
+            timeout=60,
         )
+        rep.raise_for_status()
         with open(saved_path, "wb") as file:
             for chunk in rep.iter_content(chunk_size=256):
-                file.write(chunk)
+                if chunk:
+                    file.write(chunk)
         progress.advance(task)
     return
 
@@ -361,6 +368,10 @@ def extract(file_path, otp_path):
 
 def show_first_img(input_path):
     try:
+        if not is_share_path_allowed(input_path):
+            logger.error("共享模式下图片目录必须位于 outputs 目录内")
+            return None, None
+
         file_list: list = os.listdir(input_path)
         new_list = []
         for file in file_list:
@@ -408,6 +419,10 @@ def show_next_img():
 
 def move_current_img(current_img, output_path):
     try:
+        if not is_share_path_allowed(current_img) or not is_share_path_allowed(output_path):
+            logger.error("共享模式下只能移动 outputs 目录内的图片")
+            return None, None
+
         if not os.path.exists(output_path):
             os.makedirs(output_path)
         img_name = os.path.basename(current_img)
@@ -422,6 +437,10 @@ def move_current_img(current_img, output_path):
 def del_current_img(current_img):
     try:
         if current_img:
+            if not is_share_path_allowed(current_img):
+                logger.error("共享模式下只能删除 outputs 目录内的图片")
+                return None, None
+
             send2trash.send2trash(current_img)
             logger.info(loguru_to_rich(f"已将 <c>{current_img}</c> 移动到回收站"))
             return show_next_img()
@@ -436,6 +455,10 @@ def del_current_img(current_img):
 
 def copy_current_img(current_img, output_path):
     try:
+        if not is_share_path_allowed(current_img) or not is_share_path_allowed(output_path):
+            logger.error("共享模式下只能复制 outputs 目录内的图片")
+            return None, None
+
         if not os.path.exists(output_path):
             os.makedirs(output_path)
         img_name = os.path.basename(current_img)
@@ -448,39 +471,60 @@ def copy_current_img(current_img, output_path):
 
 
 def install_requirements(path):
+    if env.share:
+        logger.warning("共享模式下已跳过插件依赖安装")
+        return
     # logger.debug(f"开始安装所需依赖 {path}...")
-    command = f'"{sys.executable}" -s -m pip install -r "{path}"'
-    subprocess.call(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run(
+        [sys.executable, "-s", "-m", "pip", "install", "-r", path],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
     # logger.success("安装完成!")
     return
 
 
 def load_plugins(directory: str):
+    if env.share:
+        logger.warning("共享模式下已跳过插件加载")
+        return {}
+
     try:
         disable_list = read_json("./outputs/temp_plugins.json")["disable_plugin"]
     except FileNotFoundError:
         disable_list = []
 
     plugins = {}
+    directory = Path(directory).resolve()
+    plugins_root = Path("./plugins").resolve()
+    if not directory.is_relative_to(plugins_root):
+        logger.error("插件目录必须位于 ./plugins 内")
+        return plugins
+
     plugin_list = os.listdir(directory)
     for plugin in plugin_list:
         if plugin in disable_list:
             logger.warning(f"插件 {plugin} 已禁用!")
             continue
+        plugin_path = (directory / plugin).resolve()
+        if not plugin_path.is_relative_to(plugins_root):
+            logger.warning(f"已跳过非法插件路径: {plugin}")
+            continue
         if plugin.endswith(".py"):
-            location = os.path.join(directory, plugin)
+            location = str(plugin_path)
         elif plugin != "__pycache__":
             if os.path.exists(
-                requirements_path := os.path.abspath(os.path.join(directory, plugin, "requirements.txt"))
+                requirements_path := os.path.abspath(plugin_path / "requirements.txt")
             ):
                 logger.debug(f"正在安装依赖: {requirements_path}")
                 install_requirements(requirements_path)
-            location = os.path.join(directory, plugin, "__init__.py")
+            location = str(plugin_path / "__init__.py")
         else:
             location = None
         if location:
             plugin_name = plugin
-            module_name = f"{directory}.{plugin_name}"
+            module_name = f"plugins.{plugin_name.replace('.py', '').replace('-', '_')}"
             spec = importlib.util.spec_from_file_location(module_name, location)
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
@@ -566,6 +610,9 @@ def plugin_list():
 def send_mail():
     if env.smtp_num == 0:
         return
+    if not env.smtp_mail or not env.smtp_token:
+        logger.warning("未配置邮箱账号或授权码，已跳过邮件提醒")
+        return
 
     mail_host = "smtp.qq.com"
 
@@ -580,13 +627,18 @@ def send_mail():
     message["To"] = receiver_email
     message["Subject"] = "ANR 完成提醒"
 
+    smtp_obj = None
     try:
-        smptObj = smtplib.SMTP_SSL(mail_host, smtplib.SMTP_SSL_PORT)
-        smptObj.login(mail_user, mail_pass)
-        smptObj.sendmail(sender, receiver_email, message.as_string())
+        smtp_obj = smtplib.SMTP_SSL(mail_host, smtplib.SMTP_SSL_PORT)
+        smtp_obj.login(mail_user, mail_pass)
+        smtp_obj.sendmail(sender, receiver_email, message.as_string())
         logger.success("发送邮件成功!")
     except smtplib.SMTPException as e:
         logger.error(f"发送失败: {e}")
     finally:
-        smptObj.quit()
+        if smtp_obj is not None:
+            try:
+                smtp_obj.quit()
+            except smtplib.SMTPException as e:
+                logger.error(f"关闭 SMTP 连接失败: {e}")
     return

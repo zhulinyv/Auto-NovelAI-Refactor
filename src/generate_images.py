@@ -17,6 +17,7 @@ from utils import (
     sleep_for_cool,
 )
 from utils.environment import env
+from utils.errors import NovelAIAPIError
 from utils.image_tools import (
     change_the_mask_color,
     image_to_base64,
@@ -28,6 +29,7 @@ from utils.image_tools import (
 )
 from utils.logger import logger
 from utils.models import *  # noqa
+from utils.runtime_state import single_job
 from utils.variable import (
     return_quality_tags,
     return_skip_cfg_above_sigma,
@@ -36,8 +38,42 @@ from utils.variable import (
 )
 
 image_generator = generator.Generator("https://image.novelai.net/ai/generate-image")
+IMAGE2IMAGE_MODE = "图生图"
+SCRIBBLE_MODE = "涂鸦重绘"
 
 
+def _resize_editor_image(image, size):
+    if image.size != size:
+        return image.resize(size, Image.Resampling.LANCZOS)
+    return image
+
+
+def _prepare_inpaint_inputs(inpaint_input_image, inpaint_input_image_mode, width, height):
+    if not isinstance(inpaint_input_image, dict):
+        return None
+
+    background = inpaint_input_image.get("background")
+    if background is None or not hasattr(background, "size") or is_pure_white(background):
+        return None
+
+    layers = inpaint_input_image.get("layers") or []
+    if inpaint_input_image_mode == IMAGE2IMAGE_MODE:
+        mask = Image.new("RGBA", background.size, (0, 0, 0, 0))
+    else:
+        mask = next((layer for layer in layers if layer is not None), None)
+        if mask is None:
+            raise ValueError("局部重绘/涂鸦重绘需要先绘制遮罩")
+
+    composite = inpaint_input_image.get("composite") or background
+    size = (width, height)
+    return (
+        _resize_editor_image(background, size),
+        _resize_editor_image(mask, size),
+        _resize_editor_image(composite, size),
+    )
+
+
+@single_job("image generation", busy_return=lambda message: ([], message))
 def main(
     model,
     positive_input,
@@ -129,7 +165,7 @@ def main(
                         "nai-diffusion-4-full": nai4fvibe,  # noqa
                         "nai-diffusion-4-curated-preview": nai4cpvibe,  # noqa
                         "nai-diffusion-3": nai3vibe,  # noqa
-                        "nai-diffusion-furry-3": nai3vibe,  # noqa
+                        "nai-diffusion-furry-3": naif3vibe,  # noqa
                     }
                     if model in ["nai-diffusion-3", "nai-diffusion-furry-3"]:
                         vibe_images = [list(chunk) for chunk in zip(*[iter(vibe_components)] * 3)]
@@ -259,22 +295,14 @@ def main(
                     director_reference_secondary_strength_values=director_reference_secondary_strength_values,
                 )
 
-                if inpaint_input_image["background"] and not is_pure_white(inpaint_input_image["background"]):
-                    w, h = (inpaint_input_image["background"]).size
-                    if w != width or h != height:
-                        inpaint_image = (inpaint_input_image["background"]).resize(
-                            (width, height), Image.Resampling.LANCZOS
-                        )
-                        inpaint_mask = (inpaint_input_image["layers"][0]).resize(
-                            (width, height), Image.Resampling.LANCZOS
-                        )
-                        inpaint_composite = (inpaint_input_image["composite"]).resize(
-                            (width, height), Image.Resampling.LANCZOS
-                        )
-                    else:
-                        inpaint_image = inpaint_input_image["background"]
-                        inpaint_mask = inpaint_input_image["layers"][0]
-                        inpaint_composite = inpaint_input_image["composite"]
+                inpaint_inputs = _prepare_inpaint_inputs(
+                    inpaint_input_image,
+                    inpaint_input_image_mode,
+                    width,
+                    height,
+                )
+                if inpaint_inputs:
+                    inpaint_image, inpaint_mask, inpaint_composite = inpaint_inputs
                     inpaint_image.save(image_path := "./outputs/temp_inpaint_image.png")
                     inpaint_mask.save(mask_path := "./outputs/temp_inpaint_mask.png")
                     inpaint_composite.save(composite_path := "./outputs/temp_inpaint_composite.png")
@@ -301,29 +329,33 @@ def main(
                         _type = "inpaint"
 
                     func = model_function_map.get(model)
-                    json_data = func(
-                        json_data,
-                        strength=strength,
-                        noise=noise,
-                        inpaint_i2i_strength=inpaint_i2i_strength,
-                        image=image_to_base64(
-                            resize_image(composite_path if inpaint_input_image_mode == "涂鸦重绘" else image_path)
+                    image_kwargs = {
+                        "strength": strength,
+                        "noise": noise,
+                        "inpaint_i2i_strength": inpaint_i2i_strength,
+                        "image": image_to_base64(
+                            resize_image(composite_path if inpaint_input_image_mode == SCRIBBLE_MODE else image_path)
                         ),
-                        mask=image_to_base64(
+                        "extra_noise_seed": _seed,
+                        "color_correct": False,
+                    }
+                    if _type == "inpaint":
+                        image_kwargs["mask"] = image_to_base64(
                             resize_image(process_white_regions(change_the_mask_color(mask_path), mask_path))
-                        ),
-                        extra_noise_seed=_seed,
-                        color_correct=False,
-                    )
+                        )
+                    json_data = func(json_data, **image_kwargs)
 
                 with open("./outputs/temp_last_origin.json", "w", encoding="utf-8") as file:
                     json.dump(json_data, file, ensure_ascii=False, indent=4)
 
                 image_data = image_generator.generate(find_and_replace_wildcards_from_dict(json_data))
-                if image_data:
-                    path = image_generator.save(image_data, _type, json_data["parameters"]["seed"])
-                    if not enhance_enable:
-                        image_list.append(path)
+                if not image_data:
+                    raise NovelAIAPIError("NovelAI returned empty image data")
+                path = image_generator.save(image_data, _type, json_data["parameters"]["seed"])
+                if not path:
+                    raise NovelAIAPIError("Generated image could not be saved")
+                if not enhance_enable:
+                    image_list.append(path)
 
                 if enhance_enable:
                     logger.info("正在 Enhance 图片...")
@@ -344,7 +376,10 @@ def main(
 
                     def return_strength(mag):
                         strengths = [0.2, 0.4, 0.5, 0.6, 0.7]
-                        return strengths[mag - 1]
+                        index = int(mag) - 1
+                        if index < 0 or index >= len(strengths):
+                            raise ValueError("Enhance magnitude must be between 1 and 5")
+                        return strengths[index]
 
                     json_data = func(
                         json_data,
@@ -361,20 +396,32 @@ def main(
                     json_data["parameters"]["height"] = new_height
 
                     image_data = image_generator.generate(find_and_replace_wildcards_from_dict(json_data))
-                    if image_data:
-                        path = image_generator.save(image_data, _type, json_data["parameters"]["seed"])
-                        image_list.append(path)
+                    if not image_data:
+                        raise NovelAIAPIError("NovelAI returned empty enhanced image data")
+                    path = image_generator.save(image_data, _type, json_data["parameters"]["seed"])
+                    if not path:
+                        raise NovelAIAPIError("Enhanced image could not be saved")
+                    image_list.append(path)
 
                 if quantity != 1 and i != quantity - 1:
                     sleep_for_cool(env.cool_time)
+            except NovelAIAPIError as e:
+                logger.error(f"Generation failed: {e}")
+                return image_list, f"Generation failed: {e}"
             except Exception as e:
                 logger.error(f"出现错误: {e}")
                 sleep_for_cool(5)
 
             progress.advance(task)
 
+    if not image_list:
+        return image_list, "Generation failed: no images were produced"
+
     playsound("./assets/finish.mp3")
-    if quantity >= env.smtp_num:
-        send_mail()
+    if env.smtp_num > 0 and quantity >= env.smtp_num:
+        try:
+            send_mail()
+        except Exception as e:
+            logger.error(f"发送邮件提醒失败: {e}")
 
     return image_list, f"处理完成! 剩余点数: {generator.ANLAS}"
