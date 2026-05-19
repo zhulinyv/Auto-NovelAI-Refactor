@@ -9,7 +9,6 @@ from rich.progress import Progress
 from utils import download, extract, playsound, read_json
 from utils.image_tools import return_array_image, revert_image_info
 from utils.logger import logger
-from utils.path_safety import is_share_path_allowed
 from utils.runtime_state import single_job
 
 
@@ -20,9 +19,6 @@ def before_process(upscale_input_path, upscale_input_image):
     if upscale_input_image:
         image_list = [upscale_input_image]
     else:
-        if not is_share_path_allowed(upscale_input_path):
-            logger.error("共享模式下批处理路径必须位于 outputs 目录内")
-            return []
         image_list = [Path(upscale_input_path) / file for file in os.listdir(upscale_input_path)]
 
     if platform.system() != "Windows":

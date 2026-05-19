@@ -36,7 +36,6 @@ from PIL.PngImagePlugin import PngInfo
 from utils.environment import env
 from utils.logger import logger, loguru_to_rich
 from utils.naimeta import inject_data
-from utils.path_safety import is_share_path_allowed
 
 
 def generate_random_str(randomlength):
@@ -267,9 +266,6 @@ async def tk_asksavefile_asy(init_dir=os.getcwd(), suffix="") -> str:
 
 
 def remove_pnginfo(image, path, choices, info):
-    if path and not is_share_path_allowed(path):
-        return "共享模式下批处理路径必须位于 outputs 目录内"
-
     if image:
         file_list = [image]
     else:
@@ -368,10 +364,6 @@ def extract(file_path, otp_path):
 
 def show_first_img(input_path):
     try:
-        if not is_share_path_allowed(input_path):
-            logger.error("共享模式下图片目录必须位于 outputs 目录内")
-            return None, None
-
         file_list: list = os.listdir(input_path)
         new_list = []
         for file in file_list:
@@ -419,10 +411,6 @@ def show_next_img():
 
 def move_current_img(current_img, output_path):
     try:
-        if not is_share_path_allowed(current_img) or not is_share_path_allowed(output_path):
-            logger.error("共享模式下只能移动 outputs 目录内的图片")
-            return None, None
-
         if not os.path.exists(output_path):
             os.makedirs(output_path)
         img_name = os.path.basename(current_img)
@@ -437,10 +425,6 @@ def move_current_img(current_img, output_path):
 def del_current_img(current_img):
     try:
         if current_img:
-            if not is_share_path_allowed(current_img):
-                logger.error("共享模式下只能删除 outputs 目录内的图片")
-                return None, None
-
             send2trash.send2trash(current_img)
             logger.info(loguru_to_rich(f"已将 <c>{current_img}</c> 移动到回收站"))
             return show_next_img()
@@ -455,10 +439,6 @@ def del_current_img(current_img):
 
 def copy_current_img(current_img, output_path):
     try:
-        if not is_share_path_allowed(current_img) or not is_share_path_allowed(output_path):
-            logger.error("共享模式下只能复制 outputs 目录内的图片")
-            return None, None
-
         if not os.path.exists(output_path):
             os.makedirs(output_path)
         img_name = os.path.basename(current_img)
@@ -514,9 +494,7 @@ def load_plugins(directory: str):
         if plugin.endswith(".py"):
             location = str(plugin_path)
         elif plugin != "__pycache__":
-            if os.path.exists(
-                requirements_path := os.path.abspath(plugin_path / "requirements.txt")
-            ):
+            if os.path.exists(requirements_path := os.path.abspath(plugin_path / "requirements.txt")):
                 logger.debug(f"正在安装依赖: {requirements_path}")
                 install_requirements(requirements_path)
             location = str(plugin_path / "__init__.py")
