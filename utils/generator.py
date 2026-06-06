@@ -11,7 +11,7 @@ from utils import generate_random_str
 from utils.environment import env
 from utils.errors import NovelAIAPIError
 from utils.logger import logger, loguru_to_rich
-from utils.models.headers import headers
+from utils.models.headers import build_headers
 from utils.variable import proxies
 
 ANLAS = -1
@@ -23,7 +23,7 @@ def inquire_anlas():
     try:
         rep = requests.get(
             "https://api.novelai.net/user/subscription",
-            headers=headers,
+            headers=build_headers(),
             proxies=proxies,
             timeout=30,
         )
@@ -58,6 +58,10 @@ def _safe_output_path(image_type, seed):
     base_path += ".png"
 
     target = Path(base_path).resolve()
+    outputs_root = Path("./outputs").resolve()
+    if not target.is_relative_to(outputs_root):
+        logger.warning(f"输出路径超出 outputs 目录，已回退到默认路径: {target}")
+        target = Path(f"./outputs/{image_type}/{date.today()}/{seed}_{generate_random_str(6)}.png").resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
 
     return target
@@ -74,7 +78,7 @@ class Generator:
         rep = requests.post(
             url=self.url,
             json=json_data,
-            headers=headers,
+            headers=build_headers(),
             proxies=proxies,
             timeout=30,
         )

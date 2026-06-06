@@ -382,7 +382,7 @@ def main(
                         json_data,
                         strength=return_strength(magnitude),
                         noise=0,
-                        image=image_to_base64(resize_image(path)),
+                        image=image_to_base64(resize_image(path, output_path="./outputs/temp_enhance_resized.png")),
                         extra_noise_seed=_seed,
                         color_correct=False,
                     )
