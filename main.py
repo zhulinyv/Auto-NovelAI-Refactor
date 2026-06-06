@@ -54,6 +54,7 @@ from utils.components import (
 )
 from utils.environment import env
 from utils.image_tools import return_array_image
+from utils.logger import logger
 from utils.prepare import _model, is_updated, last_data, parameters
 from utils.setting_updater import modify_env
 from utils.variable import (
@@ -1269,10 +1270,18 @@ with gr.Blocks(
     sampler.change(update_components_for_sampler_change, inputs=sampler, outputs=[noise_schedule, sm])
 
 
+if env.allow_full_disk_access:
+    allowed_paths = [f"{d}:" for d in string.ascii_uppercase if Path(f"{d}:").exists()]
+    logger.warning("allow_full_disk_access 已开启: WebUI 可读取本机所有盘符的文件!")
+    if env.share:
+        logger.warning("危险: share=True 且开启全盘访问, 任何拿到公开链接的人都能下载本机任意文件! 强烈建议关闭其一。")
+else:
+    allowed_paths = [os.path.abspath("./outputs")]
+
 anr.launch(
     inbrowser=True,
     share=env.share,
     server_port=env.port,
     favicon_path="./assets/logo.ico",
-    allowed_paths=[f"{d}:" for d in string.ascii_uppercase if Path(f"{d}:").exists()],
+    allowed_paths=allowed_paths,
 )
