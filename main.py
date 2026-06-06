@@ -148,7 +148,7 @@ with gr.Blocks(
             stop_button.click(stop_generate)
             quantity = gr.Slider(
                 minimum=1,
-                maximum=999,
+                maximum=9999,
                 value=1,
                 step=1,
                 label="生成数量",
@@ -1172,7 +1172,7 @@ with gr.Blocks(
                 gr.Markdown("可以较小提升启动速度")
                 skip_inquire_anlas = gr.Checkbox(value=env.skip_inquire_anlas, label="跳过剩余点数计算")
                 gr.Markdown("跳过可减少生成下一张图片中间的等待时间")
-                smtp_num = gr.Slider(0, 999, env.smtp_num, step=1, label="超过指定数量时启用 SMTP", interactive=True)
+                smtp_num = gr.Slider(0, 9999, env.smtp_num, step=1, label="超过指定数量时启用 SMTP", interactive=True)
                 gr.Markdown("当设置为 0 时生成结束不发送邮件")
                 with gr.Row():
                     smtp_mail = gr.Textbox(env.smtp_mail, label="发送/接收邮件的 QQ 邮箱", interactive=True)
