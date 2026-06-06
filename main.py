@@ -1271,7 +1271,14 @@ with gr.Blocks(
 
 
 if env.allow_full_disk_access:
-    allowed_paths = [f"{d}:" for d in string.ascii_uppercase if Path(f"{d}:").exists()]
+    allowed_paths = []
+    for drive_letter in string.ascii_uppercase:
+        try:
+            if Path(f"{drive_letter}:").exists():
+                allowed_paths.append(f"{drive_letter}:")
+        except OSError:
+            # 跳过无法识别的卷 (如双系统的 Linux 分区、空读卡器等)
+            continue
     logger.warning("allow_full_disk_access 已开启: WebUI 可读取本机所有盘符的文件!")
     if env.share:
         logger.warning("危险: share=True 且开启全盘访问, 任何拿到公开链接的人都能下载本机任意文件! 强烈建议关闭其一。")
