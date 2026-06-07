@@ -1166,6 +1166,8 @@ with gr.Blocks(
                 gr.Markdown("理论范围：1 - 65535")
                 share = gr.Checkbox(value=env.share, label="共享 Gradio 链接")
                 gr.Markdown("生成一个有效期一周的可分享链接, 可以在任意设备上访问")
+                allow_full_disk_access = gr.Checkbox(value=env.allow_full_disk_access, label="允许全部磁盘访问")
+                gr.Markdown("开启后程序访问所有磁盘文件, 不建议在共享 Gradio 链接时开启")
                 with gr.Row():
                     start_sound = gr.Checkbox(value=env.start_sound, label="启动提示音")
                     finish_sound = gr.Checkbox(value=env.finish_sound, label="完成提示音")
@@ -1231,6 +1233,7 @@ with gr.Blocks(
                         cool_time,
                         port,
                         share,
+                        allow_full_disk_access,
                         start_sound,
                         finish_sound,
                         check_update,
@@ -1281,7 +1284,7 @@ if env.allow_full_disk_access:
             continue
     logger.warning("allow_full_disk_access 已开启: WebUI 可读取本机所有盘符的文件!")
     if env.share:
-        logger.warning("危险: share=True 且开启全盘访问, 任何拿到公开链接的人都能下载本机任意文件! 强烈建议关闭其一。")
+        logger.warning("share=True 已开启: 任何拿到公开链接的人都能下载本机任意文件!")
 else:
     allowed_paths = [os.path.abspath("./outputs")]
 

@@ -19,6 +19,7 @@ class Settings(BaseSettings):
 
     port: int = 11451
     share: bool = False
+    allow_full_disk_access: bool = True
     start_sound: bool = True
     finish_sound: bool = True
     theme: Union[str, None] = None
