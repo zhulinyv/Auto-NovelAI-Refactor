@@ -468,7 +468,7 @@ def install_requirements(path):
 
 def load_plugins(directory: str):
     if env.share:
-        logger.warning("共享模式下已跳过插件加载")
+        logger.warning("share 已开启: 跳过插件加载!")
         return {}
 
     try:

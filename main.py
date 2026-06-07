@@ -1286,7 +1286,7 @@ if env.allow_full_disk_access:
             continue
     logger.warning("allow_full_disk_access 已开启: WebUI 可读取本机所有盘符的文件!")
     if env.share:
-        logger.warning("share=True 已开启: 任何拿到公开链接的人都能下载本机任意文件!")
+        logger.warning("share 已开启: 任何拿到公开链接的人都能下载本机任意文件!")
 else:
     allowed_paths = [os.path.abspath("./outputs")]
 
