@@ -91,7 +91,7 @@ def is_fully_transparent(image_path):
     return np.all(alpha_channel == 0)
 
 
-def resize_image(image_path):
+def resize_image(image_path, output_path=None):
     with Image.open(image_path) as image:
         w, h = image.size
         nw, nh = return_x64(w), return_x64(h)
@@ -101,8 +101,8 @@ def resize_image(image_path):
             nh = nh - 64 if nh > 64 else nh
         new_size = (nw, nh)
         image = image.resize(new_size, Image.Resampling.LANCZOS)
-        image.save(image_path)
-    return image_path
+        image.save(output_path or image_path)
+    return output_path or image_path
 
 
 def process_white_regions(image_path, output_path):

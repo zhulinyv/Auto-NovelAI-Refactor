@@ -7,6 +7,7 @@ import re
 import secrets
 import shutil
 import smtplib
+import string
 import subprocess
 import sys
 import time
@@ -40,7 +41,7 @@ from utils.naimeta import inject_data
 
 def generate_random_str(randomlength):
     random_str = ""
-    base_str = "ABCDEFGHIGKLMNOPQRSTUVWXYZabcdefghigklmnopqrstuvwxyz0123456789"
+    base_str = string.ascii_letters + string.digits
     length = len(base_str) - 1
     for i in range(randomlength):
         random_str += base_str[random.randint(0, length)]
