@@ -1166,7 +1166,9 @@ with gr.Blocks(
                 gr.Markdown("理论范围：1 - 65535")
                 share = gr.Checkbox(value=env.share, label="共享 Gradio 链接")
                 gr.Markdown("生成一个有效期一周的可分享链接, 可以在任意设备上访问")
-                allow_full_disk_access = gr.Checkbox(value=env.allow_full_disk_access, label="允许全部磁盘访问")
+                allow_full_disk_access = gr.Checkbox(
+                    value=env.allow_full_disk_access, label="允许全部磁盘访问", visible=not env.share
+                )
                 gr.Markdown("开启后程序访问所有磁盘文件, 不建议在共享 Gradio 链接时开启")
                 with gr.Row():
                     start_sound = gr.Checkbox(value=env.start_sound, label="启动提示音")
