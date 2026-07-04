@@ -22,7 +22,7 @@ def inquire_anlas():
         return "skipped"
     try:
         rep = requests.get(
-            "https://api.novelai.net/user/subscription",
+            "https://image.novelai.net/user/subscription",
             headers=build_headers(),
             proxies=proxies,
             timeout=30,
