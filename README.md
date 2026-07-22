@@ -11,7 +11,7 @@
 
 - 它不仅继承了 SANP 的各个功能, 更提供了方便快捷的使用体验
 
-- **使用中遇到问题请加 QQ 群咨询：[559063963](https://qm.qq.com/cgi-bin/qm/qr?k=I9FqVFb_wn-y5Ejid9CIae57KLLlvDuj&jump_from=webapi&authKey=i+DvSe2nFRBsKNu+D9NK0sFd7Qr1u/vakfRUFDGDCWaceBQOsuiHwkxDa3kRLfup)**
+- **使用中遇到问题请加 QQ 群咨询：[704064019](https://qm.qq.com/cgi-bin/qm/qr?k=704064019)**
 
 - 目前已实现的功能:
 
