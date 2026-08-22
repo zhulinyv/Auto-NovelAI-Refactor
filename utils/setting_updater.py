@@ -39,6 +39,7 @@ def modify_env(
     smtp_num,
     smtp_mail,
     smtp_token,
+    disable_all_plugins,
 ):
     _modify_env(
         token=f'"{token}"'.replace("\n", ""),
@@ -57,5 +58,6 @@ def modify_env(
         smtp_num=smtp_num,
         smtp_mail=f'"{smtp_mail}"',
         smtp_token=f'"{smtp_token}"',
+        disable_all_plugins=disable_all_plugins,
     )
     return gr.update(value="修改已保存, 重启后生效!", visible=True)

@@ -4,18 +4,18 @@ def text2image(**kwargs):
         "model": "nai-diffusion-4-curated-preview",
         "action": "generate",
         "parameters": {
-            "params_version": 3,
+            "params_version": kwargs["params_version"],
             "width": kwargs["width"],
             "height": kwargs["height"],
             "scale": kwargs["scale"],
             "sampler": kwargs["sampler"],
             "steps": kwargs["steps"],
-            "n_samples": 1,
-            "ucPreset": kwargs["ucPreset"],
-            "qualityToggle": kwargs["qualityToggle"],
+            "n_samples": kwargs["n_samples"],
+            "ucPresetId": kwargs["ucPresetId"],
+            "qualityPresetId": kwargs["qualityPresetId"],
             "autoSmea": kwargs["autoSmea"],
             "dynamic_thresholding": kwargs["dynamic_thresholding"],
-            "controlnet_strength": 1,
+            "controlnet_strength": kwargs["controlnet_strength"],
             "legacy": kwargs["legacy"],
             "add_original_image": kwargs["add_original_image"],
             "cfg_rescale": kwargs["cfg_rescale"],
@@ -25,8 +25,8 @@ def text2image(**kwargs):
             "use_coords": kwargs["use_coords"],
             "legacy_uc": kwargs["legacy_uc"],
             "normalize_reference_strength_multiple": kwargs["normalize_reference_strength_multiple"],
-            "inpaintImg2ImgStrength": 1,
-            "seed": kwargs["seed"],  # 10 位数
+            "inpaintImg2ImgStrength": kwargs["inpaintImg2ImgStrength"],
+            "seed": kwargs["seed"],  # 9-10 位数
             "characterPrompts": kwargs[
                 "characterPrompts"
             ],  # {"prompt": str, "uc": str, "center": {"x": float, "y": float}, "enabled": bool}

@@ -471,6 +471,10 @@ def load_plugins(directory: str):
         logger.warning("share 已开启: 跳过插件加载!")
         return {}
 
+    if env.disable_all_plugins:
+        logger.warning("disable_all_plugins 已开启: 跳过插件加载!")
+        return {}
+
     try:
         disable_list = read_json("./outputs/temp_plugins.json")["disable_plugin"]
     except FileNotFoundError:
@@ -502,13 +506,16 @@ def load_plugins(directory: str):
         else:
             location = None
         if location:
-            plugin_name = plugin
-            module_name = f"plugins.{plugin_name.replace('.py', '').replace('-', '_')}"
-            spec = importlib.util.spec_from_file_location(module_name, location)
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-            plugins[plugin_name] = module
-            logger.success(f"成功加载插件: {plugin}")
+            try:
+                plugin_name = plugin
+                module_name = f"plugins.{plugin_name.replace('.py', '').replace('-', '_')}"
+                spec = importlib.util.spec_from_file_location(module_name, location)
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                plugins[plugin_name] = module
+                logger.success(f"成功加载插件: {plugin}")
+            except Exception as e:
+                logger.error(f"插件: {plugin} 加载失败: {e}")
         else:
             logger.error(f"插件: {plugin} 没有 plugin 函数!")
     return plugins

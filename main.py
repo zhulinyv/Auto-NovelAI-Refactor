@@ -63,6 +63,7 @@ from utils.variable import (
     CR_MODE,
     MODELS,
     NOISE_SCHEDULE,
+    QP_PRESET,
     RESOLUTION,
     SAMPLER,
     UC_PRESET,
@@ -122,28 +123,53 @@ with gr.Blocks(
                 furry_mode = gr.Button(
                     "🌸", visible=False if _model in ["nai-diffusion-3", "nai-diffusion-furry-3"] else True
                 )
-                furry_mode.click(lambda x: "🐾" if x == "🌸" else "🌸", inputs=furry_mode, outputs=furry_mode)
-                add_quality_tags = gr.Checkbox(
-                    value=parameters.get("qualityToggle", True), label="添加质量词", interactive=True
+                furry_info = gr.Markdown("Mode: Anime", show_label=False)
+                furry_mode.click(
+                    lambda x: ("🐾", "Mode: Furry") if x == "🌸" else ("🌸", "Mode: Anime"),
+                    inputs=furry_mode,
+                    outputs=[furry_mode, furry_info],
                 )
-            undesired_contentc_preset = gr.Dropdown(
-                choices=[
-                    x
-                    for x in UC_PRESET
-                    if x
-                    not in {
-                        "nai-diffusion-4-5-full": [],
-                        "nai-diffusion-4-5-curated": ["Furry Focus"],
-                        "nai-diffusion-4-full": ["Furry Focus", "Human Focus"],
-                        "nai-diffusion-4-curated-preview": ["Furry Focus", "Human Focus"],
-                        "nai-diffusion-3": ["Furry Focus"],
-                        "nai-diffusion-furry-3": ["Furry Focus", "Human Focus"],
-                    }.get(_model, [])
-                ],
-                value="None" if parameters.get("negative_prompt") else "Heavy",
-                label="负面提示词预设",
-                interactive=True,
-            )
+            with gr.Row():
+                add_quality_tags = gr.Dropdown(
+                    choices=[
+                        x
+                        for x in QP_PRESET
+                        if x
+                        not in {
+                            "nai-diffusion-5-full": [],
+                            "nai-diffusion-5-curated": [],
+                            "nai-diffusion-4-5-full": ["Light"],
+                            "nai-diffusion-4-5-curated": ["Light"],
+                            "nai-diffusion-4-full": ["Light"],
+                            "nai-diffusion-4-curated-preview": ["Light"],
+                            "nai-diffusion-3": ["Light"],
+                            "nai-diffusion-furry-3": ["Light"],
+                        }.get(_model, [])
+                    ],
+                    value="Standard",
+                    label="正面提示词预设",
+                    interactive=True,
+                )
+                undesired_contentc_preset = gr.Dropdown(
+                    choices=[
+                        x
+                        for x in UC_PRESET
+                        if x
+                        not in {
+                            "nai-diffusion-5-full": [],
+                            "nai-diffusion-5-curated": [],
+                            "nai-diffusion-4-5-full": [],
+                            "nai-diffusion-4-5-curated": ["Furry Focus"],
+                            "nai-diffusion-4-full": ["Furry Focus", "Human Focus"],
+                            "nai-diffusion-4-curated-preview": ["Furry Focus", "Human Focus"],
+                            "nai-diffusion-3": ["Furry Focus"],
+                            "nai-diffusion-furry-3": ["Furry Focus", "Human Focus"],
+                        }.get(_model, [])
+                    ],
+                    value="None" if parameters.get("negative_prompt") else "Heavy",
+                    label="负面提示词预设",
+                    interactive=True,
+                )
             generate_button = gr.Button(value="开始生成")
             stop_button = gr.Button(value="停止生成")
             stop_button.click(stop_generate)
@@ -242,6 +268,7 @@ with gr.Blocks(
                     variety = gr.Checkbox(
                         value=True if parameters.get("skip_cfg_above_sigma") else False,
                         label="Variety+",
+                        visible=False if _model in ["nai-diffusion-5-full", "nai-diffusion-5-curated"] else False,
                         interactive=True,
                     )
                     decrisp = gr.Checkbox(
@@ -295,6 +322,7 @@ with gr.Blocks(
                     ),
                     value=parameters.get("noise_schedule", "karras"),
                     label="调度器",
+                    visible=False if _model in ["nai-diffusion-5-full", "nai-diffusion-5-curated"] else False,
                     interactive=True,
                 )
                 legacy_uc = gr.Checkbox(
@@ -1185,6 +1213,7 @@ with gr.Blocks(
                         env.smtp_token, label="SMTP TOKEN", visible=True if not env.share else False, interactive=True
                     )
                 gr.Markdown("目前仅支持 QQ 邮箱, SMTP TOKEN 可以去 QQ 邮箱官网获取")
+                disable_all_plugins = gr.Checkbox(False, label="禁用全部插件")
                 theme = gr.Dropdown(
                     value=env.theme,
                     choices=[
@@ -1245,6 +1274,7 @@ with gr.Blocks(
                         smtp_num,
                         smtp_mail,
                         smtp_token,
+                        disable_all_plugins,
                     ],
                     outputs=setting_output_information,
                 )
@@ -1261,7 +1291,9 @@ with gr.Blocks(
             legacy_uc,
             sampler,
             noise_schedule,
+            add_quality_tags,
             undesired_contentc_preset,
+            vibe_transfer_tab,
             naiv4vibebundle_file,
             normalize_reference_strength_multiple,
             nai3vibe_column,

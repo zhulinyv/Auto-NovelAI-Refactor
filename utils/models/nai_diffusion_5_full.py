@@ -1,7 +1,7 @@
 def text2image(**kwargs):
     json_data = {
         "input": kwargs["_input"],
-        "model": "nai-diffusion-4-full",
+        "model": "nai-diffusion-5-full",
         "action": "generate",
         "parameters": {
             "params_version": kwargs["params_version"],
@@ -21,15 +21,10 @@ def text2image(**kwargs):
             "cfg_rescale": kwargs["cfg_rescale"],
             "noise_schedule": kwargs["noise_schedule"],
             "legacy_v3_extend": kwargs["legacy_v3_extend"],
-            "skip_cfg_above_sigma": kwargs["skip_cfg_above_sigma"],
+            # "skip_cfg_above_sigma": kwargs["skip_cfg_above_sigma"],
             "use_coords": kwargs["use_coords"],
-            "legacy_uc": kwargs["legacy_uc"],
             "normalize_reference_strength_multiple": kwargs["normalize_reference_strength_multiple"],
             "inpaintImg2ImgStrength": kwargs["inpaintImg2ImgStrength"],
-            "seed": kwargs["seed"],  # 9-10 位数
-            "characterPrompts": kwargs[
-                "characterPrompts"
-            ],  # {"prompt": str, "uc": str, "center": {"x": float, "y": float}, "enabled": bool}
             "v4_prompt": {
                 "caption": {
                     "base_caption": kwargs["_input"],
@@ -49,6 +44,12 @@ def text2image(**kwargs):
                 },
                 "legacy_uc": kwargs["legacy_uc"],
             },
+            "legacy_uc": kwargs["legacy_uc"],
+            "seed": kwargs["seed"],  # 9-10 位数
+            "characterPrompts": kwargs[
+                "characterPrompts"
+            ],  # {"prompt": str, "uc": str, "center": {"x": float, "y": float}, "enabled": bool}
+            "straight_alpha": kwargs["straight_alpha"],
             "negative_prompt": kwargs["negative_prompt"],
             # "deliberate_euler_ancestral_bug": kwargs["deliberate_euler_ancestral_bug"],
             # "prefer_brownian": kwargs["prefer_brownian"],
@@ -71,6 +72,20 @@ def vibe_transfer(**kwargs):
     return json_data
 
 
+def character(**kwargs):
+    json_data = text2image(**kwargs)
+    json_data["parameters"]["director_reference_images_cached"] = kwargs["director_reference_images_cached"]
+    json_data["parameters"]["director_reference_descriptions"] = kwargs["director_reference_descriptions"]
+    json_data["parameters"]["director_reference_information_extracted"] = kwargs[
+        "director_reference_information_extracted"
+    ]
+    json_data["parameters"]["director_reference_strength_values"] = kwargs["director_reference_strength_values"]
+    json_data["parameters"]["director_reference_secondary_strength_values"] = kwargs[
+        "director_reference_secondary_strength_values"
+    ]
+    return json_data
+
+
 def image2image(json_data, **kwargs):
     json_data["action"] = "img2img"
     json_data["parameters"]["color_correct"] = kwargs["color_correct"]
@@ -83,7 +98,7 @@ def image2image(json_data, **kwargs):
 
 def inpaint(json_data, **kwargs):
     json_data = image2image(json_data, **kwargs)
-    json_data["model"] = "nai-diffusion-4-full-inpainting"
+    json_data["model"] = "nai-diffusion-5-full-inpainting"
     json_data["action"] = "infill"
     json_data["parameters"]["inpaintImg2ImgStrength"] = kwargs["inpaint_i2i_strength"]
     json_data["parameters"]["mask"] = kwargs["mask"]

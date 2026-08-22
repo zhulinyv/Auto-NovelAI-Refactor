@@ -28,6 +28,9 @@ def inquire_anlas():
             timeout=30,
         )
         if rep.status_code == 200:
+            anlas = rep.json()["trainingStepsLeft"]["fixedTrainingStepsLeft"]
+            if anlas == 0:
+                return rep.json()["trainingStepsLeft"]["purchasedTrainingSteps"]
             return rep.json()["trainingStepsLeft"]["fixedTrainingStepsLeft"]
         return -1
     except Exception as e:

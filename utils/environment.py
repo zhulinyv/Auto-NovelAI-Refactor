@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     finish_sound: bool = True
     theme: Union[str, None] = None
     check_update: bool = True
+    disable_all_plugins: bool = False
+
     skip_inquire_anlas: bool = False
 
     format_input: bool = True
@@ -31,6 +33,7 @@ class Settings(BaseSettings):
     smtp_num: int = 0
     smtp_mail: Union[str, None] = None
     smtp_token: Union[str, None] = None
+
     allow_full_disk_access: bool = False
 
     model_config = SettingsConfigDict(env_file=".env", extra="allow", arbitrary_types_allowed=True)

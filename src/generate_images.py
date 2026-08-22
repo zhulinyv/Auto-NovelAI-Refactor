@@ -31,9 +31,10 @@ from utils.logger import logger
 from utils.models import *  # noqa
 from utils.runtime_state import single_job
 from utils.variable import (
+    return_quality_preset_id,
     return_quality_tags,
     return_skip_cfg_above_sigma,
-    return_uc_preset_data,
+    return_uc_preset_id,
     return_undesired_contentc_preset,
 )
 
@@ -155,196 +156,268 @@ def main(
             reference_information_extracted_multiple = []
             reference_strength_multiple = []
 
-            try:
-                if naiv4vibebundle_file or vibe_components[0]:
-                    model_function_map = {
-                        "nai-diffusion-4-5-full": nai45fvibe,  # noqa
-                        "nai-diffusion-4-5-curated": nai45cvibe,  # noqa
-                        "nai-diffusion-4-full": nai4fvibe,  # noqa
-                        "nai-diffusion-4-curated-preview": nai4cpvibe,  # noqa
-                        "nai-diffusion-3": nai3vibe,  # noqa
-                        "nai-diffusion-furry-3": naif3vibe,  # noqa
-                    }
-                    if model in ["nai-diffusion-3", "nai-diffusion-furry-3"]:
-                        vibe_images = [list(chunk) for chunk in zip(*[iter(vibe_components)] * 3)]
-                        for vibe_image in vibe_images:
-                            reference_image_multiple.append(image_to_base64(vibe_image[0]))
-                            reference_information_extracted_multiple.append(vibe_image[1])
-                            reference_strength_multiple.append(vibe_image[2])
-                    else:
-                        model_vibe_map = {
-                            "nai-diffusion-4-5-full": "v4-5full",
-                            "nai-diffusion-4-5-curated": "v4-5curated",
-                            "nai-diffusion-4-full": "v4full",
-                            "nai-diffusion-4-curated-preview": "v4curated",
-                        }
-                        vibe_data = read_json(naiv4vibebundle_file)
-                        vibe_model_name = model_vibe_map.get(model)
-                        try:
-                            for vibe_image in vibe_data["vibes"]:
-                                reference_image_multiple.append(
-                                    return_last_value(vibe_image["encodings"][vibe_model_name])["encoding"]
-                                )
-                                reference_strength_multiple.append(vibe_image["importInfo"]["strength"])
-                        except KeyError:
-                            reference_image_multiple.append(
-                                return_last_value(vibe_data["encodings"][vibe_model_name])["encoding"]
-                            )
-                            reference_strength_multiple.append(vibe_data["importInfo"]["strength"])
+            # try:
+            if naiv4vibebundle_file or vibe_components[0]:
+                model_function_map = {
+                    "nai-diffusion-5-full": nai5fvibe,  # noqa
+                    "nai-diffusion-5-curated": nai5cvibe,  # noqa
+                    "nai-diffusion-4-5-full": nai45fvibe,  # noqa
+                    "nai-diffusion-4-5-curated": nai45cvibe,  # noqa
+                    "nai-diffusion-4-full": nai4fvibe,  # noqa
+                    "nai-diffusion-4-curated-preview": nai4cpvibe,  # noqa
+                    "nai-diffusion-3": nai3vibe,  # noqa
+                    "nai-diffusion-furry-3": naif3vibe,  # noqa
+                }
+                if model in ["nai-diffusion-3", "nai-diffusion-furry-3"]:
+                    vibe_images = [list(chunk) for chunk in zip(*[iter(vibe_components)] * 3)]
+                    for vibe_image in vibe_images:
+                        reference_image_multiple.append(image_to_base64(vibe_image[0]))
+                        reference_information_extracted_multiple.append(vibe_image[1])
+                        reference_strength_multiple.append(vibe_image[2])
                 else:
-                    if precise_reference_components[0] and model in [
-                        "nai-diffusion-4-5-full",
-                        "nai-diffusion-4-5-curated",
-                    ]:
-                        precise_reference_images = [
-                            list(chunk) for chunk in zip(*[iter(precise_reference_components)] * 6)
-                        ]
-                        for precise_reference_image in precise_reference_images:
-                            if not precise_reference_image[1]:
-                                continue
-                            process_image_by_orientation(precise_reference_image[0]).save(
-                                image_path := "./outputs/temp_character_reference_image.png"
+                    model_vibe_map = {
+                        "nai-diffusion-5-full": "v5full",
+                        "nai-diffusion-5-curated": "v5curated",
+                        "nai-diffusion-4-5-full": "v4-5full",
+                        "nai-diffusion-4-5-curated": "v4-5curated",
+                        "nai-diffusion-4-full": "v4full",
+                        "nai-diffusion-4-curated-preview": "v4curated",
+                    }
+                    vibe_data = read_json(naiv4vibebundle_file)
+                    vibe_model_name = model_vibe_map.get(model)
+                    try:
+                        for vibe_image in vibe_data["vibes"]:
+                            reference_image_multiple.append(
+                                return_last_value(vibe_image["encodings"][vibe_model_name])["encoding"]
                             )
-                            director_reference_images_cached.append(
-                                {"cache_secret_key": generate_hash_string(), "data": image_to_base64(image_path)}
-                            )
-                            director_reference_descriptions.append(
-                                {
-                                    "caption": {
-                                        "base_caption": precise_reference_image[2],
-                                        "char_captions": [],
-                                    },
-                                    "legacy_uc": False,
-                                }
-                            )
-                            director_reference_information_extracted.append(1)
-                            director_reference_strength_values.append(precise_reference_image[3])
-                            director_reference_secondary_strength_values.append(
-                                round(1 - precise_reference_image[4], 2)
-                            )
-                        model_function_map = {
-                            "nai-diffusion-4-5-full": nai45fchar,  # noqa
-                            "nai-diffusion-4-5-curated": nai45cchar,  # noqa
-                        }
-                    else:
-                        model_function_map = {
-                            "nai-diffusion-4-5-full": nai45ft2i,  # noqa
-                            "nai-diffusion-4-5-curated": nai45ct2i,  # noqa
-                            "nai-diffusion-4-full": nai4ft2i,  # noqa
-                            "nai-diffusion-4-curated-preview": nai4cpt2i,  # noqa
-                            "nai-diffusion-3": nai3t2i,  # noqa
-                            "nai-diffusion-furry-3": naif3t2i,  # noqa
-                        }
+                            reference_strength_multiple.append(vibe_image["importInfo"]["strength"])
+                    except KeyError:
+                        reference_image_multiple.append(
+                            return_last_value(vibe_data["encodings"][vibe_model_name])["encoding"]
+                        )
+                        reference_strength_multiple.append(vibe_data["importInfo"]["strength"])
+            else:
+                if precise_reference_components[0] and model in [
+                    "nai-diffusion-5-full",
+                    "nai-diffusion-5-curated",
+                    "nai-diffusion-4-5-full",
+                    "nai-diffusion-4-5-curated",
+                ]:
+                    precise_reference_images = [list(chunk) for chunk in zip(*[iter(precise_reference_components)] * 6)]
+                    for precise_reference_image in precise_reference_images:
+                        if not precise_reference_image[1]:
+                            continue
+                        process_image_by_orientation(precise_reference_image[0]).save(
+                            image_path := "./outputs/temp_character_reference_image.png"
+                        )
+                        director_reference_images_cached.append(
+                            {"cache_secret_key": generate_hash_string(), "data": image_to_base64(image_path)}
+                        )
+                        director_reference_descriptions.append(
+                            {
+                                "caption": {
+                                    "base_caption": precise_reference_image[2],
+                                    "char_captions": [],
+                                },
+                                "legacy_uc": False,
+                            }
+                        )
+                        director_reference_information_extracted.append(1)
+                        director_reference_strength_values.append(precise_reference_image[3])
+                        director_reference_secondary_strength_values.append(round(1 - precise_reference_image[4], 2))
+                    model_function_map = {
+                        "nai-diffusion-5-full": nai5fchar,  # noqa
+                        "nai-diffusion-5-curated": nai5cchar,  # noqa
+                        "nai-diffusion-4-5-full": nai45fchar,  # noqa
+                        "nai-diffusion-4-5-curated": nai45cchar,  # noqa
+                    }
+                else:
+                    model_function_map = {
+                        "nai-diffusion-5-full": nai5ft2i,  # noqa
+                        "nai-diffusion-5-curated": nai5ct2i,  # noqa
+                        "nai-diffusion-4-5-full": nai45ft2i,  # noqa
+                        "nai-diffusion-4-5-curated": nai45ct2i,  # noqa
+                        "nai-diffusion-4-full": nai4ft2i,  # noqa
+                        "nai-diffusion-4-curated-preview": nai4cpt2i,  # noqa
+                        "nai-diffusion-3": nai3t2i,  # noqa
+                        "nai-diffusion-furry-3": naif3t2i,  # noqa
+                    }
+            func = model_function_map.get(model)
+
+            _break = read_json("./outputs/temp_break.json")
+            if _break["break"]:
+                logger.warning("已停止生成!")
+                break
+
+            if quantity != 1:
+                logger.info(f"正在生成第 {i+1} 张图片...")
+            else:
+                logger.info("正在生成图片...")
+
+            _seed = random.randint(1000000000, 9999999999) if seed == "-1" else int(seed)
+
+            json_data = func(
+                _input=(
+                    f"{_positive_input}, " + return_quality_tags(model, add_quality_tags)
+                    if add_quality_tags != "None"
+                    else _positive_input
+                ),
+                params_version=4,
+                width=return_x64(width),
+                height=return_x64(height),
+                scale=prompt_guidance,
+                sampler=sampler,
+                steps=steps,
+                n_samples=1,
+                ucPresetId=return_uc_preset_id(model)[undesired_contentc_preset],
+                qualityPresetId=return_quality_preset_id(model)[add_quality_tags],
+                autoSmea=False,
+                dynamic_thresholding=decrisp if model in ["nai-diffusion-3", "nai-diffusion-furry-3"] else False,
+                controlnet_strength=1,
+                legacy=False,
+                add_original_image=True,
+                cfg_rescale=prompt_guidance_rescale,
+                noise_schedule=(
+                    "karras" if model in ["nai-diffusion-5-full", "nai-diffusion-5-curated"] else noise_schedule
+                ),
+                legacy_v3_extend=False,
+                skip_cfg_above_sigma=(return_skip_cfg_above_sigma(model) if variety else None),
+                use_coords=not ai_choice,
+                normalize_reference_strength_multiple=normalize_reference_strength_multiple,
+                inpaintImg2ImgStrength=1,
+                use_order=True,
+                legacy_uc=(
+                    legacy_uc if model in ["nai-diffusion-4-full", "nai-diffusion-4-curated-preview"] else False
+                ),
+                seed=_seed,
+                negative_prompt=(
+                    return_undesired_contentc_preset(model, undesired_contentc_preset) + f", {_negative_input}"
+                    if undesired_contentc_preset != "None"
+                    else _negative_input
+                ),
+                deliberate_euler_ancestral_bug=False,  # 仅在采样器为 k_euler_ancestral 时出现
+                prefer_brownian=True,  # 仅在采样器为 k_euler_ancestral 时出现
+                use_new_shared_trial=True,
+                sm=sm,
+                sm_dyn=sm_dyn,
+                reference_image_multiple=reference_image_multiple,
+                reference_information_extracted_multiple=reference_information_extracted_multiple,
+                reference_strength_multiple=reference_strength_multiple,
+                v4_prompt_positive=v4_prompt_positive,
+                v4_prompt_negative=v4_prompt_negative,
+                characterPrompts=characterPrompts,
+                director_reference_images_cached=director_reference_images_cached,
+                director_reference_descriptions=director_reference_descriptions,
+                director_reference_information_extracted=director_reference_information_extracted,
+                director_reference_strength_values=director_reference_strength_values,
+                director_reference_secondary_strength_values=director_reference_secondary_strength_values,
+                straight_alpha=True,
+            )
+
+            inpaint_inputs = _prepare_inpaint_inputs(
+                inpaint_input_image,
+                inpaint_input_image_mode,
+                width,
+                height,
+            )
+            if inpaint_inputs:
+                inpaint_image, inpaint_mask, inpaint_composite = inpaint_inputs
+                inpaint_image.save(image_path := "./outputs/temp_inpaint_image.png")
+                inpaint_mask.save(mask_path := "./outputs/temp_inpaint_mask.png")
+                inpaint_composite.save(composite_path := "./outputs/temp_inpaint_composite.png")
+
+                if is_fully_transparent(mask_path):
+                    model_function_map = {
+                        "nai-diffusion-5-full": nai5fi2i,  # noqa
+                        "nai-diffusion-5-curated": nai5ci2i,  # noqa
+                        "nai-diffusion-4-5-full": nai45fi2i,  # noqa
+                        "nai-diffusion-4-5-curated": nai45ci2i,  # noqa
+                        "nai-diffusion-4-full": nai4fi2i,  # noqa
+                        "nai-diffusion-4-curated-preview": nai4cpi2i,  # noqa
+                        "nai-diffusion-3": nai3i2i,  # noqa
+                        "nai-diffusion-furry-3": naif3i2i,  # noqa
+                    }
+                    _type = "image2image"
+                else:
+                    model_function_map = {
+                        "nai-diffusion-5-full": nai5finfill,  # noqa
+                        "nai-diffusion-5-curated": nai5cinfill,  # noqa
+                        "nai-diffusion-4-5-full": nai45finfill,  # noqa
+                        "nai-diffusion-4-5-curated": nai45cinfill,  # noqa
+                        "nai-diffusion-4-full": nai4finfill,  # noqa
+                        "nai-diffusion-4-curated-preview": nai4cpinfill,  # noqa
+                        "nai-diffusion-3": nai3infill,  # noqa
+                        "nai-diffusion-furry-3": naif3infill,  # noqa
+                    }
+                    _type = "inpaint"
+
+                func = model_function_map.get(model)
+                image_kwargs = {
+                    "strength": strength,
+                    "noise": noise,
+                    "inpaint_i2i_strength": inpaint_i2i_strength,
+                    "image": image_to_base64(
+                        resize_image(composite_path if inpaint_input_image_mode == "涂鸦重绘" else image_path)
+                    ),
+                    "extra_noise_seed": _seed,
+                    "color_correct": False,
+                }
+                if _type == "inpaint":
+                    image_kwargs["mask"] = image_to_base64(
+                        resize_image(process_white_regions(change_the_mask_color(mask_path), mask_path))
+                    )
+                json_data = func(json_data, **image_kwargs)
+
+            with open("./outputs/temp_last_origin.json", "w", encoding="utf-8") as file:
+                json.dump(json_data, file, ensure_ascii=False, indent=4)
+
+            image_data = image_generator.generate(find_and_replace_wildcards_from_dict(json_data))
+            if not image_data:
+                logger.error("NovelAI 未返回图片数据!")
+                raise NovelAIAPIError()
+            path = image_generator.save(image_data, _type, json_data["parameters"]["seed"])
+            if not path:
+                logger.error("图片保存失败!")
+                raise NovelAIAPIError()
+            if not enhance_enable:
+                image_list.append(path)
+
+            if enhance_enable:
+                logger.info("正在 Enhance 图片...")
+                model_function_map = {
+                    "nai-diffusion-5-full": nai5fi2i,  # noqa
+                    "nai-diffusion-5-curated": nai5ci2i,  # noqa
+                    "nai-diffusion-4-5-full": nai45fi2i,  # noqa
+                    "nai-diffusion-4-5-curated": nai45ci2i,  # noqa
+                    "nai-diffusion-4-full": nai4fi2i,  # noqa
+                    "nai-diffusion-4-curated-preview": nai4cpi2i,  # noqa
+                    "nai-diffusion-3": nai3i2i,  # noqa
+                    "nai-diffusion-furry-3": naif3i2i,  # noqa
+                }
+                _type = "image2image"
                 func = model_function_map.get(model)
 
-                _break = read_json("./outputs/temp_break.json")
-                if _break["break"]:
-                    logger.warning("已停止生成!")
-                    break
+                _upscale_amount = float(upscale_amount.replace("x", ""))
+                new_width = return_x64(int(width * _upscale_amount))
+                new_height = return_x64(int(height * _upscale_amount))
 
-                if quantity != 1:
-                    logger.info(f"正在生成第 {i+1} 张图片...")
-                else:
-                    logger.info("正在生成图片...")
-
-                _seed = random.randint(1000000000, 9999999999) if seed == "-1" else int(seed)
+                def return_strength(mag):
+                    strengths = [0.2, 0.4, 0.5, 0.6, 0.7]
+                    return strengths[mag - 1]
 
                 json_data = func(
-                    _input=_positive_input + return_quality_tags(model) if add_quality_tags else _positive_input,
-                    width=return_x64(width),
-                    height=return_x64(height),
-                    scale=prompt_guidance,
-                    sampler=sampler,
-                    steps=steps,
-                    ucPreset=return_uc_preset_data(model)[undesired_contentc_preset],
-                    qualityToggle=add_quality_tags,
-                    autoSmea=False,
-                    dynamic_thresholding=decrisp if model in ["nai-diffusion-3", "nai-diffusion-furry-3"] else False,
-                    legacy=False,
-                    add_original_image=True,
-                    cfg_rescale=prompt_guidance_rescale,
-                    noise_schedule=noise_schedule,
-                    legacy_v3_extend=False,
-                    skip_cfg_above_sigma=(return_skip_cfg_above_sigma(model) if variety else None),
-                    use_coords=not ai_choice,
-                    normalize_reference_strength_multiple=normalize_reference_strength_multiple,
-                    use_order=True,
-                    legacy_uc=(
-                        legacy_uc if model in ["nai-diffusion-4-full", "nai-diffusion-4-curated-preview"] else False
-                    ),
-                    seed=_seed,
-                    negative_prompt=return_undesired_contentc_preset(model, undesired_contentc_preset)
-                    + (f", {_negative_input}" if undesired_contentc_preset != "None" else _negative_input),
-                    deliberate_euler_ancestral_bug=False,  # 仅在采样器为 k_euler_ancestral 时出现
-                    prefer_brownian=True,  # 仅在采样器为 k_euler_ancestral 时出现
-                    use_new_shared_trial=True,
-                    sm=sm,
-                    sm_dyn=sm_dyn,
-                    reference_image_multiple=reference_image_multiple,
-                    reference_information_extracted_multiple=reference_information_extracted_multiple,
-                    reference_strength_multiple=reference_strength_multiple,
-                    v4_prompt_positive=v4_prompt_positive,
-                    v4_prompt_negative=v4_prompt_negative,
-                    characterPrompts=characterPrompts,
-                    director_reference_images_cached=director_reference_images_cached,
-                    director_reference_descriptions=director_reference_descriptions,
-                    director_reference_information_extracted=director_reference_information_extracted,
-                    director_reference_strength_values=director_reference_strength_values,
-                    director_reference_secondary_strength_values=director_reference_secondary_strength_values,
+                    json_data,
+                    strength=return_strength(magnitude),
+                    noise=0,
+                    image=image_to_base64(resize_image(path, output_path="./outputs/temp_enhance_resized.png")),
+                    extra_noise_seed=_seed,
+                    color_correct=False,
                 )
-
-                inpaint_inputs = _prepare_inpaint_inputs(
-                    inpaint_input_image,
-                    inpaint_input_image_mode,
-                    width,
-                    height,
-                )
-                if inpaint_inputs:
-                    inpaint_image, inpaint_mask, inpaint_composite = inpaint_inputs
-                    inpaint_image.save(image_path := "./outputs/temp_inpaint_image.png")
-                    inpaint_mask.save(mask_path := "./outputs/temp_inpaint_mask.png")
-                    inpaint_composite.save(composite_path := "./outputs/temp_inpaint_composite.png")
-
-                    if is_fully_transparent(mask_path):
-                        model_function_map = {
-                            "nai-diffusion-4-5-full": nai45fi2i,  # noqa
-                            "nai-diffusion-4-5-curated": nai45ci2i,  # noqa
-                            "nai-diffusion-4-full": nai4fi2i,  # noqa
-                            "nai-diffusion-4-curated-preview": nai4cpi2i,  # noqa
-                            "nai-diffusion-3": nai3i2i,  # noqa
-                            "nai-diffusion-furry-3": naif3i2i,  # noqa
-                        }
-                        _type = "image2image"
-                    else:
-                        model_function_map = {
-                            "nai-diffusion-4-5-full": nai45finfill,  # noqa
-                            "nai-diffusion-4-5-curated": nai45cinfill,  # noqa
-                            "nai-diffusion-4-full": nai4finfill,  # noqa
-                            "nai-diffusion-4-curated-preview": nai4cpinfill,  # noqa
-                            "nai-diffusion-3": nai3infill,  # noqa
-                            "nai-diffusion-furry-3": naif3infill,  # noqa
-                        }
-                        _type = "inpaint"
-
-                    func = model_function_map.get(model)
-                    image_kwargs = {
-                        "strength": strength,
-                        "noise": noise,
-                        "inpaint_i2i_strength": inpaint_i2i_strength,
-                        "image": image_to_base64(
-                            resize_image(composite_path if inpaint_input_image_mode == "涂鸦重绘" else image_path)
-                        ),
-                        "extra_noise_seed": _seed,
-                        "color_correct": False,
-                    }
-                    if _type == "inpaint":
-                        image_kwargs["mask"] = image_to_base64(
-                            resize_image(process_white_regions(change_the_mask_color(mask_path), mask_path))
-                        )
-                    json_data = func(json_data, **image_kwargs)
-
-                with open("./outputs/temp_last_origin.json", "w", encoding="utf-8") as file:
-                    json.dump(json_data, file, ensure_ascii=False, indent=4)
+                _seed = random.randint(1000000000, 9999999999) if seed == "-1" else int(seed)
+                json_data["parameters"]["seed"] = _seed
+                json_data["parameters"]["extra_noise_seed"] = _seed
+                json_data["parameters"]["width"] = new_width
+                json_data["parameters"]["height"] = new_height
 
                 image_data = image_generator.generate(find_and_replace_wildcards_from_dict(json_data))
                 if not image_data:
@@ -354,59 +427,13 @@ def main(
                 if not path:
                     logger.error("图片保存失败!")
                     raise NovelAIAPIError()
-                if not enhance_enable:
-                    image_list.append(path)
+                image_list.append(path)
 
-                if enhance_enable:
-                    logger.info("正在 Enhance 图片...")
-                    model_function_map = {
-                        "nai-diffusion-4-5-full": nai45fi2i,  # noqa
-                        "nai-diffusion-4-5-curated": nai45ci2i,  # noqa
-                        "nai-diffusion-4-full": nai4fi2i,  # noqa
-                        "nai-diffusion-4-curated-preview": nai4cpi2i,  # noqa
-                        "nai-diffusion-3": nai3i2i,  # noqa
-                        "nai-diffusion-furry-3": naif3i2i,  # noqa
-                    }
-                    _type = "image2image"
-                    func = model_function_map.get(model)
-
-                    _upscale_amount = float(upscale_amount.replace("x", ""))
-                    new_width = return_x64(int(width * _upscale_amount))
-                    new_height = return_x64(int(height * _upscale_amount))
-
-                    def return_strength(mag):
-                        strengths = [0.2, 0.4, 0.5, 0.6, 0.7]
-                        return strengths[mag - 1]
-
-                    json_data = func(
-                        json_data,
-                        strength=return_strength(magnitude),
-                        noise=0,
-                        image=image_to_base64(resize_image(path, output_path="./outputs/temp_enhance_resized.png")),
-                        extra_noise_seed=_seed,
-                        color_correct=False,
-                    )
-                    _seed = random.randint(1000000000, 9999999999) if seed == "-1" else int(seed)
-                    json_data["parameters"]["seed"] = _seed
-                    json_data["parameters"]["extra_noise_seed"] = _seed
-                    json_data["parameters"]["width"] = new_width
-                    json_data["parameters"]["height"] = new_height
-
-                    image_data = image_generator.generate(find_and_replace_wildcards_from_dict(json_data))
-                    if not image_data:
-                        logger.error("NovelAI 未返回图片数据!")
-                        raise NovelAIAPIError()
-                    path = image_generator.save(image_data, _type, json_data["parameters"]["seed"])
-                    if not path:
-                        logger.error("图片保存失败!")
-                        raise NovelAIAPIError()
-                    image_list.append(path)
-
-                if quantity != 1 and i != quantity - 1:
-                    sleep_for_cool(env.cool_time)
-            except Exception as e:
-                logger.error(f"出现错误: {e}")
-                sleep_for_cool(5)
+            if quantity != 1 and i != quantity - 1:
+                sleep_for_cool(env.cool_time)
+            # except Exception as e:
+            #     logger.error(f"出现错误: {e}")
+            #     sleep_for_cool(5)
 
             progress.advance(task)
 

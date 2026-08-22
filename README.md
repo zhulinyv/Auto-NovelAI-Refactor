@@ -2,10 +2,12 @@
   <img src="https://socialify.git.ci/zhulinyv/Auto-NovelAI-Refactor/image?custom_description=%F0%9F%8C%9F%E5%B8%A6%E6%9C%89+WebUI+%E7%9A%84+NovelAI+%E9%87%8F%E4%BA%A7%E5%B7%A5%E5%85%B7%F0%9F%8C%9F&description=1&forks=1&issues=1&language=1&logo=https%3A%2F%2Fi.postimg.cc%2FP5s0p7Cq%2FXYTPZ-317323127057666-00001-12.png&name=1&owner=1&pattern=Circuit+Board&pulls=1&stargazers=1&theme=Auto" alt="Auto-NovelAI-Refactor" width="640" height="320" />
 </p>
 
-<img decoding="async" align=right src="https://i.postimg.cc/hvJPjYXg/XYTPZ-317323127057666-00001.png" width="35%">
+<img decoding="async" align=right src="https://i.postimg.cc/mgC0kGSX/tu-tu-tu-fix.png" width="35%">
 
 
 ## 💬 介绍
+
+- <font color=red>已支持 "nai-diffusion-5"</font>
 
 - 这里是 [Semi-Auto-NovelAI-to-Pixiv](https://github.com/zhulinyv/Semi-Auto-NovelAI-to-Pixiv) 的重构版本
 
@@ -15,7 +17,7 @@
 
 - 目前已实现的功能:
 
-<img src=https://github.com/user-attachments/assets/775b7e40-0354-4758-8ec4-c16bda59598e  alt="Auto-NovelAI-Refactor" width="500"/>
+<img src=https://i.postimg.cc/0N3W0WZ1/image.png  alt="Auto-NovelAI-Refactor" width="500"/>
 
 
 ## 💿 部署

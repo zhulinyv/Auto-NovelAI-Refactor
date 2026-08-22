@@ -13,7 +13,7 @@ from utils import float_to_position, format_str, get_plugin_list, list_to_str, r
 from utils.environment import env
 from utils.image_tools import get_image_information, is_pure_white
 from utils.logger import logger
-from utils.variable import NOISE_SCHEDULE, RESOLUTION, SAMPLER, UC_PRESET
+from utils.variable import NOISE_SCHEDULE, QP_PRESET, RESOLUTION, SAMPLER, UC_PRESET
 
 try:
     import git
@@ -153,18 +153,31 @@ def update_components_for_models_change(model):
     _SAMPLER.remove("ddim_v3")
     _NOISE_SCHEDULE = NOISE_SCHEDULE[:]
     _NOISE_SCHEDULE.remove("native")
+    _QP_PRESET = QP_PRESET[:]
     _UC_PRESET = UC_PRESET[:]
 
-    if model in ["nai-diffusion-4-5-full", "nai-diffusion-4-5-curated"]:
+    _QP_PRESET.remove("Light")
+
+    if model in [
+        "nai-diffusion-5-full",
+        "nai-diffusion-5-curated",
+        "nai-diffusion-4-5-full",
+        "nai-diffusion-4-5-curated",
+    ]:
         if model == "nai-diffusion-4-5-curated":
             _UC_PRESET.remove("Furry Focus")
+        if model in ["nai-diffusion-5-full", "nai-diffusion-5-curated"]:
+            _QP_PRESET = QP_PRESET[:]
+
         return (
             gr.update(visible=False),  # decrisp
             gr.update(visible=False),  # sm
             gr.update(visible=False),  # legacy_uc
             gr.update(choices=_SAMPLER),  # sampler
             gr.update(choices=_NOISE_SCHEDULE),  # noise_schedule
+            gr.update(choices=_QP_PRESET),  # quality_tags_preset
             gr.update(choices=_UC_PRESET),  # uc_preset
+            gr.update(visible=True),  # vibe_transfer_tab
             gr.update(visible=True),  # naiv4vibebundle_file
             gr.update(visible=True),  # normalize_reference_strength_multiple
             gr.update(visible=False),  # nai3vibe_column
@@ -182,7 +195,9 @@ def update_components_for_models_change(model):
             gr.update(visible=True),  # legacy_uc
             gr.update(choices=_SAMPLER),  # sampler
             gr.update(choices=_NOISE_SCHEDULE),  # noise_schedule
+            gr.update(choices=_QP_PRESET),  # quality_tags_preset
             gr.update(choices=_UC_PRESET),  # uc_preset
+            gr.update(visible=True),  # vibe_transfer_tab
             gr.update(visible=True),  # naiv4vibebundle_file
             gr.update(visible=True),  # normalize_reference_strength_multiple
             gr.update(visible=False),  # nai3vibe_column
@@ -201,7 +216,9 @@ def update_components_for_models_change(model):
             gr.update(visible=False),  # legacy_uc
             gr.update(choices=SAMPLER),  # sampler
             gr.update(choices=NOISE_SCHEDULE),  # noise_schedule
+            gr.update(choices=_QP_PRESET),  # quality_tags_preset
             gr.update(choices=_UC_PRESET),  # uc_preset
+            gr.update(visible=True),  # vibe_transfer_tab
             gr.update(visible=False),  # naiv4vibebundle_file
             gr.update(visible=False),  # normalize_reference_strength_multiple
             gr.update(visible=True),  # nai3vibe_column
@@ -384,7 +401,12 @@ def return_character_reference_component(character_reference_image):
 
 
 def return_character_reference_component_visible(_model, naiv4vibebundle_file):
-    if _model in ["nai-diffusion-4-5-full", "nai-diffusion-4-5-curated"]:
+    if _model in [
+        "nai-diffusion-5-full",
+        "nai-diffusion-5-curated",
+        "nai-diffusion-4-5-full",
+        "nai-diffusion-4-5-curated",
+    ]:
         if naiv4vibebundle_file:
             return gr.update(visible=False)
         else:

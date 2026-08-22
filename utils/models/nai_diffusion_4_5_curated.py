@@ -4,18 +4,18 @@ def text2image(**kwargs):
         "model": "nai-diffusion-4-5-curated",
         "action": "generate",
         "parameters": {
-            "params_version": 3,
+            "params_version": kwargs["params_version"],
             "width": kwargs["width"],
             "height": kwargs["height"],
             "scale": kwargs["scale"],
             "sampler": kwargs["sampler"],
             "steps": kwargs["steps"],
-            "n_samples": 1,
-            "ucPreset": kwargs["ucPreset"],
-            "qualityToggle": kwargs["qualityToggle"],
+            "n_samples": kwargs["n_samples"],
+            "ucPresetId": kwargs["ucPresetId"],
+            "qualityPresetId": kwargs["qualityPresetId"],
             "autoSmea": kwargs["autoSmea"],
             "dynamic_thresholding": kwargs["dynamic_thresholding"],
-            "controlnet_strength": 1,
+            "controlnet_strength": kwargs["controlnet_strength"],
             "legacy": kwargs["legacy"],
             "add_original_image": kwargs["add_original_image"],
             "cfg_rescale": kwargs["cfg_rescale"],
@@ -24,7 +24,7 @@ def text2image(**kwargs):
             "skip_cfg_above_sigma": kwargs["skip_cfg_above_sigma"],
             "use_coords": kwargs["use_coords"],
             "normalize_reference_strength_multiple": kwargs["normalize_reference_strength_multiple"],
-            "inpaintImg2ImgStrength": 1,
+            "inpaintImg2ImgStrength": kwargs["inpaintImg2ImgStrength"],
             "v4_prompt": {
                 "caption": {
                     "base_caption": kwargs["_input"],
@@ -45,7 +45,7 @@ def text2image(**kwargs):
                 "legacy_uc": kwargs["legacy_uc"],
             },
             "legacy_uc": kwargs["legacy_uc"],
-            "seed": kwargs["seed"],  # 10 位数
+            "seed": kwargs["seed"],  # 9-10 位数
             "characterPrompts": kwargs[
                 "characterPrompts"
             ],  # {"prompt": str, "uc": str, "center": {"x": float, "y": float}, "enabled": bool}

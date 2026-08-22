@@ -20,6 +20,16 @@ from utils.models.nai_diffusion_4_full import image2image as nai4fi2i  # noqa
 from utils.models.nai_diffusion_4_full import inpaint as nai4finfill  # noqa
 from utils.models.nai_diffusion_4_full import text2image as nai4ft2i  # noqa
 from utils.models.nai_diffusion_4_full import vibe_transfer as nai4fvibe  # noqa
+from utils.models.nai_diffusion_5_curated import character as nai5cchar  # noqa
+from utils.models.nai_diffusion_5_curated import image2image as nai5ci2i  # noqa
+from utils.models.nai_diffusion_5_curated import inpaint as nai5cinfill  # noqa
+from utils.models.nai_diffusion_5_curated import text2image as nai5ct2i  # noqa
+from utils.models.nai_diffusion_5_curated import vibe_transfer as nai5cvibe  # noqa
+from utils.models.nai_diffusion_5_full import character as nai5fchar  # noqa
+from utils.models.nai_diffusion_5_full import image2image as nai5fi2i  # noqa
+from utils.models.nai_diffusion_5_full import inpaint as nai5finfill  # noqa
+from utils.models.nai_diffusion_5_full import text2image as nai5ft2i  # noqa
+from utils.models.nai_diffusion_5_full import vibe_transfer as nai5fvibe  # noqa
 from utils.models.nai_diffusion_furry_3 import image2image as naif3i2i  # noqa
 from utils.models.nai_diffusion_furry_3 import inpaint as naif3infill  # noqa
 from utils.models.nai_diffusion_furry_3 import text2image as naif3t2i  # noqa
