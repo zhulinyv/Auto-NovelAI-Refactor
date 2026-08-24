@@ -127,7 +127,7 @@ def main(
             director_reference_strength_values = []
             director_reference_secondary_strength_values = []
 
-            character_components = args[:30]
+            character_components = args[:160]
             character_components = [list(chunk) for chunk in zip(*[iter(character_components)] * 5)]
             v4_prompt_positive = []
             v4_prompt_negative = []
@@ -149,9 +149,9 @@ def main(
                         }
                     )
 
-            precise_reference_components = args[30:90]
+            precise_reference_components = args[160:220]
 
-            vibe_components = args[90:]
+            vibe_components = args[220:]
             reference_image_multiple = []
             reference_information_extracted_multiple = []
             reference_strength_multiple = []
@@ -451,4 +451,4 @@ def main(
         except Exception as e:
             logger.error(f"发送邮件提醒失败: {e}")
 
-    return image_list, f"处理完成! 剩余点数: {generator.ANLAS}"
+    return image_list, f"处理完成! 剩余点数: {generator.ANLAS}; 剩余用量: {generator.REMAINS}%"

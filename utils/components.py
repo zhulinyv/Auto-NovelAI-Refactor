@@ -148,7 +148,90 @@ def add_wildcard(new_wildcard_type, new_wildcard_name, new_wildcard_tags):
     return f"已添加 <{new_wildcard_type}:{new_wildcard_name}>!"
 
 
-def update_components_for_models_change(model):
+def update_components_for_sm_change(sm):
+    if sm:
+        return gr.update(visible=True)
+    else:
+        return gr.update(value=False, visible=False)
+
+
+def update_components_for_sampler_change(sampler):
+    if sampler == "ddim_v3":
+        return gr.update(visible=False), gr.update(value=False, interactive=False)
+    else:
+        return gr.update(visible=True), gr.update(interactive=True)
+
+
+def add_character(character_components_number, model):
+    limit = 32 if model in ["nai-diffusion-5-full", "nai-diffusion-5-curated"] else 6
+    if character_components_number < limit:
+        character_components_number += 1
+        update_visible_list = []
+        for _ in range(character_components_number):
+            for i in range(5):
+                if i == 3:
+                    update_visible_list.append(gr.update(value=True, visible=True))
+                else:
+                    update_visible_list.append(gr.update(visible=True))
+        for _ in range(32 - character_components_number):
+            for i in range(5):
+                if i == 3:
+                    update_visible_list.append(gr.update(value=False, visible=False))
+                else:
+                    update_visible_list.append(gr.update(visible=False))
+        if character_components_number <= 1:
+            return (
+                gr.update(value="AI's Choice", visible=True if limit == 32 else False),
+                gr.update(value=character_components_number),
+                *update_visible_list,
+            )
+        else:
+            return gr.update(visible=True), gr.update(value=character_components_number), *update_visible_list
+    else:
+        update_visible_list = [gr.update(visible=True) for _ in range(character_components_number * 5)] + [
+            gr.update(visible=False) for _ in range(160 - character_components_number * 5)
+        ]
+        return (
+            gr.update(visible=True),
+            gr.update(value=character_components_number),
+            *update_visible_list,
+        )
+
+
+def delete_character(character_components_number, model):
+    limit = 32 if model in ["nai-diffusion-5-full", "nai-diffusion-5-curated"] else 6
+    if character_components_number > 0:
+        character_components_number -= 1
+        update_visible_list = []
+        for _ in range(character_components_number):
+            for i in range(5):
+                if i == 3:
+                    update_visible_list.append(gr.update(value=True, visible=True))
+                else:
+                    update_visible_list.append(gr.update(visible=True))
+        for _ in range(32 - character_components_number):
+            for i in range(5):
+                if i == 3:
+                    update_visible_list.append(gr.update(value=False, visible=False))
+                else:
+                    update_visible_list.append(gr.update(visible=False))
+        if character_components_number <= 1:
+            return (
+                gr.update(value="AI's Choice", visible=True if limit == 32 else False),
+                gr.update(value=character_components_number),
+                *update_visible_list,
+            )
+        return gr.update(visible=True), gr.update(value=character_components_number), *update_visible_list
+    else:
+        update_visible_list = [gr.update(visible=False) for _ in range(160)]
+        return (
+            gr.update(visible=False),
+            gr.update(value=character_components_number),
+            *update_visible_list,
+        )
+
+
+def update_components_for_models_change(model, character_components_number):
     _SAMPLER = SAMPLER[:]
     _SAMPLER.remove("ddim_v3")
     _NOISE_SCHEDULE = NOISE_SCHEDULE[:]
@@ -157,6 +240,12 @@ def update_components_for_models_change(model):
     _UC_PRESET = UC_PRESET[:]
 
     _QP_PRESET.remove("Light")
+
+    if character_components_number > 6:
+        components_number = 6
+    else:
+        components_number = character_components_number
+    components = delete_character(components_number + 1, model)
 
     if model in [
         "nai-diffusion-5-full",
@@ -185,7 +274,7 @@ def update_components_for_models_change(model):
             gr.update(visible=True),  # naiv4vibebundle_file_instruction
             gr.update(visible=True),  # furry_mode
             gr.update(visible=True),  # character_position_tab
-        )
+        ) + components
     elif model in ["nai-diffusion-4-full", "nai-diffusion-4-curated-preview"]:
         _UC_PRESET.remove("Furry Focus")
         _UC_PRESET.remove("Human Focus")
@@ -205,7 +294,7 @@ def update_components_for_models_change(model):
             gr.update(visible=True),  # naiv4vibebundle_file_instruction
             gr.update(visible=True),  # furry_mode
             gr.update(visible=True),  # character_position_tab
-        )
+        ) + components
     elif model in ["nai-diffusion-3", "nai-diffusion-furry-3"]:
         _UC_PRESET.remove("Furry Focus")
         if model == "nai-diffusion-furry-3":
@@ -226,86 +315,7 @@ def update_components_for_models_change(model):
             gr.update(visible=False),  # naiv4vibebundle_file_instruction
             gr.update(visible=False),  # furry_mode
             gr.update(visible=False),  # character_position_tab
-        )
-
-
-def update_components_for_sm_change(sm):
-    if sm:
-        return gr.update(visible=True)
-    else:
-        return gr.update(value=False, visible=False)
-
-
-def update_components_for_sampler_change(sampler):
-    if sampler == "ddim_v3":
-        return gr.update(visible=False), gr.update(value=False, interactive=False)
-    else:
-        return gr.update(visible=True), gr.update(interactive=True)
-
-
-def add_character(character_components_number):
-    if character_components_number < 6:
-        character_components_number += 1
-        update_visible_list = []
-        for _ in range(character_components_number):
-            for i in range(5):
-                if i == 3:
-                    update_visible_list.append(gr.update(value=True, visible=True))
-                else:
-                    update_visible_list.append(gr.update(visible=True))
-        for _ in range(6 - character_components_number):
-            for i in range(5):
-                if i == 3:
-                    update_visible_list.append(gr.update(value=False, visible=False))
-                else:
-                    update_visible_list.append(gr.update(visible=False))
-        if character_components_number <= 1:
-            return (
-                gr.update(value=True, interactive=False),
-                gr.update(value=character_components_number),
-                *update_visible_list,
-            )
-        else:
-            return gr.update(interactive=True), gr.update(value=character_components_number), *update_visible_list
-    else:
-        update_visible_list = [gr.update(visible=True) for _ in range(30)]
-        return (
-            gr.update(interactive=True),
-            gr.update(value=character_components_number),
-            *update_visible_list,
-        )
-
-
-def delete_character(character_components_number):
-    if character_components_number > 0:
-        character_components_number -= 1
-        update_visible_list = []
-        for _ in range(character_components_number):
-            for i in range(5):
-                if i == 3:
-                    update_visible_list.append(gr.update(value=True, visible=True))
-                else:
-                    update_visible_list.append(gr.update(visible=True))
-        for _ in range(6 - character_components_number):
-            for i in range(5):
-                if i == 3:
-                    update_visible_list.append(gr.update(value=False, visible=False))
-                else:
-                    update_visible_list.append(gr.update(visible=False))
-        if character_components_number <= 1:
-            return (
-                gr.update(value=True, interactive=False),
-                gr.update(value=character_components_number),
-                *update_visible_list,
-            )
-        return gr.update(interactive=True), gr.update(value=character_components_number), *update_visible_list
-    else:
-        update_visible_list = [gr.update(visible=False) for _ in range(30)]
-        return (
-            gr.update(value=True, interactive=False),
-            gr.update(value=character_components_number),
-            *update_visible_list,
-        )
+        ) + components
 
 
 def add_precise_reference(precise_reference_components_number):
@@ -384,7 +394,7 @@ def del_precise_reference(precise_reference_components_number):
 
 def return_position_interactive(ai_choice):
     components_list = []
-    for _ in range(6):
+    for _ in range(32):
         components_list.append(gr.update())
         components_list.append(gr.update())
         components_list.append(gr.update(interactive=not ai_choice))

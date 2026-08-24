@@ -37,6 +37,23 @@ def inquire_anlas():
         return str(e)
 
 
+def inquire_remains():
+    if env.skip_inquire_anlas:
+        return "skipped"
+    try:
+        rep = requests.get(
+            "https://image.novelai.net/user/subscription",
+            headers=build_headers(),
+            proxies=proxies,
+            timeout=30,
+        )
+        if rep.status_code == 200:
+            return rep.json()["usage"]["percent"]
+        return -1
+    except Exception as e:
+        return str(e)
+
+
 def _response_error_message(rep):
     try:
         body = rep.json()
@@ -47,8 +64,8 @@ def _response_error_message(rep):
     return str(body)
 
 
-def _safe_output_path(image_type, seed):
-    custom_path = env.custom_path or "<类型>/<日期>/<种子>_<随机字符>"
+def _safe_output_path(image_type, seed, default_path=env.custom_path):
+    custom_path = default_path or env.custom_path or "<类型>/<日期>/<种子>_<随机字符>"
     base_path = (
         f"./outputs/{custom_path}".replace("<类型>", image_type)
         .replace("<日期>", str(date.today()))
@@ -87,13 +104,12 @@ class Generator:
         )
         if rep.status_code != 200:
             message = _response_error_message(rep)
-            logger.debug(f"Request status: {rep.status_code}")
-            logger.debug(message)
             raise NovelAIAPIError(f"NovelAI request failed with HTTP {rep.status_code}: {message}")
 
-        global ANLAS
+        global ANLAS, REMAINS
         ANLAS = inquire_anlas()
-        logger.success(loguru_to_rich(f"请求成功! <y>剩余点数: {ANLAS}</y>"))
+        REMAINS = inquire_remains()
+        logger.success(loguru_to_rich(f"请求成功! <y>剩余点数: {ANLAS}; 剩余用量: {REMAINS}%</y>"))
 
         try:
             with zipfile.ZipFile(io.BytesIO(rep.content), mode="r") as zip_file:
@@ -109,9 +125,9 @@ class Generator:
         except zipfile.BadZipFile as e:
             raise NovelAIAPIError("NovelAI returned a non-zip response for a successful request") from e
 
-    def save(self, image_data, type, seed):
+    def save(self, image_data, type, seed, default_path=env.custom_path):
         if image_data:
-            base_path = _safe_output_path(type, seed)
+            base_path = _safe_output_path(type, seed, default_path=env.custom_path)
             with open(base_path, "wb") as file:
                 file.write(image_data)
             return str(base_path)

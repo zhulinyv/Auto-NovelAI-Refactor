@@ -396,12 +396,18 @@ with gr.Blocks(
                     visible=False,
                     interactive=False,
                 )
-                ai_choice = gr.Checkbox(True, label="AI's Choice (Character Positions (Global))", interactive=False)
+                ai_choice = gr.Checkbox(True, label="AI's Choice", interactive=False, visible=False)
                 ai_choice.change(lambda x: gr.update(visible=not x), inputs=ai_choice, outputs=character_position_table)
+                custom_position = gr.Radio(
+                    ["AI's Choice", "Custom"], value="AI's Choice", show_label=False, visible=False
+                )
+                custom_position.change(
+                    lambda x: gr.update(value=False if x == "Custom" else True), custom_position, ai_choice
+                )
                 gr.Markdown("<hr>")
 
                 # 先创建所有组件
-                for i in range(6):
+                for i in range(32):
                     character_components_list.append(
                         gr.TextArea(label=f"角色 {i+1} 正面提示词", lines=3, visible=False, interactive=True)
                     )
@@ -424,18 +430,28 @@ with gr.Blocks(
 
                 add_character_button.click(
                     add_character,
-                    inputs=character_components_number,
-                    outputs=[ai_choice, character_components_number] + character_components_list,
+                    inputs=[character_components_number, model],
+                    outputs=[custom_position, character_components_number] + character_components_list,
                 )
                 delete_character_button.click(
                     delete_character,
-                    inputs=character_components_number,
-                    outputs=[ai_choice, character_components_number] + character_components_list,
+                    inputs=[character_components_number, model],
+                    outputs=[custom_position, character_components_number] + character_components_list,
                 )
                 ai_choice.change(return_position_interactive, inputs=ai_choice, outputs=character_components_list)
             character_reference_tab = gr.Tab(
                 "角色参考",
-                visible=True if _model in ["nai-diffusion-4-5-full", "nai-diffusion-4-5-curated"] else False,
+                visible=(
+                    True
+                    if _model
+                    in [
+                        "nai-diffusion-5-full",
+                        "nai-diffusion-5-curated",
+                        "nai-diffusion-4-5-full",
+                        "nai-diffusion-4-5-curated",
+                    ]
+                    else False
+                ),
             )
             with character_reference_tab:
                 precise_reference_components_list = []
@@ -1284,7 +1300,7 @@ with gr.Blocks(
 
     model.change(
         update_components_for_models_change,
-        inputs=model,
+        inputs=[model, character_components_number],
         outputs=[
             decrisp,
             sm,
@@ -1301,7 +1317,10 @@ with gr.Blocks(
             naiv4vibebundle_file_instruction,
             furry_mode,
             character_position_tab,
-        ],
+            custom_position,
+            character_components_number,
+        ]
+        + character_components_list,
     )
     sm.change(update_components_for_sm_change, inputs=sm, outputs=sm_dyn)
     sampler.change(update_components_for_sampler_change, inputs=sampler, outputs=[noise_schedule, sm])
