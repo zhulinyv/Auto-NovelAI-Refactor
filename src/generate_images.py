@@ -157,7 +157,11 @@ def main(
             reference_strength_multiple = []
 
             try:
-                if naiv4vibebundle_file or vibe_components[0]:
+                if (
+                    naiv4vibebundle_file
+                    or vibe_components[0]
+                    and model not in ["nai-diffusion-5-full", "nai-diffusion-5-curated"]
+                ):
                     model_function_map = {
                         "nai-diffusion-5-full": nai5fvibe,  # noqa
                         "nai-diffusion-5-curated": nai5cvibe,  # noqa
@@ -198,8 +202,8 @@ def main(
                             reference_strength_multiple.append(vibe_data["importInfo"]["strength"])
                 else:
                     if precise_reference_components[0] and model in [
-                        "nai-diffusion-5-full",
-                        "nai-diffusion-5-curated",
+                        # "nai-diffusion-5-full",
+                        # "nai-diffusion-5-curated",
                         "nai-diffusion-4-5-full",
                         "nai-diffusion-4-5-curated",
                     ]:

@@ -441,17 +441,7 @@ with gr.Blocks(
                 ai_choice.change(return_position_interactive, inputs=ai_choice, outputs=character_components_list)
             character_reference_tab = gr.Tab(
                 "角色参考",
-                visible=(
-                    True
-                    if _model
-                    in [
-                        "nai-diffusion-5-full",
-                        "nai-diffusion-5-curated",
-                        "nai-diffusion-4-5-full",
-                        "nai-diffusion-4-5-curated",
-                    ]
-                    else False
-                ),
+                visible=(True if _model in ["nai-diffusion-4-5-full", "nai-diffusion-4-5-curated"] else False),
             )
             with character_reference_tab:
                 precise_reference_components_list = []
@@ -490,7 +480,11 @@ with gr.Blocks(
                             )
                     precise_reference_components_list.append(gr.Markdown("<hr>", visible=False))
 
-            vibe_transfer_tab = gr.Tab(label="风格迁移", visible=True, interactive=True)
+            vibe_transfer_tab = gr.Tab(
+                label="风格迁移",
+                visible=True if _model not in ["nai-diffusion-5-full", "nai-diffusion-5-curated"] else False,
+                interactive=True,
+            )
             precise_reference_add_btn.click(
                 add_precise_reference,
                 inputs=precise_reference_components_number,

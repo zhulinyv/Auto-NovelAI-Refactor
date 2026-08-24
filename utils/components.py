@@ -247,17 +247,28 @@ def update_components_for_models_change(model, character_components_number):
         components_number = character_components_number
     components = delete_character(components_number + 1, model)
 
-    if model in [
-        "nai-diffusion-5-full",
-        "nai-diffusion-5-curated",
-        "nai-diffusion-4-5-full",
-        "nai-diffusion-4-5-curated",
-    ]:
+    if model in ["nai-diffusion-5-full", "nai-diffusion-5-curated"]:
+        _QP_PRESET = QP_PRESET[:]
+        return (
+            gr.update(visible=False),  # decrisp
+            gr.update(visible=False),  # sm
+            gr.update(visible=False),  # legacy_uc
+            gr.update(choices=_SAMPLER),  # sampler
+            gr.update(choices=_NOISE_SCHEDULE),  # noise_schedule
+            gr.update(choices=_QP_PRESET),  # quality_tags_preset
+            gr.update(choices=_UC_PRESET),  # uc_preset
+            gr.update(visible=False),  # vibe_transfer_tab
+            gr.update(visible=True),  # naiv4vibebundle_file
+            gr.update(visible=True),  # normalize_reference_strength_multiple
+            gr.update(visible=False),  # nai3vibe_column
+            gr.update(visible=False),  # character_reference_tab
+            gr.update(visible=True),  # naiv4vibebundle_file_instruction
+            gr.update(visible=True),  # furry_mode
+            gr.update(visible=True),  # character_position_tab
+        ) + components
+    if model in ["nai-diffusion-4-5-full", "nai-diffusion-4-5-curated"]:
         if model == "nai-diffusion-4-5-curated":
             _UC_PRESET.remove("Furry Focus")
-        if model in ["nai-diffusion-5-full", "nai-diffusion-5-curated"]:
-            _QP_PRESET = QP_PRESET[:]
-
         return (
             gr.update(visible=False),  # decrisp
             gr.update(visible=False),  # sm
