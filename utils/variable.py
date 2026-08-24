@@ -164,37 +164,37 @@ def return_quality_preset_id(model):
 def return_quality_tags(model, quality_tags_preset):
     presets = {
         "nai-diffusion-5-full": {
-            "Standard": "lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page",
-            "Light": "lowres, artistic error, scan artifacts, worst quality, bad quality, jpeg artifacts, multiple views, very displeasing, too many watermarks, negative space, blank page",
+            "Standard": "",
+            "Light": "",
             "None": "",
         },
         "nai-diffusion-5-curated": {
-            "Standard": "lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page",
-            "Light": "lowres, artistic error, scan artifacts, worst quality, bad quality, jpeg artifacts, multiple views, very displeasing, too many watermarks, negative space, blank page",
+            "Standard": "",
+            "Light": "",
             "None": "",
         },
         "nai-diffusion-4-5-full": {
-            "Standard": "lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page",
+            "Standard": "",
             "None": "",
         },
         "nai-diffusion-4-5-curated": {
-            "Standard": "blurry, lowres, upscaled, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, halftone, multiple views, logo, too many watermarks, negative space, blank page",
+            "Standard": "",
             "None": "",
         },
         "nai-diffusion-4-full": {
-            "Standard": "blurry, lowres, error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, multiple views, logo, too many watermarks, white blank page, blank page",
+            "Standard": "",
             "None": "",
         },
         "nai-diffusion-4-curated-preview": {
-            "Standard": "blurry, lowres, error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, logo, dated, signature, multiple views, gigantic breasts, white blank page, blank page",
+            "Standard": "",
             "None": "",
         },
         "nai-diffusion-3": {
-            "Standard": "lowres, {bad}, error, fewer, extra, missing, worst quality, jpeg artifacts, bad quality, watermark, unfinished, displeasing, chromatic aberration, signature, extra digits, artistic error, username, scan, [abstract]",
+            "Standard": "",
             "None": "",
         },
         "nai-diffusion-furry-3": {
-            "Standard": "{{worst quality}}, [displeasing], {unusual pupils}, guide lines, {{unfinished}}, {bad}, url, artist name, {{tall image}}, mosaic, {sketch page}, comic panel, impact (font), [dated], {logo}, ych, {what}, {where is your god now}, {distorted text}, repeated text, {floating head}, {1994}, {widescreen}, absolutely everyone, sequence, {compression artifacts}, hard translated, {cropped}, {commissioner name}, unknown text, high contrast",
+            "Standard": "",
             "None": "",
         },
     }
