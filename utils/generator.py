@@ -127,7 +127,7 @@ class Generator:
 
     def save(self, image_data, type, seed, default_path=env.custom_path):
         if image_data:
-            base_path = _safe_output_path(type, seed, default_path=env.custom_path)
+            base_path = _safe_output_path(type, seed, default_path=default_path)
             with open(base_path, "wb") as file:
                 file.write(image_data)
             return str(base_path)
