@@ -146,7 +146,7 @@ with gr.Blocks(
                             "nai-diffusion-furry-3": ["Light"],
                         }.get(_model, [])
                     ],
-                    value="Standard",
+                    value="None" if last_data.get("input") else "Standard",
                     label="正面提示词预设",
                     interactive=True,
                 )
@@ -908,7 +908,7 @@ with gr.Blocks(
                                     legacy_uc,
                                     add_quality_tags,
                                     undesired_contentc_preset,
-                                    ai_choice,
+                                    custom_position,
                                     character_components_number,
                                 ]
                                 + character_components_list,
@@ -965,7 +965,7 @@ with gr.Blocks(
                             legacy_uc,
                             add_quality_tags,
                             undesired_contentc_preset,
-                            ai_choice,
+                            custom_position,
                             character_components_number,
                         ]
                         + character_components_list,

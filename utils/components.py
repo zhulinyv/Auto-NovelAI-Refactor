@@ -537,18 +537,18 @@ def send_pnginfo_to_generate(image_path):
             )
             character_components_list.append(gr.update(value=True, visible=True)),
             character_components_list.append(gr.update(visible=True))
-        for _ in range(5 - num):
+        for _ in range(31 - num):
             for _ in range(5):
                 character_components_list.append(gr.update())
         character_components_list = [
             gr.update(
-                value=not comment.get("v4_prompt", {}).get("use_coords", False),
-                interactive=True if num + 1 > 1 else False,
+                value="AI's Choice" if not comment.get("v4_prompt", {}).get("use_coords", False) else "Custom",
+                interactive=True if num + 1 > 1 else True if "V5" in pnginfo.get("Source", "") else False,
             ),
             gr.update(value=num + 1),
         ] + character_components_list
     else:
-        character_components_list = [gr.update() for _ in range(32)]
+        character_components_list = [gr.update() for _ in range(162)]
 
     return (
         comment.get("prompt"),
@@ -566,7 +566,7 @@ def send_pnginfo_to_generate(image_path):
         comment.get("sampler", "k_euler_ancestral"),
         comment.get("noise_schedule", "karras"),
         comment.get("v4_prompt", {}).get("legacy_uc", False),
-        gr.update(value=False),
+        gr.update(value="None"),
         gr.update(value="None"),
         *character_components_list,
     )

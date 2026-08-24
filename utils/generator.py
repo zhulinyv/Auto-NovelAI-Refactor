@@ -15,6 +15,7 @@ from utils.models.headers import build_headers
 from utils.variable import proxies
 
 ANLAS = -1
+REMAINS = -1
 
 
 def inquire_anlas():
@@ -28,30 +29,14 @@ def inquire_anlas():
             timeout=30,
         )
         if rep.status_code == 200:
+            remains = rep.json()["usage"]["percent"]
             anlas = rep.json()["trainingStepsLeft"]["fixedTrainingStepsLeft"]
             if anlas == 0:
-                return rep.json()["trainingStepsLeft"]["purchasedTrainingSteps"]
-            return rep.json()["trainingStepsLeft"]["fixedTrainingStepsLeft"]
-        return -1
+                anlas = rep.json()["trainingStepsLeft"]["purchasedTrainingSteps"]
+            return anlas, remains
+        return -1, -1
     except Exception as e:
-        return str(e)
-
-
-def inquire_remains():
-    if env.skip_inquire_anlas:
-        return "skipped"
-    try:
-        rep = requests.get(
-            "https://image.novelai.net/user/subscription",
-            headers=build_headers(),
-            proxies=proxies,
-            timeout=30,
-        )
-        if rep.status_code == 200:
-            return rep.json()["usage"]["percent"]
-        return -1
-    except Exception as e:
-        return str(e)
+        return str(e), str(e)
 
 
 def _response_error_message(rep):
@@ -107,8 +92,7 @@ class Generator:
             raise NovelAIAPIError(f"NovelAI request failed with HTTP {rep.status_code}: {message}")
 
         global ANLAS, REMAINS
-        ANLAS = inquire_anlas()
-        REMAINS = inquire_remains()
+        ANLAS, REMAINS = inquire_anlas()
         logger.success(loguru_to_rich(f"请求成功! <y>剩余点数: {ANLAS}; 剩余用量: {REMAINS}%</y>"))
 
         try:
