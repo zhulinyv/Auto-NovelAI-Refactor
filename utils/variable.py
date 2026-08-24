@@ -161,20 +161,6 @@ def return_quality_preset_id(model):
     return quality_preset_data
 
 
-def _return_quality_tags(model):
-    quality_tags = {
-        "nai-diffusion-5-full": ", very aesthetic, masterpiece, no text",
-        "nai-diffusion-5-curated": ", very aesthetic, masterpiece, no text",
-        "nai-diffusion-4-5-full": ", very aesthetic, masterpiece, no text",
-        "nai-diffusion-4-5-curated": ", very aesthetic, masterpiece, no text, -0.8::feet::, rating:general",
-        "nai-diffusion-4-full": ", no text, best quality, very aesthetic, absurdres",
-        "nai-diffusion-4-curated-preview": ", rating:general, best quality, very aesthetic, absurdres",
-        "nai-diffusion-3": ", best quality, amazing quality, very aesthetic, absurdres",
-        "nai-diffusion-furry-3": ", {best quality}, {amazing quality}",
-    }
-    return quality_tags.get(model, "")
-
-
 def return_quality_tags(model, quality_tags_preset):
     presets = {
         "nai-diffusion-5-full": {
