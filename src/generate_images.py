@@ -6,6 +6,7 @@ from rich.progress import Progress
 
 from utils import (
     find_and_replace_wildcards_from_dict,
+    format_str,
     generate_hash_string,
     generator,
     playsound,
@@ -265,7 +266,7 @@ def main(
                 _seed = random.randint(1000000000, 9999999999) if seed == "-1" else int(seed)
 
                 json_data = func(
-                    _input=(
+                    _input=format_str(
                         f"{_positive_input}, " + return_quality_tags(model, add_quality_tags)
                         if add_quality_tags != "None"
                         else _positive_input
@@ -298,7 +299,7 @@ def main(
                         legacy_uc if model in ["nai-diffusion-4-full", "nai-diffusion-4-curated-preview"] else False
                     ),
                     seed=_seed,
-                    negative_prompt=(
+                    negative_prompt=format_str(
                         return_undesired_contentc_preset(model, undesired_contentc_preset) + f", {_negative_input}"
                         if undesired_contentc_preset != "None"
                         else _negative_input

@@ -1192,6 +1192,8 @@ with gr.Blocks(
                 )
                 format_input = gr.Checkbox(value=env.format_input, label="格式化输入")
                 gr.Markdown("启用后, 将对输入的提示词进行格式化(删除多余空格和逗号或添加缺少的空格和逗号)")
+                remove_nsfw = gr.Checkbox(value=env.remove_nsfw, label='删除 "nsfw, "')
+                gr.Markdown('启用后, 将移除默认负面预设中的 "nsfw," 标签')
                 proxy = gr.Textbox(value=env.proxy, label="代理地址")
                 gr.Markdown("<p>本地代理格式应为: http://127.0.0.1:xxx (xxx 为代理软件的端口号)</p>")
                 custom_path = gr.Textbox(value=env.custom_path, label="自定义路径")
@@ -1285,6 +1287,7 @@ with gr.Blocks(
                         smtp_mail,
                         smtp_token,
                         disable_all_plugins,
+                        remove_nsfw,
                     ],
                     outputs=setting_output_information,
                 )

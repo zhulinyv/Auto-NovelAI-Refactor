@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     skip_inquire_anlas: bool = False
 
     format_input: bool = True
+    remove_nsfw: bool = True
 
     smtp_num: int = 0
     smtp_mail: Union[str, None] = None
