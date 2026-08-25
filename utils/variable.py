@@ -145,7 +145,10 @@ def return_undesired_contentc_preset(model, undesired_contentc_preset):
             "None": "",
         },
     }
-    return presets.get(model, {}).get(undesired_contentc_preset, "")
+    negative_prompts = presets.get(model, {}).get(undesired_contentc_preset, "")
+    if env.remove_nsfw:
+        negative_prompts = negative_prompts.replace("nsfw, ", "")
+    return negative_prompts
 
 
 def return_quality_preset_id(model):
