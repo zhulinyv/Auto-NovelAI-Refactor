@@ -194,9 +194,12 @@
 @media (max-width: 1200px) { .grid-3, .grid-4 { grid-template-columns: 1fr 1fr; } }
 
 /* ------- 表单 (统一字号) ------- */
-.field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; position: relative; }
 .field > label { font-size: 13px; font-weight: 600; color: var(--text-2); display: flex; align-items: center; gap: 5px; }
 .field > label .hint { font-weight: 400; font-size: 12px; color: var(--text-2); opacity: 0.75; }
+/* textarea 标题行内的标签 (与角标预设并排) */
+.prompt-head > label { font-size: 13px; font-weight: 600; color: var(--text-2); display: flex; align-items: center; gap: 5px; }
+.prompt-head > label .hint { font-weight: 400; font-size: 12px; color: var(--text-2); opacity: 0.75; }
 .field-row { display: flex; gap: 14px; align-items: flex-end; margin-bottom: 12px; }
 .field-row .field { flex: 1; margin-bottom: 0; min-width: 0; }
 .field > input, .field > select, .field > textarea { width: 100%; }
@@ -320,7 +323,7 @@ input.slider-num {
   border-color: color-mix(in srgb, var(--primary) 40%, transparent);
   font-weight: 600;
 }
-.tab-content { display: none; padding: 2px 2px 6px; }
+.tab-content { display: none; padding: 22px 2px 6px; }
 .tab-content.active { display: block; animation: pop-in 0.2s ease; }
 
 /* ------- 画廊 (统一字号) ------- */
@@ -928,7 +931,7 @@ table.store-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   padding: 0 9px;
   white-space: nowrap;
 }
-selectselect.corner-select { min-height: 0; height: 26px; }
+select.corner-select { min-height: 0; height: 26px; }
 .prompt-corner .fs-wrap { width: auto; max-width: 170px; }
 .prompt-corner .fs-control {
   min-height: 24px;
@@ -1258,6 +1261,121 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
 .img-drop-zone.auto-fit.has-image { min-width: 0; width: 100%; }
 .img-drop-zone.auto-fit .img-drop-preview { max-height: none; width: 100%; object-fit: contain; }
 .file-drop-preview { display:flex; align-items:center; justify-content:center; width:100%; min-height:60px; font-size:13px; color:var(--text); padding:10px; word-break:break-all; }
+/* 实时分布图 canvas (随机画风插件) */
+.dist-chart { display:block; max-width:100%; height:auto; border-radius:var(--radius); background:var(--panel); border:1px solid var(--border); margin:6px 0; }
+.dist-chart-cap { text-align:center; font-size:12px; color:var(--text-2); margin-bottom:8px; }
+/* 右列 (图表/说明/输出) 内的字段: 与左侧 card 同风格 (半透明+毛玻璃+同圆角) */
+.grid-2 > div:last-child > .field {
+  background: var(--panel);
+  backdrop-filter: blur(var(--panel-blur));
+  -webkit-backdrop-filter: blur(var(--panel-blur));
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  margin-bottom: 10px;
+  box-shadow: var(--shadow);
+}
+.grid-2 > div:last-child > .field .info-box {
+  background: var(--surface-2);
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 9px 11px;
+  font-size: 14px;
+  line-height: 1.7;
+}
+/* 相邻同组字段并排一行 (如 variety 与 decrisp) */
+.field-row .field { flex: 1; margin-bottom: 0; }
+.field-row .field > label { white-space: nowrap; }
+/* 字段行内的点击切换按钮 (如 Furry 模式) */
+.field-row .mode-btn { white-space: nowrap; font-weight: 600; align-self: flex-end; margin-bottom: 1px; }
+/* 生成预览舞台: 紧凑居中卡片, 按钮右上角, 预览图居中缩小 */
+.plugin-stage {
+  position: relative;
+  max-width: 66.67vw;
+  margin: 0 auto;
+  background: var(--panel);
+  backdrop-filter: blur(var(--panel-blur));
+  -webkit-backdrop-filter: blur(var(--panel-blur));
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 12px 16px 16px;
+  /* 无图时也保持与有图相同的高度 (图片 68vh + 预览外边距 + 卡片内边距) */
+  min-height: calc(68vh + 36px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.plugin-stage-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: 0 auto 12px;
+  max-width: 66.67vw;
+  padding: 0 16px;
+}
+.plugin-stage-toolbar button { margin-top: 0; }
+/* 舞台内的输出卡片: 去掉自身背景, 由舞台统一提供 */
+.plugin-stage .card { background: transparent; border: none; box-shadow: none; padding: 0; margin-bottom: 0; }
+.plugin-stage .card-title { display: none; }
+.plugin-stage .info-box { background: var(--surface-2); border: none; border-radius: var(--radius-sm); padding: 8px 11px; font-size: 13.5px; }
+.plugin-preview { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: 8px; }
+/* 预览图铺满展示区域 (横铺满, 高度上限 68vh, 超出按比例裁切) */
+.plugin-preview-img {
+  width: 100%;
+  max-height: 68vh;
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+  border: 2px solid var(--border);
+  box-shadow: var(--shadow);
+  cursor: zoom-in;
+  background: var(--surface-2);
+}
+.plugin-preview .preview-prompt { max-width: 100%; text-align: center; color: var(--text-2); font-size: 13px; white-space: pre-wrap; word-break: break-all; }
+.plugin-preview.hidden { display: none !important; }
+/* 生成中: 边框闪烁 */
+.plugin-preview.generating .plugin-preview-img { border-color: var(--primary); animation: preview-pulse 1.2s ease-in-out infinite; }
+@keyframes preview-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 45%, transparent); }
+  50% { box-shadow: 0 0 0 8px color-mix(in srgb, var(--primary) 0%, transparent); }
+}
+/* 双击最大化查看 */
+.img-max-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.82);
+  cursor: zoom-out;
+  animation: fade-in 0.15s ease;
+}
+.img-max-content { max-width: 95vw; max-height: 95vh; object-fit: contain; border-radius: 6px; box-shadow: var(--shadow-lg); }
+/* 分布图悬停详情气泡 */
+.chart-tooltip {
+  position: fixed;
+  z-index: 9999;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--panel-solid) 94%, var(--border));
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 7px 11px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  box-shadow: var(--shadow-lg);
+  white-space: nowrap;
+}
+.chart-tooltip.hidden { display: none !important; }
+/* 视频/音频文件预览 (插件 filearea 上传区) */
+.file-drop-media { flex-direction:column; align-items:center; justify-content:center; width:100%; padding:10px; gap:8px; }
+.file-media-el { max-width:100%; max-height:300px; border-radius:10px; background:#000; }
+.file-drop-media audio.file-media-el { max-height:none; }
+.file-media-cap { display:flex; flex-direction:column; align-items:center; gap:2px; width:100%; }
+.file-media-name { font-size:12.5px; color:var(--text); word-break:break-all; text-align:center; }
+.file-media-hint { font-size:11px; color:var(--text-2); }
 .img-drop-close {
   position: absolute;
   top: 5px; right: 5px;

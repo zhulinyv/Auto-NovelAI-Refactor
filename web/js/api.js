@@ -52,8 +52,9 @@ export async function uploadDir(files) {
 }
 
 /** 弹出系统原生文件选择框, 返回真实绝对路径 (后端直接读取, 不上传)。 */
-export async function pickFile() {
-  const res = await fetch("/api/pick-file", { method: "POST" });
+export async function pickFile(ft = "") {
+  const qs = ft ? "?ft=" + encodeURIComponent(ft) : "";
+  const res = await fetch("/api/pick-file" + qs, { method: "POST" });
   if (!res.ok) {
     let detail = `HTTP ${res.status}`;
     try { detail = (await res.json()).detail || detail; } catch {}

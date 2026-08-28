@@ -17,6 +17,7 @@ from utils.config import env
 from utils.errors import NovelAIAPIError
 from utils.generator import Generator
 from utils.helpers import (
+    StopGeneration,
     check_stop,
     find_and_replace_wildcards_from_dict,
     format_str,
@@ -28,6 +29,7 @@ from utils.helpers import (
     return_x64,
     send_mail,
     sleep_for_cool,
+    sleep_interruptible,
 )
 from utils.image_tools import (
     change_the_mask_color,
@@ -59,14 +61,19 @@ def _generate_with_retry(generator, json_data, desc, max_retries=3):
     """生成单张图片并自动重试:
     - 429 且开启"429 自动重试"配置: 无上限重试 (每次等待 5 秒)
     - 其余错误: 最多重试 max_retries 次 (每次等待 5 秒), 仍失败则抛出异常 (由上层跳过该图片)
+    - 任一点检测到停止信号: 立即抛出 StopGeneration, 不再等待/重试
     """
     retries = 0
     while True:
+        if check_stop():
+            raise StopGeneration("已停止生成")
         try:
             data = generator.generate(json_data)
             if not data:
                 raise NovelAIAPIError("NovelAI 未返回图片数据")
             return data
+        except StopGeneration:
+            raise
         except Exception as e:
             # 捕获所有异常 (含 requests 连接错误/超时/NovelAIAPIError), 统一进入重试流程
             is_429 = "429" in str(e)
@@ -74,14 +81,19 @@ def _generate_with_retry(generator, json_data, desc, max_retries=3):
                 retries += 1
                 # 429 无上限重试, 但日志中展示次数与原因
                 logger.warning(f"[{desc}] 429 限流, 等待 5 秒后自动重试 (第 {retries} 次): {e}")
-                time.sleep(5)
+                if check_stop():
+                    raise StopGeneration("已停止生成")
+                sleep_interruptible(5)
                 continue
             retries += 1
             if retries > max_retries:
                 logger.error(f"[{desc}] 重试 {max_retries} 次仍失败, 跳过该图片: {e}")
+                logger.opt(exception=True).debug("生成重试失败堆栈:")
                 raise
             logger.warning(f"[{desc}] 生成失败, 等待 5 秒后重试 ({retries}/{max_retries}): {e}")
-            time.sleep(5)
+            if check_stop():
+                raise StopGeneration("已停止生成")
+            sleep_interruptible(5)
 
 
 def _resize_editor_image(image, size):
@@ -481,12 +493,19 @@ def generate(request: dict) -> tuple[list[str], str]:
                 try:
                     image_data = _generate_with_retry(image_generator, find_and_replace_wildcards_from_dict(json_data), "Enhance")
                     path = image_generator.save(image_data, "image2image", json_data["parameters"]["seed"])
+                except StopGeneration:
+                    raise
                 except Exception as e:
                     logger.error(f"Enhance 失败, 保留原图: {e}")
+                    logger.opt(exception=True).debug("Enhance 失败堆栈:")
+        except StopGeneration:
+            logger.warning("已停止生成!")
+            break
         except Exception as e:
             # 重试后仍失败: 跳过该张, 继续生成后续图片
             skipped += 1
             logger.error(f"第 {i + 1} 张图片生成失败, 已跳过 (累计 {skipped} 张): {e}")
+            logger.opt(exception=True).debug("单张生成失败堆栈:")
             continue
 
         image_list.append(path)

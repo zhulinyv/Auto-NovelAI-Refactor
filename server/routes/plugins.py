@@ -42,20 +42,8 @@ async def plugin_rows():
     return {"rows": plugins_store.list_plugins()}
 
 
-@router.post("/plugin/{plugin_name}/{panel_id}/{action_id}")
-async def plugin_action(plugin_name: str, panel_id: str, action_id: str, payload: dict):
-    if jobs.is_busy:
-        raise HTTPException(status_code=409, detail="已有任务正在运行, 请先停止或等待当前任务完成")
-    try:
-        job_id = run_action(plugin_name, panel_id, action_id, payload.get("values", {}))
-    except KeyError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
-        logger.error(f"插件动作执行失败: {e}")
-        raise HTTPException(status_code=500, detail=f"插件动作执行失败: {e}")
-    return {"job_id": job_id}
-
-
+# 注意: 值持久化路由必须在动作路由之前注册。否则 POST /plugin/{name}/{panel}/values
+# 会被先声明的 /plugin/{plugin_name}/{panel_id}/{action_id} 匹配 (action_id="values") 而 404。
 @router.get("/plugin/{plugin_name}/{panel_id}/values")
 async def plugin_get_values(plugin_name: str, panel_id: str):
     """读取该插件面板上次保存的表单值 (跨浏览器保留)。"""
@@ -70,6 +58,20 @@ async def plugin_set_values(plugin_name: str, panel_id: str, payload: dict):
     data.setdefault(plugin_name, {})[panel_id] = payload.get("values", {})
     _save_plugin_values(data)
     return {"ok": True}
+
+
+@router.post("/plugin/{plugin_name}/{panel_id}/{action_id}")
+async def plugin_action(plugin_name: str, panel_id: str, action_id: str, payload: dict):
+    if jobs.is_busy:
+        raise HTTPException(status_code=409, detail="已有任务正在运行, 请先停止或等待当前任务完成")
+    try:
+        job_id = run_action(plugin_name, panel_id, action_id, payload.get("values", {}))
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"插件动作执行失败: {e}")
+        raise HTTPException(status_code=500, detail=f"插件动作执行失败: {e}")
+    return {"job_id": job_id}
 
 
 @router.post("/plugins/install")

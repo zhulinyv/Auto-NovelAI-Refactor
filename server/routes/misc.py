@@ -159,10 +159,15 @@ async def pick_folder():
 
 
 @router.post("/pick-file")
-async def pick_file():
-    """弹出系统原生文件选择框, 返回真实绝对路径 (后端直接读取该文件)。"""
+async def pick_file(ft: str = ""):
+    """弹出系统原生文件选择框, 返回真实绝对路径 (后端直接读取该文件)。
+    ft=workbook 时过滤为 Excel 工作簿类型。"""
     import threading
     result = {}
+    if ft == "workbook":
+        filetypes = [("Excel 工作簿", "*.xlsx *.xls"), ("所有文件", "*.*")]
+    else:
+        filetypes = [("图片", "*.png *.jpg *.jpeg *.webp *.gif *.bmp"), ("所有文件", "*.*")]
 
     def _pick():
         try:
@@ -173,8 +178,8 @@ async def pick_file():
             root.attributes("-topmost", True)
             root.update_idletasks()
             path = filedialog.askopenfilename(
-                title="选择图片",
-                filetypes=[("图片", "*.png *.jpg *.jpeg *.webp *.gif *.bmp"), ("所有文件", "*.*")],
+                title="选择文件",
+                filetypes=filetypes,
             )
             root.destroy()
             result["path"] = path or ""

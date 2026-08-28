@@ -21,6 +21,7 @@ plugins/
 assets/Anime4K
 assets/realcugan-ncnn-vulkan
 assets/waifu2x-caffe
+assets/rife-ncnn-vulkan
 .wildcards_tmp/
 
 # 通配符默认全部忽略, 仅保留仓库自带的默认词条 (与 ANR 原项目一致)

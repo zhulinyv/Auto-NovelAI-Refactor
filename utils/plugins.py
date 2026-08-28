@@ -57,6 +57,17 @@ class Field:
     file: bool = True    # type="path" 时是否显示"文件"按钮
     autocomplete: bool = False  # type="textarea"/"text" 时是否启用提示词自动补全
     accept: str = ""     # type="filearea" 时限制文件类型 (如 ".xlsx, .xls")
+    no_drag: bool = False  # type="filearea" 时仅允许点击选择文件, 禁用拖拽
+    direct_path: bool = False  # type="filearea" 时用原生对话框取真实路径, 不上传
+    hidden: bool = False  # 默认隐藏 (前端可通过彩蛋键位解锁显示, 如 naiv4vibebundle 的 Konami 码)
+    column: str = "left"  # "left"|"right" — 字段渲染到插件页面的左列(表单)或右列(输出/图表/说明)
+    inputs: list[str] = field(default_factory=list)  # type="chart" 时监听变化的参数 id 列表
+    corner_of: str = ""  # type="select" 时作为角标下拉附属于指定字段 (如提示词预设)
+    row_group: str = ""  # 相邻字段同一 row_group 时渲染到同一行 (如 variety 与 decrisp 并排)
+    autosize: bool = False  # type="textarea" 时高度随内容自适应 (有最大行数限制)
+    sync: str = ""  # 联动: "WxH" 表示选择 "宽x高" 选项时自动写入 inputs 指定的宽高字段
+    on_text: str = ""  # type="toggle" 时开启状态按钮文字
+    off_text: str = ""  # type="toggle" 时关闭状态按钮文字
 
 
 @dataclass
@@ -69,6 +80,9 @@ class Action:
     handler: Callable = None
     output: str = "auto"  # auto|gallery|image|text|info
     description: str = ""
+    show_output: bool = True  # 是否创建输出信息框 (False 时仅显示 toast)
+    set_field: str = ""  # 完成后将 content 设置到该字段 (如恢复文件内容到 textarea)
+    stop: bool = True  # 是否在该面板显示"停止"按钮 (耗时动作保留, 快捷动作可关闭)
 
 
 @dataclass
@@ -82,6 +96,8 @@ class Panel:
     fields: list[Field] = field(default_factory=list)
     actions: list[Action] = field(default_factory=list)
     show_output: bool = True  # False 时不渲染输出区, 结果用右上角通知展示
+    inline_actions: bool = False  # True 时动作按钮渲染在面板体内 (而非顶栏)
+    reset_defaults: bool = False  # True 时添加"还原默认参数"按钮
 
 
 class Plugin:
@@ -195,9 +211,15 @@ def get_manifest() -> list[dict]:
                     "icon": panel.icon,
                     "description": panel.description,
                     "show_output": panel.show_output,
+                    "inline_actions": panel.inline_actions,
+                    "reset_defaults": panel.reset_defaults,
                     "fields": [f.__dict__ for f in panel.fields],
                     "actions": [
-                        {"id": a.id, "label": a.label, "inputs": a.inputs, "output": a.output, "description": a.description}
+                        {
+                            "id": a.id, "label": a.label, "inputs": a.inputs, "output": a.output,
+                            "description": a.description, "show_output": a.show_output, "set_field": a.set_field,
+                            "stop": a.stop,
+                        }
                         for a in panel.actions
                     ],
                 }
@@ -244,4 +266,4 @@ def run_action(plugin_name: str, panel_id: str, action_id: str, values: dict) ->
             return final or {}
         return result
 
-    return jobs.submit(f"plugin:{plugin_name}/{action_id}", _execute)
+    return jobs.submit(f"plugin:{plugin_name}/{panel_id}/{action_id}", _execute)

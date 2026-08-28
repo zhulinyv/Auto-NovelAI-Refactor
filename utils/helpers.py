@@ -99,11 +99,24 @@ def return_last_value(_dict: dict):
     return list(_dict.values())[-1]
 
 
+class StopGeneration(Exception):
+    """生成过程中检测到停止信号 (用于中断重试/等待流程)。"""
+
+
+def sleep_interruptible(seconds: float) -> None:
+    """分段休眠, 期间检测停止信号, 一旦请求停止立即返回 (不再等待剩余时间)。"""
+    deadline = time.time() + max(0.0, seconds)
+    while time.time() < deadline:
+        if check_stop():
+            return
+        time.sleep(min(0.2, max(0.0, deadline - time.time())))
+
+
 def sleep_for_cool(seconds: int | float) -> None:
-    """在 [seconds-1, seconds+1] 内随机休眠, 避免请求过快。"""
+    """在 [seconds-1, seconds+1] 内随机休眠, 避免请求过快; 检测到停止时立即返回。"""
     sleep_time = round(random.uniform(abs(seconds - 1), seconds + 1), 3)
     logger.debug(f"等待 {sleep_time} 秒后继续...")
-    time.sleep(sleep_time)
+    sleep_interruptible(sleep_time)
 
 
 # ---------------------------------------------------------------- 坐标

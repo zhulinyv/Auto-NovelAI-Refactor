@@ -50,6 +50,7 @@ def run_cmd(code: str):
         return (stdout or stderr).decode("gb18030", errors="ignore").strip()
     except Exception as e:
         logger.error(f"命令执行失败: {e}")
+        logger.opt(exception=True).debug("命令执行失败堆栈:")
         return None
 
 

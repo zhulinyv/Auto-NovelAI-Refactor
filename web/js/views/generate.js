@@ -630,11 +630,8 @@ function wireOutputActions() {
   openDirBtn.addEventListener("click", async () => {
     try {
       // 有选中图片时打开其所在目录, 否则打开 outputs 根目录
-      const res = await openDir(lastOutputPath || "");
-      toast(res.message || "已打开保存目录 📁", "success");
-    } catch (e) {
-      toast(e.message, "error");
-    }
+      await openDir(lastOutputPath || "");
+    } catch {}
   });
 }
 

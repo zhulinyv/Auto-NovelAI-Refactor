@@ -119,8 +119,15 @@ export function imageDropZone({ label = null, placeholder = "点击选择或拖�
     }
   }
 
+  // 上传完成后的通知: 触发 change 事件, 让外部 (插件表单持久化) 捕获到值变化
+  function notifyChange() {
+    fileInput.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  let uploading = false;
   async function handleFiles(files) {
-    if (!files || !files.length) return;
+    if (uploading || !files || !files.length) return;
+    uploading = true;
     try {
       const { uploadFiles } = await import("./api.js");
       const res = await uploadFiles([files[0]]);
@@ -128,10 +135,12 @@ export function imageDropZone({ label = null, placeholder = "点击选择或拖�
         currentValue = res[0].path;
         render();
         if (api.onChange) api.onChange(currentValue);
+        notifyChange();
       }
     } catch (e) {
       toast("上传失败: " + e.message, "error");
     } finally {
+      uploading = false;
       fileInput.value = "";
     }
   }
@@ -144,6 +153,7 @@ export function imageDropZone({ label = null, placeholder = "点击选择或拖�
         currentValue = path;
         render();
         if (api.onChange) api.onChange(currentValue);
+        notifyChange();
       }
     } catch (e) {
       toast("选择文件失败: " + e.message, "error");
@@ -160,6 +170,7 @@ export function imageDropZone({ label = null, placeholder = "点击选择或拖�
     currentValue = "";
     render();
     if (api.onChange) api.onChange("");
+    notifyChange();
   });
   // dropNative: 拖入不上传, 改为打开系统文件选择框 (保持原始路径, 不复制文件)
   enableDrop(zone, {
@@ -236,7 +247,7 @@ export function showResult(infoEl, message) {
   }
 }
 
-function closeToastNode(node) {
+export function closeToastNode(node) {
   if (node.dataset.closing) return;
   node.dataset.closing = "1";
   node.classList.add("toast-out");
@@ -339,16 +350,21 @@ export function enableDrop(zone, { onFiles, accept = "image/*" } = {}) {
  * 通用文件选择区域: 点击或拖拽选择单个文件 (accept 过滤), 上传后取回真实路径。
  * 返回 { node, get(), set(v) }。
  */
-export function fileDropZone({ label = null, placeholder = "点击选择或拖入文件", accept = "", value = "", onChange = null } = {}) {
+export function fileDropZone({ label = null, placeholder = "点击选择或拖入文件", accept = "", value = "", onChange = null, noDrag = false, directPath = false } = {}) {
   const wrap = el("div", { class: "field" });
   if (label) wrap.append(el("label", { text: label }));
-  const zone = el("div", { class: "img-drop-zone" });
+  const zone = el("div", { class: "img-drop-zone file-media-zone" });
   const empty = el("div", { class: "img-drop-empty", html: "📄<br>" + placeholder });
   const preview = el("div", { class: "file-drop-preview", style: "display:none;" });
+  const mediaBox = el("div", { class: "file-drop-media", style: "display:none;" });
   const close = el("button", { class: "img-drop-close", text: "✖", style: "display:none;" });
   close.title = "移除文件";
   const fileInput = el("input", { type: "file", accept, style: "display:none;" });
   let currentValue = "";
+
+  // 视频 / 音频文件: 在上传区域直接渲染可播放预览
+  const VIDEO_RE = /\.(mp4|webm|mov|mkv|avi|m4v|ogv|flv|wmv|ts)$/i;
+  const AUDIO_RE = /\.(mp3|wav|aac|flac|ogg|m4a|opus|wma|aiff)$/i;
 
   const api = {
     node: wrap,
@@ -359,22 +375,51 @@ export function fileDropZone({ label = null, placeholder = "点击选择或拖�
   };
 
   function render() {
+    clear(mediaBox);
     if (currentValue) {
-      preview.textContent = "📄 " + currentValue.split(/[\\/]/).pop();
-      preview.style.display = "flex";
+      const name = currentValue.split(/[\\/]/).pop();
+      const url = "/api/image?path=" + encodeURIComponent(currentValue);
+      const isVideo = VIDEO_RE.test(currentValue);
+      const isAudio = AUDIO_RE.test(currentValue);
+      if (isVideo || isAudio) {
+        const media = isVideo
+          ? el("video", { src: url, controls: true, preload: "metadata", class: "file-media-el" })
+          : el("audio", { src: url, controls: true, preload: "metadata", class: "file-media-el" });
+        const cap = el("div", { class: "file-media-cap" }, [
+          el("span", { class: "file-media-name", text: (isVideo ? "🎞️ " : "🎵 ") + name }),
+          el("span", { class: "file-media-hint", text: "点击空白处更换文件" }),
+        ]);
+        mediaBox.append(media, cap);
+        mediaBox.style.display = "flex";
+        preview.style.display = "none";
+        zone.classList.add("has-image", "has-media");
+      } else {
+        preview.textContent = "📄 " + name;
+        preview.style.display = "flex";
+        mediaBox.style.display = "none";
+        zone.classList.add("has-image");
+        zone.classList.remove("has-media");
+      }
       empty.style.display = "none";
       close.style.display = "flex";
-      zone.classList.add("has-image");
     } else {
+      mediaBox.style.display = "none";
       preview.style.display = "none";
       empty.style.display = "";
       close.style.display = "none";
-      zone.classList.remove("has-image");
+      zone.classList.remove("has-image", "has-media");
     }
   }
 
+  // 上传完成后的通知: 触发 change 事件, 让外部 (插件表单持久化) 捕获到值变化
+  function notifyChange() {
+    fileInput.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  let uploading = false;
   async function handleFiles(files) {
-    if (!files || !files.length) return;
+    if (uploading || !files || !files.length) return;
+    uploading = true;
     try {
       const { uploadFiles } = await import("./api.js");
       const res = await uploadFiles([files[0]]);
@@ -382,25 +427,50 @@ export function fileDropZone({ label = null, placeholder = "点击选择或拖�
         currentValue = res[0].path;
         render();
         if (api.onChange) api.onChange(currentValue);
+        notifyChange();
       }
     } catch (e) {
       toast("上传失败: " + e.message, "error");
     } finally {
+      uploading = false;
       fileInput.value = "";
     }
   }
 
   fileInput.addEventListener("change", () => handleFiles(fileInput.files));
-  enableDrop(zone, { onFiles: (fs) => handleFiles(fs), accept: accept || "*" });
-  zone.addEventListener("click", () => fileInput.click());
+  if (!noDrag) enableDrop(zone, { onFiles: (fs) => handleFiles(fs), accept: accept || "*" });
+  // directPath: 用系统原生对话框取真实路径, 不上传
+  const pickDirect = async () => {
+    try {
+      const { pickFile } = await import("./api.js");
+      const ft = (accept || "").toLowerCase().includes("xlsx") ? "workbook" : "";
+      const p = await pickFile(ft);
+      if (p) {
+        currentValue = p;
+        render();
+        if (api.onChange) api.onChange(currentValue);
+        notifyChange();
+      }
+    } catch (e) {
+      toast("选择文件失败: " + e.message, "error");
+    }
+  };
+  zone.addEventListener("click", (e) => {
+    // 视频/音频控件区域 (播放按钮等) 不触发更换文件
+    if (e.target.closest && e.target.closest(".file-media-el")) return;
+    if (directPath) pickDirect();
+    else fileInput.click();
+  });
   close.addEventListener("click", (e) => {
     e.stopPropagation();
     api.set("");
     if (api.onChange) api.onChange("");
+    notifyChange();
   });
   render();
+  if (value) api.set(value);
   wrap.append(zone);
-  zone.append(empty, preview, close);
+  zone.append(empty, preview, mediaBox, close, fileInput);
   return api;
 }
 
@@ -654,18 +724,79 @@ export function makeField(spec, state) {
 
   switch (spec.type) {
     case "textarea": {
+      // 结构: 标题行(可挂角标预设) + 输入区
       input = el("textarea", {
         id: inputId,
         rows: spec.rows || 3,
         placeholder: spec.placeholder || "",
         value: spec.default ?? "",
       });
-      wrap.append(label, input);
+      // 高度随内容自适应 (最大 35 行, 超出出现滚动条)
+      let autosizeFn = null;
+      if (spec.autosize) {
+        autosizeFn = () => {
+          // 元素隐藏时 scrollHeight 为 0, 跳过 (等可见后再自适应, 避免行高被压扁)
+          const sh = input.scrollHeight;
+          if (!sh) return;
+          const lh = parseFloat(getComputedStyle(input).lineHeight) || 22;
+          const maxPx = Math.round(35 * lh);
+          input.style.height = "auto";
+          const h = Math.min(sh, maxPx);
+          input.style.height = h + "px";
+          input.style.overflowY = sh > maxPx ? "auto" : "hidden";
+        };
+        input.addEventListener("input", autosizeFn);
+        requestAnimationFrame(autosizeFn);
+        // 面板切回可见时自动重新自适应 (如刷新后切到画师设置页)
+        if ("IntersectionObserver" in window) {
+          new IntersectionObserver((entries) => {
+            entries.forEach((en) => { if (en.isIntersecting) requestAnimationFrame(autosizeFn); });
+          }).observe(input);
+        }
+      }
+      const head = el("div", { class: "prompt-head" }, [label]);
+      const taBox = el("div", { class: "ta-box" }, [input]);
+      wrap.append(head, taBox);
       if (spec.autocomplete) wireAutocomplete(input, wrap);
       return {
         node: wrap,
         getValue: () => input.value,
-        setValue: (v) => { input.value = v; },
+        setValue: (v) => {
+          input.value = v;
+          if (autosizeFn) requestAnimationFrame(autosizeFn);
+        },
+      };
+    }
+    case "toggle": {
+      // 点击切换按钮 (如 Furry 模式): 在两种状态间切换
+      const btn = el("button", { type: "button", class: "btn btn-sm mode-btn" });
+      let val = !!spec.default;
+      const render = () => {
+        btn.textContent = val ? (spec.on_text || "🐾 Furry") : (spec.off_text || "🌸 Anime");
+        btn.title = spec.description || "";
+      };
+      render();
+      btn.addEventListener("click", () => { val = !val; render(); });
+      return {
+        node: btn,
+        getValue: () => val,
+        setValue: (v) => { val = !!v; render(); },
+        input: btn,
+      };
+    }
+    case "corner_select": {
+      // 角标预设下拉: 渲染为输入框右上角的小下拉, 由插件视图附加到目标字段
+      const select = el("select", { class: "corner-select" }, (spec.options || []).map((o) => el("option", { value: o, text: o })));
+      if (spec.default !== undefined && spec.default !== null) select.value = spec.default;
+      const node = el("div", { class: "prompt-corner" }, [
+        el("span", { class: "prompt-corner-label", text: spec.label || "" }),
+        select,
+      ]);
+      return {
+        node,
+        getValue: () => select.value,
+        setValue: (v) => { if (v !== undefined && v !== null) select.value = v; },
+        input: select,
       };
     }
     case "text": {
@@ -782,12 +913,14 @@ export function makeField(spec, state) {
       };
     }
     case "filearea": {
-      // 文件: 拖拽/点击选择区域 (accept 过滤), 直接上传到服务器取回真实路径
+      // 文件: 点击选择区域 (accept 过滤, no_drag 时禁用拖拽), 上传到服务器取回真实路径
       const zone = fileDropZone({
         label: spec.label,
-        placeholder: spec.placeholder || "点击选择或拖入文件",
+        placeholder: spec.placeholder || (spec.no_drag ? "点击选择文件" : "点击选择或拖入文件"),
         accept: spec.accept || "",
         value: spec.default || "",
+        noDrag: !!spec.no_drag,
+        directPath: !!spec.direct_path,
       });
       return {
         node: zone.node,
@@ -827,6 +960,19 @@ export function makeField(spec, state) {
           currentValue = v || "";
           pathInput.value = v || "";
         },
+      };
+    }
+    case "chart": {
+      // 实时数据分布图 (canvas): inputs 指定需监听变化的参数 id, 由插件视图负责连线重绘
+      const canvas = el("canvas", { class: "dist-chart", width: 660, height: 380 });
+      const cap = el("div", { class: "dist-chart-cap", text: spec.placeholder || "实时数据分布图 (修改左侧参数即时更新)" });
+      wrap.append(label, canvas, cap);
+      return {
+        node: wrap,
+        getValue: () => null,
+        setValue: () => {},
+        canvas,
+        inputs: spec.inputs || [],
       };
     }
     case "info":

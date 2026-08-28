@@ -63,7 +63,8 @@ async function boot() {
       case "job:failed":
         setJobStatus("❌ 失败", false);
         bus.emit("job:failed", ev);
-        toast(ev.error || "任务失败", "error", 6000);
+        // 插件任务失败由 plugins.js 统一弹通知, 避免重复; 其余任务在此统一提示
+        if (!ev.name?.startsWith("plugin:")) toast(ev.error || "任务失败", "error", 6000);
         break;
       case "job:event":
         bus.emit("job:event", ev);
