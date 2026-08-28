@@ -1,12 +1,12 @@
 // ============================================================
 // 图片生成视图 (ANR 原有 Gradio 布局)
 //   Row1: 提示词(左) + 模型/预设/生成按钮(右)
-//   Row2: 左侧页签(参数设置/Wildcards/角色分区/角色参考/风格迁移) + 右侧输出画廊
+//   Row2: 左侧页签(参数设置/角色分区/角色参考/风格迁移) + 右侧输出画廊
+//   Wildcards 功能入口在每个提示词输入框右上角 (点击弹出全屏编辑窗口)
 // ============================================================
-import { $, $$, el, clear, toast, bus, sliderRow, edgeScroll, imageDropZone, fileDropZone, wireAutocomplete } from "../ui.js";
+import { $, $$, el, clear, toast, bus, sliderRow, edgeScroll, imageDropZone, fileDropZone, wireAutocomplete, wildcardsButton } from "../ui.js";
 import { post, imageUrl, fetchLast, openDir } from "../api.js";
 import { gallery, imageEditor, roleList } from "../components.js";
-import { renderPanel as wildcardsPanel } from "./wildcards.js";
 
 let S = null;
 let C = {};
@@ -239,14 +239,17 @@ function segChoice(options, value) {
   };
 }
 
-/** 提示词输入块: 节标题(左) + 预设下拉(最右) + 多行输入框 */
+/** 提示词输入块: 节标题(左) + 右侧按钮组(Wildcards/预设等) + 多行输入框 */
 function promptField(title, presetCtl, opts) {
   const wrap = el("div", { class: "field prompt-field" });
   const ta = el("textarea", { rows: opts.rows ?? 6, placeholder: opts.placeholder || "", value: opts.value ?? "" });
   const head = el("div", { class: "prompt-head" }, [
     el("span", { class: "prompt-title", text: title }),
-    opts.loadBtn || null,
-    presetCtl.node,
+    el("div", { class: "prompt-head-right" }, [
+      opts.loadBtn || null,
+      wildcardsButton(ta, { title, text: "🃏 Wildcards" }),
+      presetCtl.node,
+    ]),
   ]);
   const taBox = el("div", { class: "ta-box" }, [ta]);
   wrap.append(head, taBox);
@@ -378,10 +381,9 @@ function buildVibeEditor(container) {
 function buildLeftTabs(saved) {
   const wrap = el("div");
 
-  // 页签栏
+  // 页签栏 (Wildcards 已移至各提示词输入框右上角的按钮, 点击弹全屏窗口)
   const tabs = [
     { id: "params", title: "🎛️ 参数设置" },
-    { id: "wildcards", title: "🃏 Wildcards" },
     { id: "characters", title: "👥 角色分区" },
     { id: "references", title: "🧑‍🎨 角色参考" },
     { id: "vibe", title: "🎭 风格迁移" },
@@ -408,10 +410,7 @@ function buildLeftTabs(saved) {
   // 1. 参数设置
   buildParamsTab(bodies[0], saved);
 
-  // 2. Wildcards (嵌入)
-  wildcardsPanel(bodies[1], S);
-
-  // 3. 角色分区
+  // 2. 角色分区
   charSection = el("div", { class: "card", style: "margin:0;" }, [
     el("div", { class: "card-title" }, ["👥 角色分区"]),
   ]);
@@ -434,9 +433,9 @@ function buildLeftTabs(saved) {
     onChange: () => updateAiChoiceVisibility(),
   });
   charSection.append(charWrap);
-  bodies[2].append(charSection);
+  bodies[1].append(charSection);
 
-  // 4. 角色参考
+  // 3. 角色参考
   refSection = el("div", { class: "card", style: "margin:0;" }, [
     el("div", { class: "card-title" }, ["🧑‍🎨 角色参考", el("span", { class: "badge", text: "每张图片消耗 5 点数" })]),
   ]);
@@ -462,9 +461,9 @@ function buildLeftTabs(saved) {
     onChange: () => updateVibeVisibility(),
   });
   refSection.append(refWrap);
-  bodies[3].append(refSection);
+  bodies[2].append(refSection);
 
-  // 5. 风格迁移
+  // 4. 风格迁移
   vibeBundleRow = el("div", { class: "card", style: "margin:0;" }, [
     el("div", { class: "card-title" }, ["🎭 风格迁移 (Vibe)"]),
   ]);
@@ -483,7 +482,7 @@ function buildLeftTabs(saved) {
   const vibeWrap = el("div");
   vibeList = buildVibeEditor(vibeWrap);
   nai3VibeRow.append(vibeWrap);
-  bodies[4].append(vibeBundleRow, nai3VibeRow);
+  bodies[3].append(vibeBundleRow, nai3VibeRow);
 
   // 关键: 把页签内容插入 DOM
   wrap.append(...bodies);

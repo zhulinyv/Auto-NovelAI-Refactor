@@ -1,6 +1,8 @@
 // ============================================================
 // Wildcards 面板: 嵌入生成页页签, 支持图片封面与搜索
 //   封面约定: 卡片同目录下的 <名称>.png/jpg/webp 即为其封面
+//   也用于 Wildcards 全屏弹窗 (wildcardsModal.js), 此时传入
+//   opts.addTarget = {get, set}, 面板会出现 "添加到当前输入框" 按钮
 // ============================================================
 import { $, $$, el, clear, toast, wireAutocomplete } from "../ui.js";
 import { get, post, del, imageUrl } from "../api.js";
@@ -9,7 +11,7 @@ import { getC, getCurrentOutputImage } from "./generate.js";
 let S = null;
 let state = { type: null, name: null, tags: "", keyword: "" };
 
-export async function renderPanel(container, ctx) {
+export async function renderPanel(container, ctx, opts = {}) {
   S = ctx;
   clear(container);
 
@@ -195,6 +197,15 @@ export async function renderPanel(container, ctx) {
       el("button", { class: "btn btn-sm btn-primary", text: "➕ 添加到正面提示词", onclick: () => addToPrompt(name, true) }),
       el("button", { class: "btn btn-sm", text: "🌙 添加到负面提示词", onclick: () => addToPrompt(name, false) }),
     ]);
+    // 弹窗模式: 把卡片写回打开此窗口的那个提示词输入框
+    if (opts.addTarget) {
+      actRow.prepend(el("button", {
+        class: "btn btn-sm btn-primary",
+        text: "➕ 添加到当前输入框",
+        title: "添加到打开此窗口的提示词输入框",
+        onclick: () => addToTarget(name),
+      }));
+    }
     // 特殊卡片 (随机/顺序) 是占位指令, 不可保存或删除
     if (!isSpecial) {
       actRow.append(
@@ -230,6 +241,19 @@ export async function renderPanel(container, ctx) {
     const res = await post("/api/wildcards/add-to-prompt", { prompt: current, type: state.type, name });
     if (positive) p.positive.set(res.prompt); else p.negative.set(res.prompt);
     toast(`已添加 <${state.type}:${name}> 到${positive ? "正面" : "负面"}提示词 🌸`, "success");
+  }
+
+  /** 弹窗模式: 添加到打开此窗口的输入框 (值由弹窗实时同步回原输入框) */
+  async function addToTarget(name) {
+    if (!state.type || !name) { toast("请先选择卡片", "warning"); return; }
+    if (!opts.addTarget) return;
+    try {
+      const res = await post("/api/wildcards/add-to-prompt", { prompt: opts.addTarget.get(), type: state.type, name });
+      opts.addTarget.set(res.prompt);
+      toast(`已添加 <${state.type}:${name}> 到当前输入框 🌸`, "success");
+    } catch (e) {
+      toast(e.message, "error");
+    }
   }
 
   async function saveCard(name, tagsInput) {

@@ -1,7 +1,7 @@
 // ============================================================
 // 可复用组件: 页签、画廊、日志、图片编辑器
 // ============================================================
-import { $, $$, el, clear, toast, sliderRow, enableDrop, edgeScroll, imageDropZone, wireAutocomplete } from "./ui.js";
+import { $, $$, el, clear, toast, sliderRow, enableDrop, edgeScroll, imageDropZone, wireAutocomplete, wildcardsButton } from "./ui.js";
 import { imageUrl, uploadFiles } from "./api.js";
 
 // ---------------- 页签 ----------------
@@ -581,7 +581,12 @@ export function roleList(container, {
         const box = el("div", { class: "ta-box" });
         box.append(input);
         wireAutocomplete(input, box);
-        return { node: el("div", { class: "field" }, [el("label", { text: f.label }), box]), get: () => input.value, set: (v) => { input.value = v || ""; } };
+        // 提示词输入框: 标签行右侧放 Wildcards 图标按钮 (空间小, 只显示图标)
+        const label = el("label", { text: f.label });
+        if (f.type === "textarea" || f.wildcards) {
+          label.append(wildcardsButton(input, { title: f.label || "提示词" }));
+        }
+        return { node: el("div", { class: "field" }, [label, box]), get: () => input.value, set: (v) => { input.value = v || ""; } };
       }
     }
   }

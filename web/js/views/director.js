@@ -1,7 +1,7 @@
 // ============================================================
 // 导演工具视图
 // ============================================================
-import { $, el, clear, toast, bus, imageDropZone, showResult } from "../ui.js";
+import { $, el, clear, toast, bus, imageDropZone, showResult, wildcardsButton } from "../ui.js";
 import { post } from "../api.js";
 import { gallery, renderTabs } from "../components.js";
 
@@ -98,9 +98,11 @@ function renderKind(kind, body) {
   if (kind.id === "colorize") {
     const defry = el("input", { type: "number", min: 0, max: 5, value: 0 });
     const prompt = el("input", { type: "text", placeholder: "Prompt (可选)" });
+    const promptLabel = el("label", { text: "Prompt" });
+    promptLabel.append(wildcardsButton(prompt, { title: "Prompt" }));
     optsWrap.append(
       el("div", { class: "field" }, [el("label", { text: "Defry" }), defry]),
-      el("div", { class: "field" }, [el("label", { text: "Prompt" }), prompt])
+      el("div", { class: "field" }, [promptLabel, prompt])
     );
     options.defry = defry;
     options.prompt = prompt;
@@ -110,10 +112,12 @@ function renderKind(kind, body) {
     const strengths = ["Normal","Slightly Weak","Weak","Even Weaker","Very Weak","Weakest"];
     const strength = el("select", {}, strengths.map((s) => el("option", { value: s, text: s })));
     const prompt = el("input", { type: "text", placeholder: "Prompt (可选)" });
+    const promptLabel = el("label", { text: "Prompt" });
+    promptLabel.append(wildcardsButton(prompt, { title: "Prompt" }));
     optsWrap.append(
       el("div", { class: "field" }, [el("label", { text: "Emotion" }), tag]),
       el("div", { class: "field" }, [el("label", { text: "强度" }), strength]),
-      el("div", { class: "field" }, [el("label", { text: "Prompt" }), prompt])
+      el("div", { class: "field" }, [promptLabel, prompt])
     );
     options.tag = tag;
     options.strength = strength;

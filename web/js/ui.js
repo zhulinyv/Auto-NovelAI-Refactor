@@ -27,6 +27,26 @@ export function clear(node) {
   while (node.firstChild) node.removeChild(node.firstChild);
 }
 
+// ---------------- Wildcards 按钮 ----------------
+
+/**
+ * 创建 "Wildcards" 打开按钮 (点击弹出几乎全屏的 Wildcards 编辑窗口)。
+ * 点击行为由 wildcardsModal.js 的全局事件委托统一处理, 此处只携带目标信息。
+ * @param {HTMLElement} target 关联的提示词输入框 (textarea/input)
+ * @param {object} opts { title: 弹窗中显示的输入框名称, text: 按钮文字 (默认只显示 🃏 图标, 适合小输入框) }
+ */
+export function wildcardsButton(target, { title = "提示词", text = "" } = {}) {
+  const btn = el("button", {
+    class: text ? "wc-open-btn wc-text-btn" : "wc-open-btn wc-icon-btn",
+    type: "button",
+    title: "Wildcards: 打开全屏编辑窗口",
+    text: text || "🃏",
+  });
+  btn._wcTarget = target;
+  btn._wcTitle = title;
+  return btn;
+}
+
 // ---------------- 文件选择器 (统一美化) ----------------
 
 export function filePicker({ accept = "*", placeholder = "未选择文件", label = null } = {}) {
@@ -755,6 +775,10 @@ export function makeField(spec, state) {
         }
       }
       const head = el("div", { class: "prompt-head" }, [label]);
+      // 提示词字段 (带自动补全): 标题行右侧加 Wildcards 按钮 (预设角标会由插件视图追加到同一行)
+      if (spec.autocomplete) {
+        head.append(el("div", { class: "prompt-head-right" }, [wildcardsButton(input, { title: spec.label || "提示词" })]));
+      }
       const taBox = el("div", { class: "ta-box" }, [input]);
       wrap.append(head, taBox);
       if (spec.autocomplete) wireAutocomplete(input, wrap);

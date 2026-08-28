@@ -444,14 +444,14 @@ function renderPanel(plugin, panel, body) {
   });
   flushRow();
 
-  // 角标下拉: 附加到目标字段的标题行 (如提示词预设挂在输入框右上角)
+  // 角标下拉: 附加到目标字段的标题行右侧按钮组 (如提示词预设挂在输入框右上角, Wildcards 按钮左边)
   panel.fields.forEach((f) => {
     if (!f.corner_of) return;
     const ctrl = controls[f.id];
     const target = controls[f.corner_of];
     if (!ctrl || !target) return;
     const head = target.node.querySelector(".prompt-head");
-    if (head) head.append(ctrl.node);
+    if (head) (head.querySelector(".prompt-head-right") || head).append(ctrl.node);
   });
 
   // 分辨率预设 -> 宽高联动 (sync="WxH" 的字段选中 "宽x高" 选项时写入 inputs 字段)
