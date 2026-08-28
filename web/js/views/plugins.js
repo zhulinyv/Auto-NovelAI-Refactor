@@ -545,7 +545,7 @@ function renderPanel(plugin, panel, body) {
       el("div", { class: "card-title", text: "📤 " + (action.label || "输出") }),
     ]);
     const gal = el("div", { class: "gallery" });
-    const previewImg = el("img", { class: "preview-img", style: "display:none;max-width:100%;max-height:360px;border-radius:12px;border:2px solid var(--border);" });
+    const previewImg = el("img", { class: "preview-img", style: "display:none;max-width:100%;max-height:360px;border-radius:var(--radius-sm);border:2px solid var(--border);" });
     const infoBox = el("div", { class: "info-box" });
     const outActions = el("div", { class: "plugin-out-actions" });
     outBox.append(gal, previewImg, infoBox, outActions);

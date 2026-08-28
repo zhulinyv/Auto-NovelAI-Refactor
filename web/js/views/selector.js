@@ -106,8 +106,8 @@ function openFullscreenPreview() {
   const img = previewEl?.querySelector("img");
   if (!img) return;
   const overlay = el("div", { class: "fullscreen-preview", style: "position:fixed;inset:0;z-index:4000;background:rgba(0,0,0,0.88);display:flex;align-items:center;justify-content:center;cursor:zoom-out;" });
-  const big = el("img", { src: img.src, style: "max-width:96vw;max-height:94vh;border-radius:8px;box-shadow:var(--shadow-lg);" });
-  const close = el("button", { text: "✕", style: "position:absolute;top:16px;right:20px;width:40px;height:40px;border-radius:10px;border:none;background:color-mix(in srgb,var(--panel-solid) 90%,var(--border));color:var(--text-1);font-size:18px;cursor:pointer;" });
+  const big = el("img", { src: img.src, style: "max-width:96vw;max-height:94vh;border-radius:var(--radius-sm);box-shadow:var(--shadow-lg);" });
+  const close = el("button", { text: "✕", style: "position:absolute;top:16px;right:20px;width:40px;height:40px;border-radius:var(--radius-sm);border:none;background:color-mix(in srgb,var(--panel-solid) 90%,var(--border));color:var(--text-1);font-size:18px;cursor:pointer;" });
   const closeAll = () => overlay.remove();
   overlay.append(big, close);
   overlay.addEventListener("click", closeAll);
@@ -121,7 +121,7 @@ async function selectorAction(url, payload) {
     if (res.current) {
       currentPath = res.current;
       clear(previewEl);
-      previewEl.append(el("img", { src: imageUrl(res.current), style: "max-width:100%;max-height:640px;border-radius:12px;box-shadow:var(--shadow);" }));
+      previewEl.append(el("img", { src: imageUrl(res.current), style: "max-width:100%;max-height:640px;border-radius:var(--radius-sm);box-shadow:var(--shadow);" }));
       fullBtn.style.display = "";
       infoEl.textContent = "当前: " + res.current;
     } else {

@@ -135,7 +135,7 @@ input[type="checkbox"] {
   flex: 0 0 18px;
   min-width: 18px;
   border: 2px solid var(--border);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   background: var(--panel-solid);
   cursor: pointer;
   display: inline-block;
@@ -224,7 +224,7 @@ img.twemoji {
 
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 8px; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 999px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--primary-2); }
 
 /* ============================================================

@@ -275,7 +275,7 @@ export async function renderPanel(container, ctx, opts = {}) {
     let coverBox = null;
     if (!isSpecial) {
       coverBox = el("div", { style: "margin:4px 0 8px;" });
-      const coverImg = el("img", { style: "display:none;max-height:120px;border-radius:10px;border:1px solid var(--border);" });
+      const coverImg = el("img", { style: "display:none;max-height:120px;border-radius:var(--radius-sm);border:1px solid var(--border);" });
       const coverFile = el("input", { type: "file", accept: "image/*", style: "display:none;" });
       const coverBtn = el("button", { class: "btn btn-sm btn-file", text: "🖼️ 上传封面" });
       const curCover = allCards.find((c) => c.name === name)?.cover;
