@@ -1,136 +1,243 @@
 // ============================================================
-// Wildcards 面板: 嵌入生成页页签, 支持图片封面与搜索
+// Wildcards 面板 (嵌入 Wildcards 全屏弹窗)
+//   左: 卡片库 (分类页签 / 搜索 / 多选 / 拖拽)   右: 卡片编辑
+//   卡片多选状态通过 cardSelection 共享给弹窗 ("添加选中" 按钮),
+//   拖拽中的卡片通过 cardDrag 共享给弹窗的提示词编辑器投放。
+//   交互: 普通点击=编辑并单选, Ctrl+点击=多选, Shift+点击=范围多选,
+//         选中后可拖入上方提示词, 或点弹窗的 "➕ 添加选中"。
 //   封面约定: 卡片同目录下的 <名称>.png/jpg/webp 即为其封面
-//   也用于 Wildcards 全屏弹窗 (wildcardsModal.js), 此时传入
-//   opts.addTarget = {get, set}, 面板会出现 "添加到当前输入框" 按钮
 // ============================================================
 import { $, $$, el, clear, toast, wireAutocomplete } from "../ui.js";
 import { get, post, del, imageUrl } from "../api.js";
 import { getCurrentOutputImage } from "./generate.js";
 
 let S = null;
-let state = { type: null, name: null, tags: "", keyword: "" };
+const state = { type: null, name: null, keyword: "", lastIdx: -1 };
+
+/** 卡片多选状态 (弹窗的 "添加选中" 按钮据此批量插入提示词) */
+export const cardSelection = {
+  type: null,
+  names: [],
+  _listeners: new Set(),
+  set(type, names) {
+    this.type = type;
+    this.names = names;
+    for (const fn of this._listeners) {
+      try { fn(names); } catch { /* 忽略监听器异常 */ }
+    }
+  },
+  onChange(fn) { this._listeners.add(fn); },
+};
+
+/** 正在被拖拽的卡片 (弹窗提示词编辑器 drop 时读取) */
+export const cardDrag = { type: null, names: [] };
 
 export async function renderPanel(container, ctx, opts = {}) {
   S = ctx;
   clear(container);
+  cardSelection.set(null, []);
+  const selection = new Set();
+  let allCards = [];
+  let visibleCards = [];
 
-  // ---------------- 顶部整行: 新建卡片 ----------------
-  const topCard = el("div", { class: "card", style: "margin:0 0 16px;" });
-  const quickGrid = el("div", { class: "grid", style: "grid-template-columns:1fr 1fr 2.2fr auto;align-items:end;gap:12px;" });
+  // ---------------- 左: 卡片库 ----------------
+  const countEl = el("span", { class: "wc-count muted" });
   const newType = el("input", { type: "text", placeholder: "新分类" });
   const newName = el("input", { type: "text", placeholder: "新卡片名" });
-  const newTags = el("input", { type: "text", placeholder: "提示词内容" });
-  quickGrid.append(
+  const newTags = el("input", { type: "text", placeholder: "提示词内容 (逗号分隔多个标签)" });
+  const createRow = el("div", { class: "wc-create-row hidden" }, [
     el("div", { class: "field" }, [el("label", { text: "分类" }), newType]),
     el("div", { class: "field" }, [el("label", { text: "名称" }), newName]),
     el("div", { class: "field" }, [el("label", { text: "提示词" }), newTags]),
-    el("button", { class: "btn btn-sm btn-primary", style: "height:33px;white-space:nowrap;", text: "➕ 创建", onclick: () => createCard(newType, newName, newTags) }),
-  );
-  topCard.append(
-    el("div", { class: "card-title" }, ["✨ 新建卡片"]),
-    quickGrid,
-  );
-  container.append(topCard);
+    el("button", { class: "btn btn-sm btn-primary", text: "✅ 创建", onclick: () => createCard() }),
+    el("button", { class: "btn btn-sm btn-ghost", text: "✖", title: "收起", onclick: () => createRow.classList.add("hidden") }),
+  ]);
+  function toggleCreate() {
+    createRow.classList.toggle("hidden");
+    if (!createRow.classList.contains("hidden")) newType.focus();
+  }
 
-  // ---------------- 下方左右: 选择卡片 | 编辑区 ----------------
-  const browseCard = el("div", { class: "card", style: "margin:0;" });
-  const typeList = el("div", { style: "display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;" });
-  const searchBox = el("input", { type: "text", placeholder: "🔍 搜索卡片名称... (大量卡片时快速筛选)", style: "margin-bottom:10px;width:100%;" });
-  const cardGrid = el("div", { class: "grid", style: "grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px;" });
-  const countBox = el("div", { class: "muted", style: "margin-bottom:8px;" });
-  browseCard.append(el("div", { class: "card-title" }, ["🗂️ 选择卡片"]), typeList, searchBox, countBox, cardGrid);
-
-  const editCard = el("div", { class: "card", style: "margin:0;min-height:220px;" }, [
-    el("div", { class: "card-title" }, ["✏️ 编辑卡片"]),
-    el("div", { class: "muted", text: "从左侧选择一张卡片后在此编辑" }),
+  const typeList = el("div", { class: "wc-types" });
+  const searchBox = el("input", { type: "text", class: "wc-search", placeholder: "🔍 搜索卡片名称 (大量卡片时快速筛选)..." });
+  const grid = el("div", { class: "wc-grid" });
+  const selText = el("span", { text: "" });
+  const selBar = el("div", { class: "wc-sel-bar hidden" }, [
+    selText,
+    el("span", { class: "spacer" }),
+    el("button", {
+      class: "btn btn-sm btn-ghost",
+      text: "✖ 清除选择",
+      onclick: () => { selection.clear(); state.lastIdx = -1; syncSelection(); },
+    }),
   ]);
 
-  const layout = el("div", { class: "grid", style: "grid-template-columns:1.6fr 1fr;align-items:start;gap:16px;" });
+  const browseCard = el("div", { class: "card wc-browse" }, [
+    el("div", { class: "wc-browse-head" }, [
+      el("div", { class: "card-title", text: "🗂️ 卡片库" }),
+      countEl,
+      el("span", { class: "spacer" }),
+      el("button", { class: "btn btn-sm", text: "➕ 新建卡片", onclick: toggleCreate }),
+    ]),
+    createRow,
+    typeList,
+    searchBox,
+    grid,
+    selBar,
+  ]);
+
+  // ---------------- 右: 卡片编辑 ----------------
+  const editCard = el("div", { class: "card wc-edit" }, [
+    el("div", { class: "card-title", text: "✏️ 编辑卡片" }),
+    el("div", { class: "muted", text: "从左侧选择一张卡片后在此编辑。Ctrl+点击多选, Shift+点击范围选; 选中后可拖入上方提示词或点 \"添加选中\"" }),
+  ]);
+
+  const layout = el("div", { class: "wc-panel-grid" });
   layout.append(browseCard, editCard);
   container.append(layout);
 
-  let allCards = [];
+  // 弹窗批量添加完成后会清空共享选择, 这里同步面板本地的选中 UI
+  cardSelection.onChange((names) => {
+    if (!container.isConnected) return;
+    if (!names.length && selection.size) {
+      selection.clear();
+      state.lastIdx = -1;
+      syncSelectionClasses();
+    }
+  });
 
-  // ---------------- 分类 ----------------
+  // ---------------- 数据加载 ----------------
   async function loadTypes() {
     const res = await get("/api/wildcards/types");
     clear(typeList);
-    res.types.forEach((t) => {
+    (res.types || []).forEach((t) => {
       typeList.append(el("button", {
         class: "tab-btn" + (t === state.type ? " active" : ""),
         text: "📁 " + t,
         onclick: async () => {
           state.type = t;
           state.name = null;
-          loadTypes();
+          state.lastIdx = -1;
+          selection.clear();
+          await loadTypes();
           await loadCards();
+          syncSelection();
         },
       }));
     });
   }
 
-  // ---------------- 卡片网格 (带封面 + 搜索) ----------------
   async function loadCards() {
-    if (!state.type) { clear(cardGrid); countBox.textContent = ""; return; }
+    if (!state.type) { allCards = []; renderGrid(); return; }
     const res = await get(`/api/wildcards/${encodeURIComponent(state.type)}/cards`);
     allCards = res.cards || [];
     renderGrid();
   }
 
   function renderGrid() {
-    clear(cardGrid);
-    const kw = state.keyword.trim().toLowerCase();
-    // 特殊卡片: 随机 / 顺序 (与 ANR 原项目一致, 只展示在无搜索关键词时)
-    const specials = kw ? [] : [
-      { name: "随机", cover: null, tags: "随机抽取一张卡片" },
-      { name: "顺序", cover: null, tags: "按文件名顺序轮流使用" },
-    ];
-    const filtered = kw ? allCards.filter((c) => c.name.toLowerCase().includes(kw)) : allCards;
-    countBox.textContent = `${state.type} · ${specials.length + filtered.length} / ${allCards.length} 张卡片`;
-
-    if (!filtered.length && !specials.length) {
-      cardGrid.append(el("div", { class: "gallery-empty", text: kw ? "没有匹配的卡片" : "该分类暂无卡片" }));
+    clear(grid);
+    if (!state.type) {
+      visibleCards = [];
+      countEl.textContent = "";
+      grid.append(el("div", { class: "gallery-empty", text: "请选择一个分类" }));
       return;
     }
-
-    specials.forEach((card) => {
-      const item = el("div", {
-        class: "wildcard-card wildcard-special",
-        title: card.tags,
-        onclick: () => selectCard(card.name),
-      });
-      item.append(
-        el("div", { class: "wc-cover wc-cover-empty" }, [el("span", { text: card.name === "随机" ? "🎲" : "🔁" })]),
-        el("div", { class: "wc-name", text: card.name }),
-        el("div", { class: "wc-tags", text: card.tags }),
-      );
-      cardGrid.append(item);
-    });
-
-    filtered.forEach((card) => {
-      const item = el("div", {
-        class: "wildcard-card",
-        title: card.tags || card.name,
-        onclick: () => selectCard(card.name),
-      });
-      // 封面
-      if (card.cover) {
-        // bust=true 强制刷新, 避免覆盖封面后浏览器仍显示旧图
-        item.append(el("div", { class: "wc-cover" }, [el("img", { src: imageUrl(card.cover, true), alt: card.name, loading: "lazy" })]));
-      } else {
-        item.append(el("div", { class: "wc-cover wc-cover-empty" }, [el("span", { text: "🃏" })]));
-      }
-      item.append(el("div", { class: "wc-name", text: card.name }));
-      item.append(el("div", { class: "wc-tags", text: (card.tags || "空").slice(0, 40) || "空" }));
-      cardGrid.append(item);
-    });
+    const kw = state.keyword.trim().toLowerCase();
+    // 特殊卡片: 随机 / 顺序 (与 ANR 原项目一致, 只在无搜索词时展示)
+    const specials = kw ? [] : [
+      { name: "随机", cover: null, tags: "随机抽取一张卡片", special: true },
+      { name: "顺序", cover: null, tags: "按文件名顺序轮流使用", special: true },
+    ];
+    const filtered = kw ? allCards.filter((c) => c.name.toLowerCase().includes(kw)) : allCards;
+    visibleCards = [...specials, ...filtered];
+    countEl.textContent = state.type ? `${state.type} · ${visibleCards.length} / ${allCards.length} 张卡片` : "";
+    if (!visibleCards.length) {
+      grid.append(el("div", { class: "gallery-empty", text: !state.type ? "请选择一个分类" : (kw ? "没有匹配的卡片" : "该分类暂无卡片") }));
+      return;
+    }
+    visibleCards.forEach((card) => grid.append(renderCard(card)));
+    syncSelectionClasses();
   }
 
   searchBox.addEventListener("input", () => {
     state.keyword = searchBox.value;
     renderGrid();
   });
+
+  // ---------------- 卡片多选 / 拖拽 ----------------
+  function syncSelection() {
+    cardSelection.set(state.type, [...selection]);
+    syncSelectionClasses();
+  }
+
+  function syncSelectionClasses() {
+    $$(".wildcard-card", grid).forEach((c) => c.classList.toggle("selected", selection.has(c.dataset.name)));
+    const n = selection.size;
+    selText.textContent = n ? `已选 ${n} 张卡片 — 拖入上方提示词, 或点右上角 "➕ 添加选中"` : "";
+    selBar.classList.toggle("hidden", !n);
+  }
+
+  function renderCard(card) {
+    const item = el("div", {
+      class: "wildcard-card" + (card.special ? " wildcard-special" : ""),
+      title: card.tags || card.name,
+      draggable: true,
+    });
+    item.dataset.name = card.name;
+    item.append(el("span", { class: "wc-check", text: "✓" }));
+    if (card.cover) {
+      // bust=true 强制刷新, 避免覆盖封面后浏览器仍显示旧图
+      item.append(el("div", { class: "wc-cover" }, [el("img", { src: imageUrl(card.cover, true), alt: card.name, loading: "lazy" })]));
+    } else {
+      item.append(el("div", { class: "wc-cover wc-cover-empty" }, [el("span", { text: card.special ? (card.name === "随机" ? "🎲" : "🔁") : "🃏" })]));
+    }
+    item.append(el("div", { class: "wc-name", text: card.name }));
+    item.append(el("div", { class: "wc-tags", text: (card.tags || "空").slice(0, 40) || "空" }));
+
+    item.addEventListener("click", (e) => {
+      const idx = visibleCards.findIndex((c) => c.name === card.name);
+      if (e.ctrlKey || e.metaKey) {
+        if (selection.has(card.name)) selection.delete(card.name);
+        else selection.add(card.name);
+        state.lastIdx = idx;
+        syncSelection();
+        return;
+      }
+      if (e.shiftKey && state.lastIdx >= 0 && idx >= 0) {
+        const [a, b] = [Math.min(state.lastIdx, idx), Math.max(state.lastIdx, idx)];
+        selection.clear();
+        visibleCards.slice(a, b + 1).forEach((c) => selection.add(c.name));
+        syncSelection();
+        return;
+      }
+      // 普通点击: 编辑该卡片, 并将其设为唯一选中
+      selection.clear();
+      selection.add(card.name);
+      state.lastIdx = idx;
+      syncSelection();
+      selectCard(card.name);
+    });
+
+    item.addEventListener("dragstart", (e) => {
+      if (!selection.has(card.name)) {
+        selection.clear();
+        selection.add(card.name);
+        syncSelection();
+      }
+      cardDrag.type = state.type;
+      cardDrag.names = [...selection];
+      try {
+        e.dataTransfer.setData("text/plain", cardDrag.names.join(","));
+        e.dataTransfer.effectAllowed = "copy";
+      } catch { /* 某些浏览器限制, 忽略 */ }
+      item.classList.add("dragging");
+    });
+    item.addEventListener("dragend", () => {
+      item.classList.remove("dragging");
+      cardDrag.type = null;
+      cardDrag.names = [];
+    });
+    return item;
+  }
 
   // ---------------- 选中卡片 -> 编辑区 ----------------
   async function selectCard(name) {
@@ -193,7 +300,7 @@ export async function renderPanel(container, ctx, opts = {}) {
       coverBox.append(coverImg, el("div", { style: "display:flex;gap:8px;margin-top:6px;flex-wrap:wrap;" }, [coverBtn, lastImgBtn, coverFile]));
     }
 
-    const actRow = el("div", { style: "display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;" });
+    const actRow = el("div", { class: "wc-edit-actions" });
     // 弹窗模式: 把卡片写回打开此窗口的那个提示词输入框
     if (opts.addTarget) {
       actRow.append(el("button", {
@@ -218,7 +325,6 @@ export async function renderPanel(container, ctx, opts = {}) {
       coverBox,
       el("div", { class: "field" }, [el("label", { text: "名称" }), nameInput]),
       isSpecial ? null : wireTagsField(tagsInput),
-
       actRow,
     );
   }
@@ -230,7 +336,6 @@ export async function renderPanel(container, ctx, opts = {}) {
     return f;
   }
 
-  /** 添加到打开此窗口的输入框 (值由弹窗实时同步回原输入框) */
   async function addToTarget(name) {
     if (!state.type || !name) { toast("请先选择卡片", "warning"); return; }
     if (!opts.addTarget) return;
@@ -254,25 +359,34 @@ export async function renderPanel(container, ctx, opts = {}) {
     if (!state.type || !name) { toast("请先选择卡片", "warning"); return; }
     await del(`/api/wildcards/${encodeURIComponent(state.type)}/${encodeURIComponent(name)}`);
     toast("已删除 (移到回收站) 🗑️", "success");
+    selection.delete(name);
     clear(editCard);
+    editCard.append(
+      el("div", { class: "card-title", text: "✏️ 编辑卡片" }),
+      el("div", { class: "muted", text: "从左侧选择一张卡片后在此编辑" }),
+    );
+    syncSelection();
     await loadCards();
   }
 
-  async function createCard(typeInput, nameInput, tagsInput) {
-    const type = typeInput.value.trim();
-    const name = nameInput.value.trim();
-    const tags = tagsInput.value;
+  async function createCard() {
+    const type = newType.value.trim();
+    const name = newName.value.trim();
+    const tags = newTags.value;
     if (!type || !name) { toast("分类和名称不能为空", "warning"); return; }
     await post("/api/wildcards", { type, name, tags });
     toast(`已创建 <${type}:${name}> ✨`, "success");
-    nameInput.value = "";
-    tagsInput.value = "";
+    newType.value = "";
+    newName.value = "";
+    newTags.value = "";
+    createRow.classList.add("hidden");
     state.type = type;
     await loadTypes();
     await loadCards();
   }
 
   await loadTypes();
+  await loadCards();
 }
 
 // 兼容旧入口
