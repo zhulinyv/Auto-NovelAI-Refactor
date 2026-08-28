@@ -6,12 +6,13 @@ import shutil
 import subprocess
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import ujson as json
 
 from utils.config import env
-from utils.helpers import check_update, read_json, update_repo
+from utils.helpers import read_json, update_repo
 from utils.logger import logger
 from utils.plugins import load_plugins
 
@@ -52,7 +53,7 @@ def list_plugins() -> list[dict]:
 
 
 def _list_plugins() -> list[dict]:
-    """返回插件商店表格数据 (含安装状态)。"""
+    """返回插件商店表格数据 (只看本地安装/禁用状态, 不联网检查更新)。"""
     plugins = _plugin_registry()
     try:
         disable_list = read_json("./outputs/temp_plugins.json").get("disable_plugin", [])
@@ -63,18 +64,7 @@ def _list_plugins() -> list[dict]:
     for key, info in plugins.items():
         path = f"./plugins/{info['name']}"
         if os.path.exists(path):
-            if key in disable_list:
-                status = "已禁用"
-            elif not env.check_update:
-                status = "已安装"
-            else:
-                _status, commit = check_update(path)
-                if _status:
-                    status = "已安装"
-                elif commit not in ["远程分支不存在", "更新检查已关闭"]:
-                    status = "更新可用"
-                else:
-                    status = "版本检查失败"
+            status = "已禁用" if key in disable_list else "已安装"
         else:
             status = "未安装"
         rows.append(
@@ -94,6 +84,65 @@ def _list_plugins() -> list[dict]:
         if name not in {r["name"] for r in rows}:
             rows.append({"name": name, "description": "本地插件", "url": "", "author": "未知", "status": "已安装"})
     return rows
+
+
+def _check_update_online(plugin_path: str) -> str:
+    """联网检查单个插件远程仓库是否有更新 (git ls-remote, 不改动本地仓库)。"""
+    repo = Repo(plugin_path)
+    try:
+        branch = repo.active_branch.name
+        # GitPython 的 kill_after_timeout 不支持 Windows, 用 subprocess 自带超时
+        proc = subprocess.run(
+            ["git", "ls-remote", "origin", f"refs/heads/{branch}"],
+            cwd=plugin_path, capture_output=True, text=True, timeout=25,
+        )
+        out = proc.stdout.strip() if proc.returncode == 0 else ""
+        remote = out.split()[0] if out else ""
+        if not remote:
+            return "版本检查失败"
+        return "已安装" if repo.head.commit.hexsha == remote else "更新可用"
+    finally:
+        repo.close()
+
+
+def check_updates() -> dict:
+    """手动联网检查全部已安装插件的更新 (点击"检查更新"按钮时调用), 结果写入缓存。"""
+    rows = list_plugins()
+    targets = [
+        (r, f"./plugins/{r['name']}")
+        for r in rows
+        if os.path.exists(f"./plugins/{r['name']}") and r["status"] != "已禁用"
+    ]
+
+    def _check(item):
+        r, path = item
+        try:
+            return r, _check_update_online(path)
+        except Exception:
+            return r, "版本检查失败"
+
+    updates = 0
+    failed = 0
+    if targets:
+        with ThreadPoolExecutor(max_workers=min(8, len(targets))) as ex:
+            for r, status in ex.map(_check, targets):
+                if status == "更新可用":
+                    updates += 1
+                elif status == "版本检查失败":
+                    failed += 1
+                r["status"] = status
+
+    with _rows_lock:
+        _rows_cache["rows"] = rows
+        _rows_cache["ts"] = time.time()
+
+    if failed:
+        message = f"检查完成: {updates} 个可更新, {failed} 个检查失败"
+    elif updates:
+        message = f"检查完成: {updates} 个插件有更新 🎉"
+    else:
+        message = "检查完成: 全部插件均为最新 ✅"
+    return {"rows": rows, "message": message}
 
 
 def install_plugin(name: str) -> str:

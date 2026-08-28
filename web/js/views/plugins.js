@@ -263,11 +263,32 @@ export async function render(container, ctx) {
     location.reload();
   }
 
+  // 手动联网检查插件更新 (插件列表不再自动检查, 结果写入状态列)
+  const checkBtn = el("button", { id: "store-check-btn", class: "btn btn-sm", type: "button", text: "🔍 检查更新" });
+  checkBtn.addEventListener("click", async () => {
+    checkBtn.disabled = true;
+    checkBtn.textContent = "⏳ 正在检查更新...";
+    try {
+      const res = await post("/api/plugins/check-updates", {});
+      S.app.plugin_rows = res.rows || [];
+      renderRows();
+      toast(res.message || "检查完成", res.message?.includes("失败") ? "warning" : "success");
+    } catch (e) {
+      toast("检查更新失败: " + e.message, "error");
+    } finally {
+      checkBtn.disabled = false;
+      checkBtn.textContent = "🔍 检查更新";
+    }
+  });
+
   container.append(
     el("div", { class: "card" }, [
       el("div", { class: "card-title", style: "display:flex;align-items:center;justify-content:space-between;gap:10px;" }, [
         el("span", { text: "🧩 插件管理" }),
-        el("button", { id: "store-apply-btn", class: "btn btn-sm btn-primary", text: "🔄 应用更改", onclick: () => applyChanges(outBox) }),
+        el("div", { style: "display:flex;gap:8px;" }, [
+          checkBtn,
+          el("button", { id: "store-apply-btn", class: "btn btn-sm btn-primary", text: "🔄 应用更改", onclick: () => applyChanges(outBox) }),
+        ]),
       ]),
       outBox,
       table,

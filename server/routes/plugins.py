@@ -42,6 +42,12 @@ async def plugin_rows():
     return {"rows": plugins_store.list_plugins()}
 
 
+@router.post("/plugins/check-updates")
+async def check_updates():
+    """手动联网检查全部已安装插件的更新 (插件列表不再自动检查, 仅点击按钮时联网)。"""
+    return plugins_store.check_updates()
+
+
 # 注意: 值持久化路由必须在动作路由之前注册。否则 POST /plugin/{name}/{panel}/values
 # 会被先声明的 /plugin/{plugin_name}/{panel_id}/{action_id} 匹配 (action_id="values") 而 404。
 @router.get("/plugin/{plugin_name}/{panel_id}/values")
