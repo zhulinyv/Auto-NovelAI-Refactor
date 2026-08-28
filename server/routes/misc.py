@@ -303,6 +303,90 @@ def _migrate_legacy_bg_state():
 _migrate_legacy_bg_state()
 
 
+# ---------------- 在线壁纸 (API 换图): Bing 每日精选为主, Picsum 兜底 ----------------
+
+_BG_API_DIR = BASE_DIR / "outputs" / "backgrounds"
+_BG_API_KEEP = 20  # 本地最多保留的 API 壁纸张数
+
+
+def _save_api_wallpaper(content: bytes) -> str:
+    """校验图片有效性后保存到 outputs/backgrounds, 返回相对路径 (只保留最近 N 张)。"""
+    import time
+    from io import BytesIO
+
+    from PIL import Image
+
+    if len(content) > 25 * 1024 * 1024:
+        raise RuntimeError("图片体积过大")
+    img = Image.open(BytesIO(content))
+    img.verify()  # 校验确实是完整图片
+    if getattr(img, "width", 0) and img.width < 1024:
+        raise RuntimeError("图片分辨率过低")
+
+    _BG_API_DIR.mkdir(parents=True, exist_ok=True)
+    path = _BG_API_DIR / f"bg_api_{int(time.time() * 1000)}.jpg"
+    path.write_bytes(content)
+    files = sorted(_BG_API_DIR.glob("bg_api_*.jpg"))
+    for old in files[:-_BG_API_KEEP]:
+        try:
+            old.unlink()
+        except OSError:
+            pass
+    return path.as_posix()
+
+
+@router.post("/bg/random")
+async def bg_random_wallpaper():
+    """从在线壁纸 API 获取一张精美图片并保存, 返回路径与来源。
+
+    源: Bing 每日精选壁纸 (近 8 天随机一天, cn.bing.com / www.bing.com 双通道)
+    -> Picsum 随机精选图 (兜底)。图片由后端代理下载, 前端不受跨域限制。
+    """
+    import random as _random
+
+    import requests as _requests
+
+    errors = []
+
+    # 1) Bing 每日壁纸
+    for host in ("https://cn.bing.com", "https://www.bing.com"):
+        try:
+            idx = _random.randint(0, 7)
+            meta = _requests.get(
+                f"{host}/HPImageArchive.aspx",
+                params={"format": "js", "idx": idx, "n": 1},
+                timeout=8,
+            )
+            meta.raise_for_status()
+            images = meta.json().get("images") or []
+            if not images or not images[0].get("url"):
+                raise RuntimeError("接口无数据")
+            url = host + images[0]["url"]
+            source = f"Bing 每日精选 · {images[0].get('copyright', '').split('(')[0].strip()}"
+            img = _requests.get(url, timeout=25)
+            img.raise_for_status()
+            return {"path": _save_api_wallpaper(img.content), "source": source}
+        except Exception as e:
+            errors.append(f"{host}: {e}")
+            logger.warning(f"在线壁纸 Bing ({host}) 获取失败: {e}")
+
+    # 2) Picsum 随机精选图 (兜底)
+    try:
+        seed = _random.randint(0, 10**9)
+        img = _requests.get(
+            f"https://picsum.photos/seed/{seed}/1920/1080",
+            timeout=30,
+            allow_redirects=True,
+        )
+        img.raise_for_status()
+        return {"path": _save_api_wallpaper(img.content), "source": "Picsum 随机精选"}
+    except Exception as e:
+        errors.append(f"Picsum: {e}")
+        logger.warning(f"在线壁纸 Picsum 获取失败: {e}")
+
+    raise HTTPException(status_code=502, detail="在线壁纸获取失败 (" + "; ".join(errors) + ")")
+
+
 @router.get("/bg/state")
 async def bg_state_get():
     """读取状态 (背景 + 自定义颜色/模糊), 跨端口与浏览器保留。"""

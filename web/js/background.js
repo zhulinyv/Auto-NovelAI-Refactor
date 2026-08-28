@@ -201,6 +201,33 @@ function getPopover() {
   singleBox.append(el("div", { class: "file-pick-row" }, [singleName, singleBtn, singleClear]), singleFile);
   pop.append(singleBox);
 
+  // ---- 在线壁纸 (API 随机换图): Bing 每日精选 / Picsum, 后端代理下载 ----
+  const apiBox = el("div", { class: "field" }, [el("label", { text: "🌐 在线壁纸 (一键随机换图)" })]);
+  const apiBtn = el("button", { class: "btn btn-sm", style: "width:100%;", type: "button", text: "🎲 随机换一张精美壁纸" });
+  apiBtn.addEventListener("click", async () => {
+    apiBtn.disabled = true;
+    const oldText = apiBtn.textContent;
+    apiBtn.textContent = "⏳ 正在获取壁纸...";
+    try {
+      const res = await post("/api/bg/random", {});
+      bgState.single = res.path;
+      bgState.folder = null;
+      rotationList = [];
+      stopRotation();
+      await saveState();
+      applyBackground();
+      refreshPopoverState(pop);
+      toast(`背景已更新: ${res.source || "在线壁纸"} 🖼️`, "success");
+    } catch (e) {
+      toast("获取在线壁纸失败: " + e.message, "error");
+    } finally {
+      apiBtn.disabled = false;
+      apiBtn.textContent = oldText;
+    }
+  });
+  apiBox.append(apiBtn);
+  pop.append(apiBox);
+
   // ---- 文件夹轮播 ----
   const folderBox = el("div", { class: "field" }, [el("label", { text: "📁 文件夹轮播" })]);
   const folderPath = el("input", { type: "text", placeholder: "输入服务器文件夹路径, 如 D:/壁纸" });
