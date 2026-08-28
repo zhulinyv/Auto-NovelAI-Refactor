@@ -501,14 +501,15 @@ let suggestTimer = null;
 
 function insertSuggestion(textarea, suggestion) {
   const value = textarea.value;
-  const parts = value.split(",");
+  // 各段先去首尾空格, 避免中间段残留前导空格被 join(", ") 反复累积 (越补空格越多)
+  const parts = value.split(",").map((p) => p.trim());
   if (value.endsWith(",")) {
     parts.push(suggestion.split(",")[0]);
   } else {
     parts[parts.length - 1] = suggestion.split(",")[0];
   }
-  // 末尾补逗号, 方便继续输入下一个标签
-  textarea.value = parts.join(", ") + ", ";
+  // 末尾补逗号, 方便继续输入下一个标签; 顺带清掉空的段
+  textarea.value = parts.filter((p) => p !== "").join(", ") + ", ";
   textarea.dispatchEvent(new Event("input"));
 }
 
