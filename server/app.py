@@ -1,0 +1,78 @@
+"""FastAPI 应用: 组装路由、静态资源与 SSE 事件流。"""
+from __future__ import annotations
+
+import asyncio
+import json
+import queue
+
+from fastapi import FastAPI
+from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+
+from utils.config import BASE_DIR
+from utils.events import broker
+from utils.logger import logger
+
+from .routes import generate, misc, plugins, settings, tools
+
+
+def create_app() -> FastAPI:
+    app = FastAPI(title="Auto-NovelAI-WebUI", version="2.0.0")
+
+    # 静态资源禁用启发式缓存: 每次用 ETag 协商, 文件有改动立即生效
+    @app.middleware("http")
+    async def _no_cache_static(request, call_next):
+        response = await call_next(request)
+        if request.method == "GET" and not request.url.path.startswith("/api"):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
+    # API 路由
+    app.include_router(misc.router)
+    app.include_router(generate.router)
+    app.include_router(tools.router)
+    app.include_router(plugins.router)
+    app.include_router(settings.router)
+
+    # 事件流 (SSE): 实时推送日志与任务状态
+    @app.get("/api/events")
+    async def events():
+        async def stream():
+            q = broker.subscribe()
+            try:
+                # 先补发历史事件, 刷新页面后日志不丢失
+                for ev in broker.history():
+                    yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
+                while True:
+                    try:
+                        ev = q.get_nowait()
+                        yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
+                    except queue.Empty:
+                        await asyncio.sleep(0.5)
+                        yield ": keepalive\n\n"
+            finally:
+                broker.unsubscribe(q)
+
+        return StreamingResponse(stream(), media_type="text/event-stream")
+
+    # 图标
+    @app.get("/favicon.ico", include_in_schema=False)
+    async def favicon():
+        return FileResponse(BASE_DIR / "assets" / "logo.ico")
+
+    # 静态资源 (assets 目录: logo 图片等)
+    @app.get("/assets/{filename}", include_in_schema=False)
+    async def asset(filename: str):
+        from pathlib import Path as _P
+
+        safe = _P(filename).name  # 防目录穿越
+        return FileResponse(BASE_DIR / "assets" / safe)
+
+    # 静态前端 (必须最后挂载, 否则会拦截 /api)
+    web_dir = BASE_DIR / "web"
+    if web_dir.exists():
+        app.mount("/", StaticFiles(directory=str(web_dir), html=True), name="web")
+    else:
+        logger.error("web 目录不存在, 无法提供前端页面!")
+
+    return app

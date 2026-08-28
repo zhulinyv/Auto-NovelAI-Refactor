@@ -1,10 +1,24 @@
+"""应用级异常定义。
+
+所有异常都继承自 ANRError, 便于上层统一捕获并输出可读的错误日志。
+"""
+
+
 class ANRError(Exception):
-    """Base exception for application-level failures."""
+    """基类: 应用级失败。"""
 
 
 class NovelAIAPIError(ANRError):
-    """Raised when NovelAI returns an unusable response."""
+    """NovelAI 返回了不可用的响应 (非 200 或内容损坏)。"""
 
 
 class JobAlreadyRunningError(ANRError):
-    """Raised when a long-running job is already active."""
+    """已有任务正在运行, 无法启动新任务。"""
+
+
+class ConfigError(ANRError):
+    """配置缺失或非法 (例如未配置 Token)。"""
+
+
+class PluginError(ANRError):
+    """插件加载或执行失败。"""
