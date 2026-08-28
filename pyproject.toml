@@ -9,8 +9,6 @@ authors = [
     { name = "zhulinyv", email = "zhulinyv2005@outlook.com" }
 ]
 
-# 依赖统一由 requirements.txt 管理 (不使用 Poetry / pyproject 声明运行时依赖)
-
 
 # https://docs.astral.sh/ruff/settings/
 [tool.ruff]
