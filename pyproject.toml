@@ -1,0 +1,26 @@
+[project]
+name = "auto-novelai-refactor"
+version = "2.0.0"
+description = "Semi-Auto-NovelAI-to-Pixiv 项目的重构版本 (Auto-NovelAI-WebUI)"
+readme = "README.md"
+requires-python = ">=3.10,<4.0"
+license = { text = "GPL-3.0" }
+authors = [
+    { name = "zhulinyv", email = "zhulinyv2005@outlook.com" }
+]
+
+# 依赖统一由 requirements.txt 管理 (不使用 Poetry / pyproject 声明运行时依赖)
+
+
+# https://docs.astral.sh/ruff/settings/
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+# E/W: pycodestyle  error/warning, F: pyflakes, I: isort 导入排序
+select = ["E", "W", "F", "I"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+profile = "black"
