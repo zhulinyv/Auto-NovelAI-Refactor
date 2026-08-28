@@ -37,7 +37,7 @@ export function clear(node) {
  */
 export function wildcardsButton(target, { title = "提示词", text = "" } = {}) {
   const btn = el("button", {
-    class: text ? "wc-open-btn wc-text-btn" : "wc-open-btn wc-icon-btn",
+    class: text ? "wc-open-btn wc-text-btn mini-btn" : "wc-open-btn wc-icon-btn",
     type: "button",
     title: "Wildcards: 打开全屏编辑窗口",
     text: text || "🃏",

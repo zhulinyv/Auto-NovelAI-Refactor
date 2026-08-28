@@ -2,7 +2,7 @@
 // 插件视图: 插件商店 + 单个插件的独立页面
 // ============================================================
 import { $, $$, el, clear, toast, bus, makeField, closeToastNode } from "../ui.js";
-import { post, imageUrl, openDir } from "../api.js";
+import { get, post, imageUrl, openDir } from "../api.js";
 import { gallery } from "../components.js";
 import { drawBetaChart } from "../dist_chart.js";
 
@@ -182,19 +182,25 @@ export async function render(container, ctx) {
 
   function renderRows() {
     clear(tbody);
-    (S.app.plugin_rows || []).forEach((r) => {
-      const pend = pendingMap.get(r.name);
-      const disp = pend === "disabled" ? "已禁用" : pend === "enabled" ? "已启用" : r.status;
-      const pill = el("span", { class: `pill ${pend ? "pending" : statusClass(r.status)}`, text: disp + (pend ? " ⏳" : "") });
-      const tr = el("tr", {}, [
-        el("td", { text: r.name }),
-        el("td", { html: markdownToHtml(r.description || "-") }),
-        el("td", { html: markdownToHtml(r.author || "-") }),
-        el("td", {}, [pill]),
-        el("td", {}, [actionButtons(r, outBox)]),
-      ]);
-      tbody.append(tr);
-    });
+    const rows = S.app.plugin_rows;
+    if (!rows) {
+      // 行数据异步加载中
+      tbody.append(el("tr", {}, [el("td", { colspan: 5, class: "muted", style: "text-align:center;padding:22px;", text: "⏳ 正在加载插件列表..." })]));
+    } else {
+      (rows).forEach((r) => {
+        const pend = pendingMap.get(r.name);
+        const disp = pend === "disabled" ? "已禁用" : pend === "enabled" ? "已启用" : r.status;
+        const pill = el("span", { class: `pill ${pend ? "pending" : statusClass(r.status)}`, text: disp + (pend ? " ⏳" : "") });
+        const tr = el("tr", {}, [
+          el("td", { text: r.name }),
+          el("td", { html: markdownToHtml(r.description || "-") }),
+          el("td", { html: markdownToHtml(r.author || "-") }),
+          el("td", {}, [pill]),
+          el("td", {}, [actionButtons(r, outBox)]),
+        ]);
+        tbody.append(tr);
+      });
+    }
     const applyBtn = document.getElementById("store-apply-btn");
     if (applyBtn) {
       const hasPending = pendingMap.size > 0;
@@ -268,6 +274,16 @@ export async function render(container, ctx) {
     ])
   );
   renderRows();
+  // 插件行数据已从 /api/state 拆分 (git 更新检查较慢, 不阻塞启动), 单独异步加载
+  (async () => {
+    try {
+      const res = await get("/api/plugins/rows");
+      S.app.plugin_rows = res.rows || [];
+    } catch (e) {
+      outBox.textContent = "❌ 插件列表加载失败: " + e.message;
+    }
+    renderRows();
+  })();
 }
 
 // markdown 链接 -> HTML 链接 (作者 / 描述字段)

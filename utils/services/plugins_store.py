@@ -4,6 +4,8 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import threading
+import time
 from pathlib import Path
 
 import ujson as json
@@ -24,7 +26,32 @@ def _plugin_registry() -> dict:
     return read_json("./assets/plugins.json")
 
 
+# 列表缓存: list_plugins 含逐插件的 git 更新检查 (便携 git 下可达数秒),
+# 缓存结果避免每次请求都重算; 安装 / 卸载 / 启停时主动失效
+_rows_cache = {"rows": None, "ts": 0.0}
+_rows_lock = threading.Lock()
+ROWS_CACHE_TTL = 300
+
+
+def invalidate_rows_cache() -> None:
+    with _rows_lock:
+        _rows_cache["rows"] = None
+        _rows_cache["ts"] = 0.0
+
+
 def list_plugins() -> list[dict]:
+    """返回插件商店表格数据 (含安装状态, 结果短缓存)。"""
+    with _rows_lock:
+        if _rows_cache["rows"] is not None and time.time() - _rows_cache["ts"] < ROWS_CACHE_TTL:
+            return _rows_cache["rows"]
+    rows = _list_plugins()
+    with _rows_lock:
+        _rows_cache["rows"] = rows
+        _rows_cache["ts"] = time.time()
+    return rows
+
+
+def _list_plugins() -> list[dict]:
     """返回插件商店表格数据 (含安装状态)。"""
     plugins = _plugin_registry()
     try:
@@ -70,6 +97,7 @@ def list_plugins() -> list[dict]:
 
 
 def install_plugin(name: str) -> str:
+    invalidate_rows_cache()
     if env.share:
         return "共享模式下禁止安装或更新插件"
     data = _plugin_registry()
@@ -94,6 +122,7 @@ def install_plugin(name: str) -> str:
 
 
 def uninstall_plugin(name: str) -> str:
+    invalidate_rows_cache()
     if env.share:
         return "共享模式下禁止删除插件"
     if not name:
@@ -113,6 +142,7 @@ def uninstall_plugin(name: str) -> str:
 
 
 def toggle_plugin(name: str) -> str:
+    invalidate_rows_cache()
     if env.share:
         return "共享模式下禁止启用或禁用插件"
     if not name:

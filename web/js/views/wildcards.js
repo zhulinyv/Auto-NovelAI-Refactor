@@ -6,7 +6,7 @@
 // ============================================================
 import { $, $$, el, clear, toast, wireAutocomplete } from "../ui.js";
 import { get, post, del, imageUrl } from "../api.js";
-import { getC, getCurrentOutputImage } from "./generate.js";
+import { getCurrentOutputImage } from "./generate.js";
 
 let S = null;
 let state = { type: null, name: null, tags: "", keyword: "" };
@@ -193,13 +193,10 @@ export async function renderPanel(container, ctx, opts = {}) {
       coverBox.append(coverImg, el("div", { style: "display:flex;gap:8px;margin-top:6px;flex-wrap:wrap;" }, [coverBtn, lastImgBtn, coverFile]));
     }
 
-    const actRow = el("div", { style: "display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;" }, [
-      el("button", { class: "btn btn-sm btn-primary", text: "➕ 添加到正面提示词", onclick: () => addToPrompt(name, true) }),
-      el("button", { class: "btn btn-sm", text: "🌙 添加到负面提示词", onclick: () => addToPrompt(name, false) }),
-    ]);
+    const actRow = el("div", { style: "display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;" });
     // 弹窗模式: 把卡片写回打开此窗口的那个提示词输入框
     if (opts.addTarget) {
-      actRow.prepend(el("button", {
+      actRow.append(el("button", {
         class: "btn btn-sm btn-primary",
         text: "➕ 添加到当前输入框",
         title: "添加到打开此窗口的提示词输入框",
@@ -213,7 +210,7 @@ export async function renderPanel(container, ctx, opts = {}) {
         el("button", { class: "btn btn-sm btn-danger", text: "🗑️ 删除", onclick: () => deleteCard(name) }),
       );
     } else {
-      actRow.prepend(el("span", { class: "muted", style: "width:100%;font-size:12.5px;", text: "将生成 <" + state.type + ":" + name + ">, 生成时会" + (name === "随机" ? "随机抽取" : "按文件名顺序轮流使用") + "该分类下的一张卡片" }));
+      actRow.append(el("span", { class: "muted", style: "width:100%;font-size:12.5px;", text: "将生成 <" + state.type + ":" + name + ">, 生成时会" + (name === "随机" ? "随机抽取" : "按文件名顺序轮流使用") + "该分类下的一张卡片" }));
     }
 
     editCard.append(
@@ -233,17 +230,7 @@ export async function renderPanel(container, ctx, opts = {}) {
     return f;
   }
 
-  async function addToPrompt(name, positive) {
-    if (!state.type || !name) { toast("请先选择卡片", "warning"); return; }
-    const p = getC();
-    if (!p) { toast("提示词区域尚未就绪", "warning"); return; }
-    const current = positive ? p.positive.get() : p.negative.get();
-    const res = await post("/api/wildcards/add-to-prompt", { prompt: current, type: state.type, name });
-    if (positive) p.positive.set(res.prompt); else p.negative.set(res.prompt);
-    toast(`已添加 <${state.type}:${name}> 到${positive ? "正面" : "负面"}提示词 🌸`, "success");
-  }
-
-  /** 弹窗模式: 添加到打开此窗口的输入框 (值由弹窗实时同步回原输入框) */
+  /** 添加到打开此窗口的输入框 (值由弹窗实时同步回原输入框) */
   async function addToTarget(name) {
     if (!state.type || !name) { toast("请先选择卡片", "warning"); return; }
     if (!opts.addTarget) return;

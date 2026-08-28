@@ -17,7 +17,7 @@ from utils.helpers import format_str, read_json
 from utils.logger import logger
 from utils.plugins import get_manifest
 from utils.services import pnginfo as pnginfo_service
-from utils.services import plugins_store, selector, settings, wildcards, tagger
+from utils.services import selector, settings, wildcards, tagger
 from utils.services.wildcards import WILDCARDS_DIR
 from utils.variable import (
     CHARACTER_POSITION,
@@ -73,7 +73,8 @@ async def get_state():
         "parameters": parameters,
         "settings": settings.get_settings(),
         "plugins": get_manifest(),
-        "plugin_rows": plugins_store.list_plugins(),
+        # plugin_rows 已拆分到 /api/plugins/rows: 含逐插件 git 更新检查,
+        # 放在这里会阻塞前端启动时的状态请求数秒
         "busy": jobs.is_busy,
     }
 

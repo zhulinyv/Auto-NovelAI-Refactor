@@ -1580,7 +1580,9 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
   height: min(1040px, 95vh);
   display: flex;
   flex-direction: column;
-  background: var(--panel-solid);
+  background: var(--panel);
+  backdrop-filter: blur(var(--panel-blur));
+  -webkit-backdrop-filter: blur(var(--panel-blur));
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow-lg);

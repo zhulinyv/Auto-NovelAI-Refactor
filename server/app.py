@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import queue
+import threading
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, StreamingResponse
@@ -12,12 +13,16 @@ from fastapi.staticfiles import StaticFiles
 from utils.config import BASE_DIR
 from utils.events import broker
 from utils.logger import logger
+from utils.services import plugins_store
 
 from .routes import generate, misc, plugins, settings, tools
 
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Auto-NovelAI-WebUI", version="2.0.0")
+
+    # 后台预热插件商店数据 (含逐插件 git 更新检查, 首次可达数秒), 打开商店页时即有缓存
+    threading.Thread(target=plugins_store.list_plugins, daemon=True, name="plugin-rows-warmup").start()
 
     # 静态资源禁用启发式缓存: 每次用 ETag 协商, 文件有改动立即生效
     @app.middleware("http")
