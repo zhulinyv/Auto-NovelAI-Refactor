@@ -848,7 +848,7 @@ table.store-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .file-preview { margin-top: 8px; }
 .file-preview img { max-height: 140px; max-width: 100%; border-radius: 12px; border: 1px solid var(--border); box-shadow: var(--shadow); }
 
-/* ------- 提示词补全 (锚定输入框正下方, 不遮挡) ------- */
+/* ------- 提示词补全 (tagcomplete 风格: 分类着色 + 匹配高亮 + 翻译/别名/热度) ------- */
 .ta-box { position: relative; }
 .card:focus-within { position: relative; z-index: 40; }
 .suggest-list {
@@ -859,13 +859,34 @@ table.store-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   box-shadow: var(--shadow-lg);
-  max-height: 220px;
+  max-height: 300px;
   overflow-y: auto;
+  padding: 4px;
 }
-.suggest-list .suggest-item { padding: 7px 13px; cursor: pointer; font-size: 13px; }
+.suggest-list .suggest-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1.35;
+  border-radius: 7px;
+}
 .suggest-list .suggest-item:hover,
-.suggest-list .suggest-item.active { background: var(--hover); color: var(--primary); }
-.suggest-list .suggest-item:hover { background: var(--hover); color: var(--primary); }
+.suggest-list .suggest-item.active { background: var(--hover); }
+.suggest-list .suggest-item b { color: var(--primary); font-weight: 700; }
+.suggest-item .s-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; opacity: 0.85; flex-shrink: 0; }
+.suggest-item .s-tag { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 46%; flex-shrink: 0; }
+.suggest-item .s-alias { color: var(--text-2); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 26%; flex-shrink: 0; }
+.suggest-item .s-zh { flex: 1; min-width: 0; color: var(--text-2); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.suggest-item .s-count { flex-shrink: 0; font-size: 11.5px; color: var(--text-2); opacity: 0.8; font-family: var(--mono); padding-left: 8px; }
+/* Danbooru 分类着色: 0=general 1=artist 3=copyright 4=character 5=meta */
+.suggest-item.cat-0 { color: var(--tag-general); }
+.suggest-item.cat-1 { color: var(--tag-artist); }
+.suggest-item.cat-3 { color: var(--tag-copyright); }
+.suggest-item.cat-4 { color: var(--tag-character); }
+.suggest-item.cat-5 { color: var(--tag-meta); }
 
 /* ------- Wildcards 卡片 (带封面) ------- */
 .wildcard-card {

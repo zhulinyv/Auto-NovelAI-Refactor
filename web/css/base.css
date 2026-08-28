@@ -27,6 +27,12 @@
   --bg-blur: 4px;
   --font: system-ui, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   --mono: "Cascadia Code", Consolas, "Courier New", monospace;
+  /* Danbooru 标签分类配色 (提示词补全): general / artist / copyright / character / meta */
+  --tag-general: #52525b;
+  --tag-artist: #9333ea;
+  --tag-copyright: #2563eb;
+  --tag-character: #059669;
+  --tag-meta: #dc2626;
   color-scheme: light;
 }
 
@@ -52,6 +58,12 @@
   --shadow-lg: 0 10px 40px rgba(0, 0, 0, 0.5);
   --panel-blur: 12px;
   --bg-blur: 4px;
+  /* Danbooru 标签分类配色 (暗色主题用亮色变体) */
+  --tag-general: #d4d4d8;
+  --tag-artist: #d8b4fe;
+  --tag-copyright: #93c5fd;
+  --tag-character: #6ee7b7;
+  --tag-meta: #fca5a5;
   color-scheme: dark;
 }
 

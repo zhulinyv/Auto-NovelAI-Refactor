@@ -394,45 +394,86 @@ async def add_wildcard_to_prompt(payload: dict):
 
 
 # ---------------------------------------------------------------- 提示词补全
+# 数据格式 (assets/danbooru_tags_full_zh.csv): tag, category, count, aliases(逗号分隔), zh翻译
+#   category: 0=general 1=artist 3=copyright 4=character 5=meta (与 Danbooru 一致)
+# 匹配优先级: 标签前缀 > 标签包含 > 别名 > 中文翻译, 同级按热度 (count) 排序
 
-def _load_tags(csv_filename: str = "./assets/danbooru_e621_merged_with_zh.csv"):
+def _load_tags(csv_filename: str = "./assets/danbooru_tags_full_zh.csv"):
     import csv as _csv
 
     tags = []
     try:
         with open(csv_filename, "r", encoding="utf-8") as f:
             for row in _csv.reader(f):
-                if len(row) >= 3 and row[0].strip() and row[1].strip():
-                    try:
-                        tags.append((row[0].strip(), float(row[1].strip()), row[2].strip()))
-                    except ValueError:
-                        continue
+                if not row or not row[0].strip():
+                    continue
+                tag = row[0].strip()
+                cat = int(row[1]) if len(row) >= 2 and row[1].strip().isdigit() else 0
+                count = int(row[2]) if len(row) >= 3 and row[2].strip().isdigit() else 0
+                aliases = [a.strip().lower() for a in row[3].split(",") if len(row) >= 4 and a.strip()]
+                zh = row[4].strip() if len(row) >= 5 else ""
+                if zh == tag:  # 表情/符号类标签翻译与原文相同, 视为无翻译
+                    zh = ""
+                tags.append((tag, cat, count, aliases, zh))
     except FileNotFoundError:
         logger.error(f"标签词典不存在: {csv_filename}")
+    # 按热度降序, 前缀匹配时天然按热度排序
+    tags.sort(key=lambda x: x[2], reverse=True)
     return tags
 
 
-_TAGS_CACHE: list | None = None
+_TAGS_CACHE: dict | None = None
+
+
+def _get_tag_cache() -> dict:
+    global _TAGS_CACHE
+    if _TAGS_CACHE is None:
+        _TAGS_CACHE = {
+            "rows": [
+                (tag.lower(), tag, cat, count, aliases, zh)
+                for tag, cat, count, aliases, zh in _load_tags()
+            ]
+        }
+    return _TAGS_CACHE
+
+
+_SUGGEST_LIMIT = 20
 
 
 @router.post("/suggest")
 async def suggest_tags(payload: dict):
-    global _TAGS_CACHE
+    rows = _get_tag_cache()["rows"]
     input_text = (payload.get("text") or "").strip().lower()
-    if input_text.endswith(","):
-        keyword = "qwerty123465...一串神秘小代码"
-    else:
-        keyword = input_text.split(",")[-1].strip() or "qwerty123465...一串神秘小代码"
-    if _TAGS_CACHE is None:
-        _TAGS_CACHE = _load_tags()
-    suggestions = []
-    for main_tag, value, desc in _TAGS_CACHE:
-        if keyword in f"{main_tag}({desc})":
-            display = desc if desc else main_tag
-            suggestions.append({"display": display, "value": main_tag, "sort_key": value})
-    suggestions.sort(key=lambda x: x["sort_key"], reverse=True)
+    keyword = input_text.split(",")[-1].strip().rstrip(",")
+    if not keyword:
+        return {"keyword": "", "items": []}
+    # 用户习惯用空格, danbooru 标签是下划线
+    kw_tag = keyword.replace(" ", "_")
+    kw_zh = keyword
+    # 精确层 (标签前缀 / 别名前缀, 按热度排序, 让输入完整别名时主标签靠前)
+    t_exact: list = []
+    t_contains: list = []
+    t_alias_sub: list = []
+    t_zh: list = []
+    for tag_l, tag, cat, count, aliases, zh in rows:
+        if tag_l.startswith(kw_tag):
+            t_exact.append((tag, cat, count, "", zh))
+        else:
+            hit = next((a for a in aliases if a.startswith(kw_tag)), None)
+            if hit is not None:
+                t_exact.append((tag, cat, count, hit, zh))
+            elif kw_tag in tag_l:
+                t_contains.append((tag, cat, count, "", zh))
+            else:
+                hit2 = next((a for a in aliases if kw_tag in a), None)
+                if hit2 is not None:
+                    t_alias_sub.append((tag, cat, count, hit2, zh))
+                elif zh and kw_zh in zh:
+                    t_zh.append((tag, cat, count, "", zh))
+        if len(t_exact) >= 40 and len(t_contains) >= 40 and len(t_alias_sub) >= 40 and len(t_zh) >= 40:
+            break
+    items = (t_exact + t_contains + t_alias_sub + t_zh)[:_SUGGEST_LIMIT]
     return {
-        "suggestions": [
-            f"{item['value']},({item['display']})" for item in suggestions[:20]
-        ]
+        "keyword": keyword,
+        "items": [{"tag": t, "category": c, "count": n, "alias": a, "zh": z} for t, c, n, a, z in items],
     }

@@ -21,8 +21,20 @@ from .routes import generate, misc, plugins, settings, tools
 def create_app() -> FastAPI:
     app = FastAPI(title="Auto-NovelAI-WebUI", version="2.0.0")
 
-    # 后台预热插件商店数据 (含逐插件 git 更新检查, 首次可达数秒), 打开商店页时即有缓存
-    threading.Thread(target=plugins_store.list_plugins, daemon=True, name="plugin-rows-warmup").start()
+    # 后台预热常用缓存: 插件商店数据 (含 git 检查) 与提示词补全标签词典,
+    # 避免打开商店页 / 首次输入提示词时的首次加载等待
+    def _warm_caches():
+        try:
+            plugins_store.list_plugins()
+        except Exception as e:
+            logger.warning(f"插件商店数据预热失败: {e}")
+        try:
+            from .routes import misc
+            misc._get_tag_cache()
+        except Exception as e:
+            logger.warning(f"标签词典预热失败: {e}")
+
+    threading.Thread(target=_warm_caches, daemon=True, name="warmup").start()
 
     # 静态资源禁用启发式缓存: 每次用 ETag 协商, 文件有改动立即生效
     @app.middleware("http")

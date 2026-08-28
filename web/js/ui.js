@@ -512,7 +512,8 @@ function insertSuggestion(textarea, suggestion) {
   textarea.dispatchEvent(new Event("input"));
 }
 
-/** 为提示词输入框接入 /api/suggest 自动补全 (TAB 快速插入, ↑/↓ 切换, Enter 确认, Esc 关闭)。 */
+/** 为提示词输入框接入 /api/suggest 自动补全 (TAB 快速插入, ↑/↓ 切换, Enter 确认, Esc 关闭)。
+ *  支持 标签 / 别名 / 中文翻译 三种方式匹配, 结果带 Danbooru 分类着色、匹配高亮与热度。 */
 export function wireAutocomplete(textarea, wrap) {
   const list = el("div", { class: "suggest-list hidden", style: "left:0;right:0;" });
   wrap.append(list);
@@ -526,38 +527,62 @@ export function wireAutocomplete(textarea, wrap) {
     const act = $(".suggest-item.active", list);
     if (act) act.scrollIntoView({ block: "nearest" });
   }
-  function renderItems(suggestions) {
-    items = suggestions;
+  /** 生成高亮了匹配片段的文档片段 */
+  function em(text, kw) {
+    const frag = document.createDocumentFragment();
+    if (!text) return frag;
+    const i = kw ? text.toLowerCase().indexOf(kw.toLowerCase()) : -1;
+    if (i < 0) { frag.append(document.createTextNode(text)); return frag; }
+    if (i > 0) frag.append(document.createTextNode(text.slice(0, i)));
+    frag.append(el("b", { text: text.slice(i, i + kw.length) }));
+    frag.append(document.createTextNode(text.slice(i + kw.length)));
+    return frag;
+  }
+  function fmtCount(n) {
+    if (!n) return "";
+    if (n >= 1000000) return (n / 1000000).toFixed(1).replace(/\.0$/, "") + "M";
+    if (n >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, "") + "k";
+    return String(n);
+  }
+  function renderItems(results, kw) {
+    items = results;
     active = -1;
-    list.innerHTML = "";
-    suggestions.forEach((s, i) => {
-      const item = el("div", { class: "suggest-item", text: s });
+    clear(list);
+    results.forEach((it, i) => {
+      const item = el("div", { class: `suggest-item cat-${it.category ?? 0}`, title: it.zh ? `${it.tag} · ${it.zh}` : it.tag }, [
+        el("span", { class: "s-dot" }),
+        el("span", { class: "s-tag" }, [em(it.tag, kw)]),
+        it.alias ? el("span", { class: "s-alias", title: "别名: " + it.alias }, ["⇢ ", em(it.alias, kw)]) : null,
+        it.zh ? el("span", { class: "s-zh" }, [em(it.zh, kw)]) : null,
+        el("span", { class: "s-count", text: fmtCount(it.count) }),
+      ]);
       item.addEventListener("mousedown", (e) => {
         e.preventDefault();
-        insertSuggestion(textarea, s);
+        insertSuggestion(textarea, it.tag);
         hide();
       });
       item.addEventListener("mousemove", () => setActive(i));
       list.append(item);
     });
-    list.classList.remove("hidden");
+    if (results.length) list.classList.remove("hidden");
   }
   function insertActive() {
     if (active < 0) active = 0;
-    const s = items[active];
-    if (s) { insertSuggestion(textarea, s); hide(); }
+    const it = items[active];
+    if (it) { insertSuggestion(textarea, it.tag); hide(); }
   }
 
   textarea.addEventListener("input", () => {
     clearTimeout(suggestTimer);
     suggestTimer = setTimeout(async () => {
       const text = textarea.value;
-      if (!text.trim()) { hide(); return; }
+      const kw = text.split(",").pop().trim();
+      if (!kw) { hide(); return; }
       try {
         const { post } = await import("./api.js");
         const res = await post("/api/suggest", { text });
-        if (!res.suggestions?.length) { hide(); return; }
-        renderItems(res.suggestions);
+        if (!res.items?.length) { hide(); return; }
+        renderItems(res.items, res.keyword || kw);
       } catch { hide(); }
     }, 250);
   });
