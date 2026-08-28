@@ -9,7 +9,7 @@
 // 触发按钮由 ui.js 的 wildcardsButton() 创建 (.wc-open-btn),
 // 此处在 document 上做一次全局点击委托统一打开弹窗。
 // ============================================================
-import { $, el, clear, toast, wireAutocomplete } from "./ui.js";
+import { $, $$, el, clear, toast, wireAutocomplete } from "./ui.js";
 import { post } from "./api.js";
 import { renderPanel, cardSelection, cardDrag } from "./views/wildcards.js";
 import { appState } from "./app.js";
@@ -105,6 +105,8 @@ export function openWildcardsModal(source, { title = "提示词" } = {}) {
 
   // ---- 标签块渲染与操作 ----
   let mode = "tags";
+  let chipDragIdx = -1;   // 正在拖拽的标签块索引
+  let chipDropIdx = -1;   // 拖拽悬停的目标插入索引 (-1 表示原位)
 
   function renderChips() {
     clear(chipsView);
@@ -176,10 +178,26 @@ export function openWildcardsModal(source, { title = "提示词" } = {}) {
 
   function makeChip(raw, i) {
     const { content, weight } = parseWeight(raw);
-    const chip = el("div", { class: "p-chip", title: "双击块可编辑 (Esc 取消), 悬停显示操作按钮" }, [
+    const chip = el("div", { class: "p-chip", title: "拖动可排序; 双击编辑 (Esc 取消); 悬停显示操作按钮" }, [
       el("span", { class: "p-chip-text", text: content }),
       weight !== 1 ? el("span", { class: "p-chip-w", text: "×" + weight }) : null,
     ]);
+    chip.draggable = true;
+    chip.addEventListener("dragstart", (e) => {
+      chipDragIdx = i;
+      chipDropIdx = -1;
+      chip.classList.add("chip-dragging");
+      try {
+        e.dataTransfer.setData("text/plain", raw);
+        e.dataTransfer.effectAllowed = "move";
+      } catch { /* 忽略 */ }
+    });
+    chip.addEventListener("dragend", () => {
+      chipDragIdx = -1;
+      chipDropIdx = -1;
+      chip.classList.remove("chip-dragging");
+      $$(".p-chip.drop-before", chipsView).forEach((c) => c.classList.remove("drop-before"));
+    });
     chip.append(el("div", { class: "p-chip-ops" }, [
       el("span", { class: "p-op", title: "降低权重 (−0.1)", text: "▼", onclick: () => setWeight(i, -0.1) }),
       el("span", { class: "p-op", title: "增加权重 (+0.1)", text: "▲", onclick: () => setWeight(i, +0.1) }),
@@ -189,6 +207,40 @@ export function openWildcardsModal(source, { title = "提示词" } = {}) {
     chip.addEventListener("dblclick", () => startEdit(i));
     return chip;
   }
+
+  // 标签块拖动排序: dragover 计算插入位置 (按行列阅读顺序), drop 重排
+  chipsView.addEventListener("dragover", (e) => {
+    if (chipDragIdx < 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+    const chips = [...chipsView.querySelectorAll(".p-chip")];
+    let target = -1;
+    for (let k = 0; k < chips.length; k++) {
+      if (k === chipDragIdx) continue;
+      const r = chips[k].getBoundingClientRect();
+      const past = r.bottom <= e.clientY + 2
+        || (e.clientY >= r.top && e.clientY <= r.bottom && r.left + r.width / 2 <= e.clientX);
+      if (!past) { target = k; break; }
+    }
+    chipDropIdx = target;
+    $$(".p-chip.drop-before", chipsView).forEach((c) => c.classList.remove("drop-before"));
+    if (target >= 0 && target !== chipDragIdx) chips[target].classList.add("drop-before");
+  });
+  chipsView.addEventListener("drop", (e) => {
+    if (chipDragIdx < 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const from = chipDragIdx;
+    const to = chipDropIdx;
+    chipDragIdx = -1;
+    chipDropIdx = -1;
+    if (to < 0 || to === from) { renderChips(); return; }
+    const tags = splitTags(ta.value);
+    const [moved] = tags.splice(from, 1);
+    tags.splice(to > from ? to - 1 : to, 0, moved);
+    applyTags(tags);
+  });
 
   function setMode(m) {
     mode = m;

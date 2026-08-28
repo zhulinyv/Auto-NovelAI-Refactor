@@ -13,6 +13,7 @@ import * as directorView from "./views/director.js";
 import * as upscaleView from "./views/upscale.js";
 import * as pnginfoView from "./views/pnginfo.js";
 import * as selectorView from "./views/selector.js";
+import * as browseView from "./views/gallery.js";
 import * as pluginsView from "./views/plugins.js";
 import * as settingsView from "./views/settings.js";
 import "./wildcardsModal.js"; // Wildcards 全屏弹窗: 全局点击委托 + 按钮处理
@@ -23,6 +24,7 @@ const VIEWS = {
   upscale: upscaleView,
   pnginfo: pnginfoView,
   selector: selectorView,
+  browse: browseView,
   plugins: pluginsView,
   settings: settingsView,
 };

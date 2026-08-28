@@ -109,6 +109,47 @@ async def open_save_dir(payload: dict):
     except AttributeError:
         import subprocess
         subprocess.Popen(["xdg-open", str(target)])
+
+
+# ---------------------------------------------------------------- 图片浏览
+
+_BROWSE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif"}
+
+
+@router.get("/browse/folders")
+async def browse_folders():
+    """列出 outputs 目录及其全部子目录 (相对路径), 供图片浏览视图选择。"""
+    base = BASE_DIR / "outputs"
+    folders = [""]
+    if base.exists():
+        for p in sorted(base.rglob("*")):
+            if p.is_dir() and not p.name.startswith((".", "__")):
+                folders.append(p.relative_to(base).as_posix())
+    return {"base": "outputs", "folders": folders}
+
+
+@router.get("/browse/images")
+async def browse_images(dir: str = ""):
+    """列出 outputs 下指定子目录的图片文件 (前端自行按名称/时间/大小排序)。"""
+    base = (BASE_DIR / "outputs").resolve()
+    target = (base / dir).resolve()
+    images = []
+    # 防目录穿越: 解析后必须仍在 outputs 内
+    if str(target).startswith(str(base)) and target.is_dir():
+        for p in sorted(target.iterdir()):
+            try:
+                if not p.is_file() or p.suffix.lower() not in _BROWSE_EXTS:
+                    continue
+                st = p.stat()
+                images.append({
+                    "name": p.name,
+                    "path": p.as_posix(),
+                    "mtime": st.st_mtime,
+                    "size": st.st_size,
+                })
+            except OSError:
+                continue
+    return {"dir": dir, "images": images}
     return {"message": f"已打开目录: {target}", "path": str(target)}
 
 

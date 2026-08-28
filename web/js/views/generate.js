@@ -239,10 +239,29 @@ function segChoice(options, value) {
   };
 }
 
-/** 提示词输入块: 节标题(左) + 右侧按钮组(Wildcards/预设等) + 多行输入框 */
+/** 提示词输入框高度自适应: 最小 6 行, 最大 15 行, 超出滚动 */
+function autosizeRows(ta, { minRows = 6, maxRows = 15 } = {}) {
+  const fit = () => {
+    const cs = getComputedStyle(ta);
+    const lh = parseFloat(cs.lineHeight) || 20;
+    const extra = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom) + parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth);
+    const min = minRows * lh + extra;
+    const max = maxRows * lh + extra;
+    ta.style.height = "auto";
+    const h = Math.min(max, Math.max(min, ta.scrollHeight));
+    ta.style.height = h + "px";
+    ta.style.overflowY = ta.scrollHeight > max + 1 ? "auto" : "hidden";
+  };
+  ta.addEventListener("input", fit);
+  requestAnimationFrame(fit);
+  return fit;
+}
+
+/** 提示词输入块: 节标题(左) + 右侧按钮组(Wildcards/预设等) + 多行输入框 (高度 6~15 行自适应) */
 function promptField(title, presetCtl, opts) {
   const wrap = el("div", { class: "field prompt-field" });
-  const ta = el("textarea", { rows: opts.rows ?? 6, placeholder: opts.placeholder || "", value: opts.value ?? "" });
+  const ta = el("textarea", { rows: 6, placeholder: opts.placeholder || "", value: opts.value ?? "" });
+  const fit = autosizeRows(ta);
   const head = el("div", { class: "prompt-head" }, [
     el("span", { class: "prompt-title", text: title }),
     el("div", { class: "prompt-head-right" }, [
@@ -254,7 +273,7 @@ function promptField(title, presetCtl, opts) {
   const taBox = el("div", { class: "ta-box" }, [ta]);
   wrap.append(head, taBox);
   wireAutocomplete(ta, taBox);
-  return { node: wrap, input: ta, get: () => ta.value, set: (v) => { ta.value = v; } };
+  return { node: wrap, input: ta, get: () => ta.value, set: (v) => { ta.value = v; fit(); } };
 }
 
 function buildPromptCard(saved) {
@@ -612,20 +631,7 @@ function wireOutputActions() {
       if (pnginfoPicker.onChange) pnginfoPicker.onChange(lastOutputPath);
     }
   });
-  sendBtn.addEventListener("click", async () => {
-    if (!lastOutputPath) return;
-    try {
-      await editor.loadImage(lastOutputPath);
-      toast("已加载到图生图编辑器 🎨", "success");
-      // 切换到参数设置页签
-      const bar = document.querySelector("#view-generate .tabs");
-      if (bar) { [...bar.children].forEach((b, i) => b.classList.toggle("active", i === 0)); }
-      const bodies = document.querySelectorAll("#view-generate .tab-content");
-      bodies.forEach((b, i) => b.classList.toggle("active", i === 0));
-    } catch (e) {
-      toast("加载失败: " + e.message, "error");
-    }
-  });
+  sendBtn.addEventListener("click", () => sendToImg2img(lastOutputPath));
   openDirBtn.addEventListener("click", async () => {
     try {
       // 有选中图片时打开其所在目录, 否则打开 outputs 根目录
@@ -941,6 +947,33 @@ function onJobFailed(ev) {
 // ---------------- 对外接口 ----------------
 
 export function onShow() {}
+
+/** 把图片载入图生图基础图片区, 并切到参数设置页签 (供输出区/图片浏览查看器调用) */
+export async function sendToImg2img(path) {
+  if (!path) return false;
+  try {
+    await editor.loadImage(path);
+    toast("已加载到图生图编辑器 🎨", "success");
+    // 切换到参数设置页签
+    const bar = document.querySelector("#view-generate .tabs");
+    if (bar) { [...bar.children].forEach((b, i) => b.classList.toggle("active", i === 0)); }
+    const bodies = document.querySelectorAll("#view-generate .tab-content");
+    bodies.forEach((b, i) => b.classList.toggle("active", i === 0));
+    showGenerateView();
+    return true;
+  } catch (e) {
+    toast("加载失败: " + e.message, "error");
+    return false;
+  }
+}
+
+/** 显示图片生成视图 (本模块内直接调用, 避免动态 import app.js) */
+function showGenerateView() {
+  $$(".nav-item").forEach((n) => n.classList.toggle("active", n.dataset.view === "generate"));
+  $$(".view").forEach((v) => { v.style.display = "none"; });
+  const target = document.getElementById("view-generate");
+  if (target) target.style.display = "block";
+}
 
 /** 最近一次生成的图片列表 (多张时取最后一张用于 wildcard 封面等) */
 export function getLastGeneratedImages() {

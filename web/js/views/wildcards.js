@@ -45,10 +45,28 @@ export async function renderPanel(container, ctx, opts = {}) {
   const newType = el("input", { type: "text", placeholder: "新分类" });
   const newName = el("input", { type: "text", placeholder: "新卡片名" });
   const newTags = el("input", { type: "text", placeholder: "提示词内容 (逗号分隔多个标签)" });
+  // "添加当前提示词": 把上方提示词编辑器中的当前内容填入此输入框 (已有时追加)
+  const addCurBtn = el("button", {
+    class: "btn btn-sm btn-file",
+    type: "button",
+    text: "➕ 添加当前提示词",
+    title: "把上方提示词编辑器中的当前内容填入此输入框",
+    onclick: () => {
+      const cur = (opts.addTarget?.get() || "").trim();
+      if (!cur) { toast("上方提示词为空, 没有可添加的内容", "warning"); return; }
+      const existing = newTags.value.trim().replace(/,\s*$/, "");
+      newTags.value = existing ? `${existing}, ${cur}` : cur;
+      newTags.dispatchEvent(new Event("input", { bubbles: true }));
+      toast("已填入当前提示词 🌸", "success");
+    },
+  });
   const createRow = el("div", { class: "wc-create-row hidden" }, [
     el("div", { class: "field" }, [el("label", { text: "分类" }), newType]),
     el("div", { class: "field" }, [el("label", { text: "名称" }), newName]),
-    el("div", { class: "field" }, [el("label", { text: "提示词" }), newTags]),
+    el("div", { class: "field" }, [
+      el("label", { text: "提示词" }),
+      el("div", { style: "display:flex;gap:6px;align-items:center;" }, [newTags, addCurBtn]),
+    ]),
     el("button", { class: "btn btn-sm btn-primary", text: "✅ 创建", onclick: () => createCard() }),
     el("button", { class: "btn btn-sm btn-ghost", text: "✖", title: "收起", onclick: () => createRow.classList.add("hidden") }),
   ]);
