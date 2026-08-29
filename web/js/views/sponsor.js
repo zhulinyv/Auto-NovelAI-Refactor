@@ -27,35 +27,33 @@ export async function render(container, ctx) {
     ]),
   ]);
 
-  // 鸣谢页: 项目使用到的开源项目 (据仓库 README 与依赖整理)
+  // 鸣谢页: 项目使用的开源项目与在线服务
   const ackProjects = [
-    ["🌸 Auto-NovelAI (原版)", "本项目的前身, 全部功能的实现基础", "https://github.com/zhulinyv/Auto-NovelAI-Refactor"],
-    ["⚡ FastAPI", "高性能 Web 后端框架", "https://github.com/tiangolo/fastapi"],
-    ["🦄 Uvicorn", "ASGI 服务器", "https://github.com/encode/uvicorn"],
-    ["📝 Loguru", "优雅的日志库", "https://github.com/Delgan/loguru"],
-    ["🎨 Rich", "终端美化输出", "https://github.com/Textualize/rich"],
-    ["🖼️ Pillow", "图像处理", "https://github.com/python-pillow/Pillow"],
-    ["🔢 NumPy", "科学计算基础库", "https://github.com/numpy/numpy"],
-    ["📡 Requests", "HTTP 请求库", "https://github.com/psf/requests"],
-    ["🐍 GitPython", "插件与更新管理", "https://github.com/gitpython-developers/GitPython"],
-    ["⚡ ujson", "高性能 JSON 解析", "https://github.com/ultrajson/ultrajson"],
-    ["🧷 pydantic", "配置与数据校验", "https://github.com/pydantic/pydantic"],
-    ["🗑️ Send2Trash", "删除文件进回收站", "https://github.com/arsenetar/send2trash"],
-    ["🤗 Gradio Client", "与原版保持兼容", "https://github.com/gradio-app/gradio"],
-    ["😀 Twemoji", "跨平台统一 Emoji", "https://github.com/twitter/twemoji"],
-    ["🏷️ a1111-sd-webui-tagcomplete", "标签数据与别名来源", "https://github.com/DominikDoom/a1111-sd-webui-tagcomplete"],
-    ["🀄 Danbooru Tag 中英对照表", "标签中文翻译来源", "https://github.com/ffdkj/ffdkj-Danbooru_Tag-Chinese-English-Translation-Table"],
+    ["🏷️ SmilingWolf/wd-tagger", "图片反推提示词 (自动打码)", "https://huggingface.co/spaces/SmilingWolf/wd-tagger"],
+    ["📝 novelai-image-metadata", "读取与修改图片元数据", "https://github.com/NovelAI/novelai-image-metadata"],
+    ["🔬 realcugan-ncnn-vulkan", "超分降噪 · Real-CUGAN", "https://github.com/nihui/realcugan-ncnn-vulkan"],
+    ["🎬 Anime4KCPP", "超分降噪 · Anime4K", "https://github.com/TianZerL/Anime4KCPP"],
+    ["☕ waifu2x-caffe", "超分降噪 · waifu2x", "https://github.com/lltcggie/waifu2x-caffe"],
+    ["📮 Semi-Auto-NovelAI-to-Pixiv", "部分源代码参考", "https://github.com/zhulinyv/Semi-Auto-NovelAI-to-Pixiv"],
   ];
+  const ackServices = [
+    ["🎨 Lolicon API", "动漫随机壁纸 (Pixiv 收录)", "https://docs.api.lolicon.app"],
+    ["💬 Hitokoto 一言", "标题栏随机一句话", "https://hitokoto.cn"],
+    ["🌅 Bing 每日壁纸", "风景壁纸来源", "https://www.bing.com"],
+    ["🖼️ Picsum", "随机壁纸兜底来源", "https://picsum.photos"],
+  ];
+  const ackCardItem = ([name, desc, url]) =>
+    el("a", { class: "ack-item", href: url, target: "_blank", rel: "noopener" }, [
+      el("div", { class: "ack-name", text: name }),
+      el("div", { class: "ack-desc", text: desc }),
+    ]);
   const ackCard = el("div", { class: "card pager-card" }, [
     el("div", { class: "card-title", text: "🙏 鸣谢" }),
-    el("p", { class: "muted", style: "margin:4px 0 14px;line-height:1.8;", text: "本项目站立在众多优秀开源项目的肩膀之上, 向以下项目的作者与贡献者致以诚挚的感谢! 点击卡片可访问对应项目主页。" }),
-    el("div", { class: "ack-grid" }, ackProjects.map(([name, desc, url]) =>
-      el("a", { class: "ack-item", href: url, target: "_blank", rel: "noopener" }, [
-        el("div", { class: "ack-name", text: name }),
-        el("div", { class: "ack-desc", text: desc }),
-      ])
-    )),
-    el("p", { class: "muted", style: "font-size:12px;margin-top:12px;", text: "* 壁纸数据来源: Bing 每日壁纸 · Picsum · api.yppp.net (acg-api)" }),
+    el("p", { class: "muted", style: "margin:4px 0 6px;line-height:1.8;", text: "本项目站立在众多优秀开源项目与在线服务的肩膀之上, 向以下项目的作者与贡献者致以诚挚的感谢! 点击卡片可访问对应主页。" }),
+    el("div", { class: "ack-title", text: "开源项目" }),
+    el("div", { class: "ack-grid" }, ackProjects.map(ackCardItem)),
+    el("div", { class: "ack-title", text: "在线服务与数据来源" }),
+    el("div", { class: "ack-grid" }, ackServices.map(ackCardItem)),
   ]);
 
   // PPT 式翻页: 当前区域仅显示一页, 上/下翻页切换

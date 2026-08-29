@@ -2178,3 +2178,6 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
   transition: all 0.15s;
 }
 .pixiv-pid:hover { background: color-mix(in srgb, var(--primary) 24%, transparent); }
+
+.ack-title { font-size: 13px; font-weight: 700; color: var(--text-2); margin: 14px 0 8px; }
+.ack-title:first-of-type { margin-top: 2px; }
