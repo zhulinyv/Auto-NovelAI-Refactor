@@ -1121,6 +1121,9 @@ body.has-custom-bg::before {
   content: '';
   position: fixed; inset: 0; z-index: 0;
   background: rgba(255,255,255,0.35);
+  /* 背景图模糊 (仅此一处 backdrop-filter: 单个静态层, GPU 可缓存) */
+  backdrop-filter: blur(var(--bg-blur));
+  -webkit-backdrop-filter: blur(var(--bg-blur));
 }
 body.has-custom-bg input, body.has-custom-bg select, body.has-custom-bg textarea {
   background-color: color-mix(in srgb, var(--panel-solid) 82%, var(--input));
