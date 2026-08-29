@@ -2083,7 +2083,8 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
 .wc-pl-builtin { display: flex; flex-direction: column; }
 .wc-pl-group { display: flex; align-items: flex-start; gap: 10px; padding: 7px 0; border-bottom: 1px dashed var(--border); }
 .wc-pl-group:last-child { border-bottom: none; }
-.wc-pl-group-name { flex-shrink: 0; width: 96px; font-size: 12.5px; font-weight: 700; color: var(--text-2); padding-top: 3px; }
+.wc-pl-group-name { flex-shrink: 0; width: 108px; font-size: 12.5px; font-weight: 700; color: var(--text-2); padding-top: 3px; }
+.wc-pl-group-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wc-pl-group-tags { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; min-width: 0; }
 .wc-pl-chip {
   display: inline-flex; align-items: baseline; gap: 6px;

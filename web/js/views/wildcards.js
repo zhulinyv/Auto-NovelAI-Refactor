@@ -137,8 +137,8 @@ export async function renderPanel(container, ctx, opts = {}) {
   const plInput = el("input", { type: "text", style: "flex:1;min-width:0;", placeholder: "输入关键词或一段提示词, 保存后可随时加入提示词" });
   plInput.addEventListener("keydown", (e) => { if (e.key === "Enter") savePromptLib(); });
   // 分类: 与新建卡片一致的下拉形式, 支持选择已有分类或直接输入新分类
-  const plCatInput = el("input", { type: "text", placeholder: "选择已有分类, 或输入新分类" });
-  const plCatWrap = el("div", { class: "wc-type-wrap", style: "width:180px;flex-shrink:0;" }, [
+  const plCatInput = el("input", { type: "text", style: "flex:1;min-width:0;", placeholder: "📁 选择/输入分类" });
+  const plCatWrap = el("div", { class: "wc-type-wrap", style: "width:220px;flex-shrink:0;" }, [
     plCatInput,
     el("button", {
       class: "wc-type-caret", type: "button", text: "▾", title: "选择已有分类",
@@ -256,7 +256,11 @@ export async function renderPanel(container, ctx, opts = {}) {
     const dd = plCatWrap.querySelector(".wc-type-dd");
     if (dd) { dd.remove(); return; }
     document.querySelectorAll(".wc-type-dd").forEach((x) => x.remove());
-    const cats = [...new Set(plItems.map((it) => it.category || "默认"))];
+    const deleted = new Set(plMeta.hidden_categories || []);
+    const cats = [
+      ...builtinPromptGroups.map((g) => g.name).filter((n) => !deleted.has(n)),
+      ...new Set(plItems.map((it) => it.category || "默认").filter((c) => !deleted.has(c))),
+    ];
     const list = el("div", { class: "wc-type-dd" }, cats.map((c) =>
       el("div", { class: "wc-type-item", text: "📁 " + c, onclick: () => { plCatInput.value = c; dd.remove(); } })));
     if (!cats.length) list.append(el("div", { class: "muted", style: "padding:10px;text-align:center;", text: "暂无已有分类, 直接输入即新建" }));
@@ -280,53 +284,57 @@ export async function renderPanel(container, ctx, opts = {}) {
   function renderPromptChips() {
     clear(builtinBox);
     const kw = plKeyword.trim().toLowerCase();
-    const hiddenTags = new Set(plMeta.hidden_tags || []);
-    const hiddenCats = new Set(plMeta.hidden_categories || []);
+    const deletedTags = new Set(plMeta.hidden_tags || []);
+    const deletedCats = new Set(plMeta.hidden_categories || []);
     const order = plMeta.category_order || [];
     let shown = 0;
-    const groups = [];
-    // 内置分组 (可隐藏分类/标签)
+    // 组装分组: 自带分类与用户收藏合并 (用户存入自带分类的提示词并入同组), 合二为一
+    const groups = new Map();
+    const groupOf = (key) => {
+      if (!groups.has(key)) groups.set(key, { key, builtinTags: [], userItems: [] });
+      return groups.get(key);
+    };
     for (const group of builtinPromptGroups) {
-      if (hiddenCats.has(group.name)) continue;
-      const tags = group.tags.filter(([en, zh]) =>
-        !hiddenTags.has(en) && (!kw || en.toLowerCase().includes(kw) || (zh || "").toLowerCase().includes(kw)));
-      if (!tags.length) continue;
-      shown += tags.length;
-      groups.push({
-        key: group.name,
-        name: `${group.name} (${tags.length})`,
-        chips: tags.map(([en, zh]) => makePromptChip(en, zh, { builtin: en })),
-        builtinCat: group.name,
-        builtinCount: tags.length,
-      });
+      if (deletedCats.has(group.name)) continue;
+      const g = groupOf(group.name);
+      g.builtin = group.name;
+      g.builtinTags = group.tags.filter(([en]) => !deletedTags.has(en));
     }
-    // 用户收藏分组 (与内置同样式; 分类和单条均可删除)
-    const userGroups = new Map();
     plItems.forEach((it) => {
       const cat = it.category || "默认";
-      if (hiddenCats.has(cat)) return;
-      if (!userGroups.has(cat)) userGroups.set(cat, []);
-      userGroups.get(cat).push(it);
+      if (deletedCats.has(cat)) return;
+      groupOf(cat).userItems.push(it);
     });
-    userGroups.forEach((items, cat) => {
-      const visible = items.filter((it) => !kw || it.text.toLowerCase().includes(kw) || cat.toLowerCase().includes(kw));
-      if (!visible.length) return;
-      shown += visible.length;
-      groups.push({
-        key: cat,
-        name: `📁 ${cat} (${visible.length})`,
-        chips: visible.map((it) => makePromptChip(it.text, plZh.get(plKey(it.text)) || "", { userItem: it })),
-        userCat: cat,
-        userCount: items.length,
+    // 过滤搜索词后生成行
+    const rows = [];
+    for (const g of groups.values()) {
+      const bTags = g.builtinTags.filter(([en, zh]) =>
+        !kw || en.toLowerCase().includes(kw) || (zh || "").toLowerCase().includes(kw));
+      const uItems = g.userItems.filter((it) =>
+        !kw || it.text.toLowerCase().includes(kw) || g.key.toLowerCase().includes(kw));
+      const total = bTags.length + uItems.length;
+      if (!total) continue;
+      shown += total;
+      rows.push({
+        key: g.key,
+        name: `${g.key} (${total})`,
+        chips: [
+          ...bTags.map(([en, zh]) => makePromptChip(en, zh, { builtin: en })),
+          ...uItems.map((it) => makePromptChip(it.text, plZh.get(plKey(it.text)) || "", { userItem: it })),
+        ],
+        builtinCat: g.builtin ?? null,
+        builtinCount: bTags.length,
+        userCat: g.builtin ? null : g.key,
+        userCount: uItems.length,
       });
-    });
+    }
     // 应用自定义排序 (未排序的按原顺序追加在后)
     const rank = (key) => {
       const i = order.indexOf(key);
       return i === -1 ? 9999 : i;
     };
-    groups.sort((a, b) => rank(a.key) - rank(b.key));
-    groups.forEach((g) => builtinBox.append(buildGroupRow(g)));
+    rows.sort((a, b) => rank(a.key) - rank(b.key));
+    rows.forEach((g) => builtinBox.append(buildGroupRow(g)));
     if (!shown) builtinBox.append(el("div", { class: "gallery-empty", text: "没有匹配的提示词" }));
     syncBuiltinSelBar();
   }
@@ -339,16 +347,16 @@ export async function renderPanel(container, ctx, opts = {}) {
       draggable: true,
     }, [el("span", { class: "wc-pl-group-title", text: g.name })]);
     if (g.builtinCat != null) {
-      // 自带分类: 悬停显示隐藏按钮 (可编辑 meta 文件恢复)
+      // 自带分类: 悬停显示删除按钮 (持久化到 meta 文件, 编辑该文件可恢复)
       nameCell.append(el("span", {
-        class: "wc-pl-chip-del", text: "✕", title: "隐藏该自带分类 (含全部标签)",
+        class: "wc-pl-chip-del", text: "✕", title: "删除该自带分类 (含全部标签)",
         onclick: async (e) => {
           e.stopPropagation();
-          const ok = await confirmDialog(`隐藏自带分类「${g.builtinCat}」(含 ${g.builtinCount} 个标签)? 恢复需编辑 outputs/prompt_library_meta.json。`, { danger: true });
+          const ok = await confirmDialog(`确定删除自带分类「${g.builtinCat}」(含 ${g.builtinCount} 个标签)?`, { danger: true });
           if (!ok) return;
           await savePlMeta({ hidden_categories: [...new Set([...(plMeta.hidden_categories || []), g.builtinCat])] });
           renderPromptChips();
-          toast(`自带分类「${g.builtinCat}」已隐藏 🫥`, "success");
+          toast(`分类「${g.builtinCat}」已删除 🗑️`, "success");
         },
       }));
     }
@@ -475,14 +483,14 @@ export async function renderPanel(container, ctx, opts = {}) {
       }));
     } else if (opts.builtin) {
       chip.append(el("span", {
-        class: "wc-pl-chip-del", text: "✕", title: "隐藏该自带标签 (可编辑 meta 文件恢复)",
+        class: "wc-pl-chip-del", text: "✕", title: "从词库中删除这个标签",
         onclick: async (e) => {
           e.stopPropagation();
           await savePlMeta({ hidden_tags: [...new Set([...(plMeta.hidden_tags || []), en])] });
           builtinSel.delete(en);
           promptSelection.set([...builtinSel]);
           renderPromptChips();
-          toast(`自带标签「${en}」已隐藏 🫥`, "success");
+          toast(`标签「${en}」已删除 🗑️`, "success");
         },
       }));
     }
