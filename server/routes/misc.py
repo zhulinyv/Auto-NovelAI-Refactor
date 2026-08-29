@@ -368,50 +368,42 @@ async def bg_random_wallpaper(payload: dict = None):
     source = ((payload or {}).get("source") or "bing").strip().lower()
     errors = []
 
-    # 0) Lolicon 随机动漫壁纸 (API v2: 仅横图 gt1, 非 R18; 返回 pid 供前端右上角展示)
+    # 0) Lolicon 随机动漫壁纸 (API v2: 仅横图 gt1, 非 R18; regular 规格省流量, pid 供前端展示)
     if source == "acg":
+        def _fetch(method, url, **kw):
+            """直连优先 (实测比走系统代理快), 失败自动改走系统代理重试。"""
+            last = None
+            for trust_env in (False, True):
+                try:
+                    sess = _requests.Session()
+                    sess.trust_env = trust_env
+                    resp = sess.request(method, url, **kw)
+                    resp.raise_for_status()
+                    return resp
+                except Exception as e:
+                    last = e
+                    logger.warning(f"在线壁纸 Lolicon 请求失败 (trust_env={trust_env}): {e}")
+            raise last
+
         try:
-            meta = _requests.post(
+            meta = _fetch(
+                "POST",
                 "https://api.lolicon.app/setu/v2",
-                json={
-                    "r18": 0,
-                    "num": 1,
-                    "aspectRatio": "gt1",
-                    "size": ["original", "regular"],
-                    # 使用 API 默认反代 (i.pixiv.re): pximg 原图有防盗链, 反代地址可直接下载
-                },
-                timeout=10,
+                json={"r18": 0, "num": 1, "aspectRatio": "gt1", "size": ["regular"]},
+                timeout=(8, 10),
             )
-            meta.raise_for_status()
             res = meta.json()
             if res.get("error"):
                 raise RuntimeError(res["error"])
             item = (res.get("data") or [None])[0]
             if not item or not item.get("pid"):
                 raise RuntimeError("接口无数据")
-            content = None
-            for key in ("original", "regular"):
-                url = (item.get("urls") or {}).get(key)
-                if not url:
-                    continue
-                # 反代站偶发抖动, 每个地址重试一次
-                for attempt in range(2):
-                    try:
-                        img = _requests.get(url, timeout=(8, 60))
-                        img.raise_for_status()
-                        content = img.content
-                        break
-                    except Exception as e:
-                        logger.warning(f"在线壁纸 Lolicon ({key}) 下载失败 (第 {attempt + 1} 次): {e}")
-                        if content:
-                            break
-                        time.sleep(1)
-                if content:
-                    break
-            if not content:
-                raise RuntimeError("图片下载失败")
+            url = (item.get("urls") or {}).get("regular")
+            if not url:
+                raise RuntimeError("接口未返回图片地址")
+            img = _fetch("GET", url, timeout=(8, 30))
             return {
-                "path": _save_api_wallpaper(content, min_w=800),
+                "path": _save_api_wallpaper(img.content, min_w=800),
                 "source": f"Pixiv #{item['pid']}",
                 "pid": item["pid"],
                 "title": item.get("title") or "",
@@ -464,7 +456,7 @@ async def bg_random_wallpaper(payload: dict = None):
 @router.get("/bg/state")
 async def bg_state_get():
     """读取状态 (背景 + 自定义颜色/模糊), 跨端口与浏览器保留。"""
-    data = {"single": None, "folder": None, "interval": 90, "api": False}
+    data = {"single": None, "folder": None, "interval": 120, "api": False}
     if _BG_STATE_FILE.exists():
         try:
             data.update(json.loads(_BG_STATE_FILE.read_text(encoding="utf-8")))
@@ -491,6 +483,9 @@ async def bg_state_save(payload: dict):
         data["folder"] = payload.get("folder") if isinstance(payload.get("folder"), list) else None
     if "api" in payload:
         data["api"] = bool(payload.get("api"))
+    if "api_source" in payload:
+        src = str(payload.get("api_source") or "bing").strip().lower()
+        data["api_source"] = src if src in ("bing", "acg") else "bing"
     if "interval" in payload:
         try:
             interval = int(payload.get("interval") or 90)

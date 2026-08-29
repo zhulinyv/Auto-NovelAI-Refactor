@@ -14,10 +14,10 @@ let rotationIdx = 0;
 let rotationTimer = null;
 let popoverEl = null;
 let pidBadge = null;
-let bgState = { single: null, folder: null, interval: 10, api: false, apiSource: "bing", art: null };
+let bgState = { single: null, folder: null, interval: 120, api: false, apiSource: "bing", art: null };
 
 function savedInterval() {
-  return Number.isFinite(bgState.interval) && bgState.interval >= 10 ? bgState.interval : 90;
+  return Number.isFinite(bgState.interval) && bgState.interval >= 10 ? bgState.interval : 120;
 }
 
 export function applyBackground() {
@@ -80,6 +80,11 @@ async function loadState() {
     if (res.art && res.art.pid) bgState.art = res.art;
     if (res && Array.isArray(res.folder) && res.folder.length) bgState.folder = res.folder;
     if (res && Number.isFinite(res.interval) && res.interval >= 3) bgState.interval = res.interval;
+    // 旧默认 90 秒迁移到新默认 120 秒
+    if (bgState.interval === 90) {
+      bgState.interval = 120;
+      saveState();
+    }
 
     // 从 localStorage 迁移 (旧版本遗留数据)
     const localSingle = localStorage.getItem(KEY_SINGLE);
@@ -300,6 +305,7 @@ function getPopover() {
     [...srcGroup.children].forEach((x) => x.classList.toggle("selected", x === item));
     saveState();
     toast(`壁纸来源已切换: ${item.textContent} 🖼️`, "info");
+    fetchApiWallpaper();   // 切换后立即换一张新来源的壁纸
   });
   const apiBtn = el("button", { class: "btn btn-sm", style: "width:100%;", type: "button", text: "🎲 立即随机换一张" });
   // 点击 "立即随机换一张" 即开启自动轮换 (按下方切换间隔, 无需再手动操作)

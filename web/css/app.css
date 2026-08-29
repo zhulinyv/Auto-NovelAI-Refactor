@@ -2198,12 +2198,12 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
 .pager-card .sponsor-qr { flex: 1; min-height: 0; width: auto; max-width: 100%; margin: 0 auto; aspect-ratio: 1; }
 .pager-card .sponsor-label { font-size: 15px; }
 
-/* 页2: 两组卡片平分纵向空间, 卡片内容垂直居中 */
-.ack-group { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.ack-group .ack-title { flex-shrink: 0; margin: 0 0 10px; }
+/* 页2: 两组卡片统一行高 (大小一致), 整体在页面内垂直居中 */
+.ack-body { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; }
+.ack-group { display: flex; flex-direction: column; }
+.ack-group .ack-title { flex-shrink: 0; margin: 14px 0 10px; }
 .ack-group .ack-grid {
-  flex: 1; min-height: 0;
-  grid-auto-rows: 1fr; gap: 14px;
+  grid-auto-rows: 132px; gap: 14px;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
 }
 .ack-item { justify-content: center; gap: 7px; padding: 14px 18px; }
