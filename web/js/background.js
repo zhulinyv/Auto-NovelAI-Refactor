@@ -13,7 +13,8 @@ let rotationList = [];
 let rotationIdx = 0;
 let rotationTimer = null;
 let popoverEl = null;
-let bgState = { single: null, folder: null, interval: 10, api: false, apiSource: "bing" };
+let pidBadge = null;
+let bgState = { single: null, folder: null, interval: 10, api: false, apiSource: "bing", art: null };
 
 function savedInterval() {
   return Number.isFinite(bgState.interval) && bgState.interval >= 10 ? bgState.interval : 90;
@@ -50,6 +51,8 @@ function setFolder(files) {
   rotationIdx = 0;
   bgState.folder = files;
   bgState.single = null;
+  bgState.art = null;
+  updatePidBadge();
   saveState();
   startRotation();
   applyBackground();
@@ -63,6 +66,7 @@ async function saveState() {
       interval: bgState.interval,
       api: !!bgState.api,
       api_source: bgState.apiSource || "bing",
+      art: bgState.art || null,
     });
   } catch { /* 静默失败 */ }
 }
@@ -73,6 +77,7 @@ async function loadState() {
     if (res && res.single) bgState.single = res.single;
     bgState.api = !!res.api;
     if (res.api_source) bgState.apiSource = res.api_source;
+    if (res.art && res.art.pid) bgState.art = res.art;
     if (res && Array.isArray(res.folder) && res.folder.length) bgState.folder = res.folder;
     if (res && Number.isFinite(res.interval) && res.interval >= 3) bgState.interval = res.interval;
 
@@ -154,8 +159,10 @@ async function fetchApiWallpaper({ silent = false } = {}) {
     bgState.folder = null;
     rotationList = [];
     stopRotation();
+    bgState.art = res.pid ? { pid: res.pid, title: res.title || "", author: res.author || "" } : null;
     await saveState();
     applyBackground();
+    updatePidBadge();
     if (popoverEl) refreshPopoverState(popoverEl);
     if (!silent) toast(`背景已更新: ${res.source || "在线壁纸"} 🖼️`, "success");
     return true;
@@ -167,9 +174,34 @@ async function fetchApiWallpaper({ silent = false } = {}) {
 
 // ---------------- 顶部按钮 + 弹层 ----------------
 
+/** 右上角 PID 徽标: 当前背景来自 Lolicon/Pixiv 时展示, 点击打开作品页 */
+function updatePidBadge() {
+  if (!pidBadge) return;
+  const art = bgState.art;
+  if (!art || !art.pid) {
+    pidBadge.classList.add("hidden");
+    return;
+  }
+  pidBadge.textContent = "PID " + art.pid;
+  const info = [art.title, art.author].filter(Boolean).join(" · ");
+  pidBadge.title = (info ? info + "\n" : "") + "点击查看 Pixiv 作品页";
+  pidBadge.classList.remove("hidden");
+}
+
 export function initBackgroundUI() {
   const btn = document.getElementById("bg-toggle");
   if (!btn) return;
+  // PID 徽标放在壁纸按钮左侧 (仅 API 壁纸时显示)
+  pidBadge = document.getElementById("bg-pid");
+  if (!pidBadge) {
+    pidBadge = el("span", { class: "pixiv-pid hidden", id: "bg-pid" });
+    pidBadge.addEventListener("click", () => {
+      const pid = bgState.art?.pid;
+      if (pid) window.open(`https://www.pixiv.net/artworks/${pid}`, "_blank", "noopener");
+    });
+    btn.before(pidBadge);
+  }
+  updatePidBadge();
   btn.addEventListener("click", (e) => {
     e.stopPropagation();
     const pop = getPopover();
@@ -211,6 +243,8 @@ function getPopover() {
       rotationList = [];
       stopRotation();
       stopApiRotation();
+      bgState.art = null;
+      updatePidBadge();
       await saveState();
       applyBackground();
       refreshPopoverState(pop);
@@ -230,6 +264,8 @@ function getPopover() {
         rotationList = [];
         stopRotation();
         stopApiRotation();
+        bgState.art = null;
+        updatePidBadge();
         await saveState();
         applyBackground();
         refreshPopoverState(pop);
@@ -239,6 +275,8 @@ function getPopover() {
   });
   singleClear.addEventListener("click", () => {
     bgState.single = null;
+    bgState.art = null;
+    updatePidBadge();
     saveState();
     applyBackground();
     refreshPopoverState(pop);
@@ -253,12 +291,12 @@ function getPopover() {
   // 壁纸源选择: Bing 每日精选 / ACG 随机动漫
   const srcGroup = el("div", { class: "opt-group bg-api-src" }, [
     el("label", { class: "opt-item" + (bgState.apiSource !== "acg" ? " selected" : ""), text: "Bing 每日精选" }),
-    el("label", { class: "opt-item" + (bgState.apiSource === "acg" ? " selected" : ""), text: "ACG 动漫" }),
+    el("label", { class: "opt-item" + (bgState.apiSource === "acg" ? " selected" : ""), text: "Lolicon 动漫" }),
   ]);
   srcGroup.addEventListener("click", (e) => {
     const item = e.target instanceof Element ? e.target.closest(".opt-item") : null;
     if (!item) return;
-    bgState.apiSource = item.textContent.includes("ACG") ? "acg" : "bing";
+    bgState.apiSource = item.textContent.includes("Lolicon") ? "acg" : "bing";
     [...srcGroup.children].forEach((x) => x.classList.toggle("selected", x === item));
     saveState();
     toast(`壁纸来源已切换: ${item.textContent} 🖼️`, "info");
@@ -330,6 +368,8 @@ function getPopover() {
     rotationList = [];
     stopRotation();
     stopApiRotation();
+    bgState.art = null;
+    updatePidBadge();
     await saveState();
     applyBackground();
     refreshPopoverState(pop);

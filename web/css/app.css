@@ -2160,3 +2160,21 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
   font-family: var(--mono);
   cursor: default;
 }
+
+/* ------- 右上角壁纸 PID 徽标 (Lolicon/Pixiv 来源时展示, 点击打开作品页) ------- */
+.pixiv-pid {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 2px 11px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.15s;
+}
+.pixiv-pid:hover { background: color-mix(in srgb, var(--primary) 24%, transparent); }

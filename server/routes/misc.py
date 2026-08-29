@@ -358,7 +358,7 @@ async def bg_random_wallpaper(payload: dict = None):
 
     payload.source = "bing" (默认): Bing 每日精选壁纸 (近 8 天随机一天,
       cn.bing.com / www.bing.com 双通道) -> Picsum 随机精选图 (兜底)。
-    payload.source = "acg": ACG 随机动漫壁纸 (api.yppp.net, 每次随机)。
+    payload.source = "acg": Lolicon API v2 随机动漫壁纸 (Pixiv 收录, 非 R18 横图)。
     图片由后端代理下载, 前端不受跨域限制。
     """
     import random as _random
@@ -368,24 +368,58 @@ async def bg_random_wallpaper(payload: dict = None):
     source = ((payload or {}).get("source") or "bing").strip().lower()
     errors = []
 
-    # 0) ACG 随机动漫壁纸 (api.yppp.net, json 模式取图地址)
+    # 0) Lolicon 随机动漫壁纸 (API v2: 仅横图 gt1, 非 R18; 返回 pid 供前端右上角展示)
     if source == "acg":
         try:
-            meta = _requests.get(
-                "https://api.yppp.net/pc.php",
-                params={"return": "json"},
+            meta = _requests.post(
+                "https://api.lolicon.app/setu/v2",
+                json={
+                    "r18": 0,
+                    "num": 1,
+                    "aspectRatio": "gt1",
+                    "size": ["original", "regular"],
+                    # 使用 API 默认反代 (i.pixiv.re): pximg 原图有防盗链, 反代地址可直接下载
+                },
                 timeout=10,
             )
             meta.raise_for_status()
-            info = meta.json()
-            if str(info.get("code")) != "200" or not info.get("acgurl"):
+            res = meta.json()
+            if res.get("error"):
+                raise RuntimeError(res["error"])
+            item = (res.get("data") or [None])[0]
+            if not item or not item.get("pid"):
                 raise RuntimeError("接口无数据")
-            img = _requests.get(info["acgurl"], timeout=60)
-            img.raise_for_status()
-            return {"path": _save_api_wallpaper(img.content, min_w=800), "source": "ACG 随机动漫壁纸"}
+            content = None
+            for key in ("original", "regular"):
+                url = (item.get("urls") or {}).get(key)
+                if not url:
+                    continue
+                # 反代站偶发抖动, 每个地址重试一次
+                for attempt in range(2):
+                    try:
+                        img = _requests.get(url, timeout=(8, 60))
+                        img.raise_for_status()
+                        content = img.content
+                        break
+                    except Exception as e:
+                        logger.warning(f"在线壁纸 Lolicon ({key}) 下载失败 (第 {attempt + 1} 次): {e}")
+                        if content:
+                            break
+                        time.sleep(1)
+                if content:
+                    break
+            if not content:
+                raise RuntimeError("图片下载失败")
+            return {
+                "path": _save_api_wallpaper(content, min_w=800),
+                "source": f"Pixiv #{item['pid']}",
+                "pid": item["pid"],
+                "title": item.get("title") or "",
+                "author": item.get("author") or "",
+            }
         except Exception as e:
-            errors.append(f"ACG: {e}")
-            logger.warning(f"在线壁纸 ACG 获取失败: {e}")
+            errors.append(f"Lolicon: {e}")
+            logger.warning(f"在线壁纸 Lolicon 获取失败: {e}")
         raise HTTPException(status_code=502, detail="在线壁纸获取失败 (" + "; ".join(errors) + ")")
 
     # 1) Bing 每日壁纸
@@ -471,6 +505,9 @@ async def bg_state_save(payload: dict):
     if "blur" in payload:
         blur = payload.get("blur")
         data["blur"] = blur if isinstance(blur, dict) and blur else None
+    if "art" in payload:
+        art = payload.get("art")
+        data["art"] = art if isinstance(art, dict) and art.get("pid") else None
     _BG_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     _BG_STATE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     return {"ok": True}
