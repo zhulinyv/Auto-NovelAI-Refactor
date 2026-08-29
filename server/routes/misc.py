@@ -116,6 +116,9 @@ async def open_save_dir(payload: dict):
 _BROWSE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif"}
 
 
+_BROWSE_EXCLUDED_DIRS = {"backgrounds", "uploads"}  # API 壁纸缓存 / 上传目录, 不在图片浏览中展示
+
+
 @router.get("/browse/folders")
 async def browse_folders():
     """列出 outputs 目录及其全部子目录 (相对路径), 供图片浏览视图选择。"""
@@ -124,7 +127,10 @@ async def browse_folders():
     if base.exists():
         for p in sorted(base.rglob("*")):
             if p.is_dir() and not p.name.startswith((".", "__")):
-                folders.append(p.relative_to(base).as_posix())
+                rel = p.relative_to(base).as_posix()
+                if rel.split("/")[0] in _BROWSE_EXCLUDED_DIRS:
+                    continue
+                folders.append(rel)
     return {"base": "outputs", "folders": folders}
 
 
@@ -142,6 +148,8 @@ async def browse_images(dir: str = "", recursive: bool = False):
                 if not p.is_file() or p.suffix.lower() not in _BROWSE_EXTS:
                     continue
                 if "temp_" in p.name.lower():  # 排除临时文件
+                    continue
+                if p.relative_to(base).as_posix().split("/")[0] in _BROWSE_EXCLUDED_DIRS:
                     continue
                 st = p.stat()
                 images.append({

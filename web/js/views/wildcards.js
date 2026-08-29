@@ -87,10 +87,13 @@ export async function renderPanel(container, ctx, opts = {}) {
   });
 
   // ---------------- 数据加载 ----------------
+  let allTypes = [];
+
   async function loadTypes() {
     const res = await get("/api/wildcards/types");
+    allTypes = res.types || [];
     clear(typeList);
-    (res.types || []).forEach((t) => {
+    allTypes.forEach((t) => {
       typeList.append(el("button", {
         class: "tab-btn" + (t === state.type ? " active" : ""),
         text: "📁 " + t,
@@ -356,11 +359,16 @@ export async function renderPanel(container, ctx, opts = {}) {
     );
   }
 
-  /** 新建卡片: 在右侧编辑区展示完整表单 */
+  /** 新建卡片: 在右侧编辑区展示完整表单 (分类可选已有分类或自行输入) */
   function showCreate() {
     state.name = null;
     clear(editCard);
-    const typeInput = el("input", { type: "text", placeholder: "新分类 (已存在的分类会直接添加到该分类)" });
+    const typeInput = el("input", {
+      type: "text",
+      list: "wc-type-options",
+      placeholder: "从下拉选择已有分类, 或输入新分类",
+    });
+    const datalist = el("datalist", { id: "wc-type-options" }, (allTypes || []).map((t) => el("option", { value: t })));
     const nameInput = el("input", { type: "text", placeholder: "新卡片名" });
     const tagsInput = el("textarea", { rows: 8, placeholder: "提示词内容 (逗号分隔多个标签, 支持自动补全)" });
     // "添加当前提示词": 把上方提示词编辑器中的当前内容填入此输入框 (已有时追加)
@@ -378,18 +386,14 @@ export async function renderPanel(container, ctx, opts = {}) {
         toast("已填入当前提示词 🌸", "success");
       },
     });
-    const tagsField = el("div", { class: "field" }, [el("label", { text: "提示词" })]);
-    const tagsRow = el("div", { style: "display:flex;gap:6px;align-items:flex-start;" });
-    tagsRow.append(tagsInput, addCurBtn);
-    tagsField.append(tagsRow);
-    wireAutocomplete(tagsInput, tagsField);
 
     editCard.append(
       el("div", { class: "card-title", text: "✨ 新建卡片" }),
-      el("div", { class: "field" }, [el("label", { text: "分类" }), typeInput]),
+      el("div", { class: "field" }, [el("label", { text: "分类" }), typeInput, datalist]),
       el("div", { class: "field" }, [el("label", { text: "名称" }), nameInput]),
-      tagsField,
+      el("div", { class: "field" }, [el("label", { text: "提示词" }), tagsInput]),
       el("div", { class: "wc-edit-actions" }, [
+        addCurBtn,
         el("button", { class: "btn btn-sm btn-primary", text: "✅ 创建", onclick: () => createCard(typeInput, nameInput, tagsInput) }),
         el("button", { class: "btn btn-sm btn-ghost", text: "✖ 取消", onclick: renderEditPlaceholder }),
       ]),

@@ -139,7 +139,7 @@ function renderGrid() {
       el("img", { src: imageUrl(img.path), alt: img.name, loading: "lazy" }),
       el("div", { class: "b-name", text: sub ? "📂 " + img.name : img.name }),
     );
-    item.addEventListener("dblclick", () => openViewer(img.path, img.name));
+    item.addEventListener("click", () => openViewer(img.path, img.name));
     grid.append(item);
   });
 }
@@ -245,19 +245,33 @@ export async function render(container, ctx) {
   startPolling();
 
   container.append(
-    el("h2", {}, ["📚 图片浏览", el("span", { class: "sub", text: "浏览 outputs 输出目录 · 双击图片全屏查看 (每 5 秒自动检测目录变化)" })]),
+    el("h2", {}, ["📚 图片浏览", el("span", { class: "sub", text: "浏览 outputs 输出目录 · 单击图片全屏查看 (每 5 秒自动检测目录变化)" })]),
   );
 
-  // 左 1/4: 文件夹选择
-  const leftCard = el("div", { class: "card", style: "margin:0;" }, [
-    el("div", { class: "wc-browse-head" }, [
+  // 左 1/4: 文件夹选择 (可收起/展开)
+  const layout = el("div", { class: "browse-layout" });
+  const leftCard = el("div", { class: "card browse-left", style: "margin:0;" }, [
+    el("div", { class: "wc-browse-head browse-left-head" }, [
       el("div", { class: "card-title", text: "📂 文件夹" }),
       el("span", { class: "spacer" }),
       el("button", { class: "btn btn-sm", text: "🔄 刷新", onclick: loadFolders }),
+      el("button", {
+        class: "btn btn-sm",
+        text: "◀",
+        title: "收起文件夹区域",
+        onclick: () => layout.classList.add("left-collapsed"),
+      }),
     ]),
     el("div", { class: "browse-folders", id: "browse-folders" }, [
       el("div", { class: "muted", style: "padding:10px;", text: "正在读取..." }),
     ]),
+    el("button", {
+      class: "browse-left-expand",
+      type: "button",
+      text: "▶ 文件夹",
+      title: "展开文件夹区域",
+      onclick: () => layout.classList.remove("left-collapsed"),
+    }),
   ]);
 
   // 右 3/4: 图片网格 + 排序/递归控件
@@ -304,7 +318,6 @@ export async function render(container, ctx) {
     ]),
   ]);
 
-  const layout = el("div", { class: "browse-layout" });
   layout.append(leftCard, rightCard);
   container.append(layout);
 

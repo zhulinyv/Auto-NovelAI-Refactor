@@ -120,7 +120,8 @@ export function openWildcardsModal(source, { title = "提示词" } = {}) {
     try {
       const res = await post("/api/suggest/translate", { tags: missing });
       Object.entries(res.translations || {}).forEach(([tag, zh]) => zhCache.set(zhKey(tag), zh || ""));
-      if (mode === "tags" && modalOpen) renderChips();
+      // 输入/编辑状态打开时不重渲染 (避免冲掉正在输入的内容), 下次渲染自然带上翻译
+      if (mode === "tags" && modalOpen && !chipsView.querySelector(".p-chip-input")) renderChips();
     } catch { /* 翻译获取失败静默处理, 标签块仍正常显示 */ }
     finally { translating = false; }
   }
@@ -133,9 +134,50 @@ export function openWildcardsModal(source, { title = "提示词" } = {}) {
       return;
     }
     tags.forEach((raw, i) => chipsView.append(makeChip(raw, i)));
+    chipsView.append(makeAddChip());
     // 收集未翻译的普通标签, 批量查询 (通配符 <分类:卡片名> 不翻译)
     const need = tags.map((raw) => parseWeight(raw).content).filter((c) => c && !c.startsWith("<"));
     if (need.some((c) => !zhCache.has(zhKey(c)))) fetchTranslations(need);
+  }
+
+  /** 末尾的 "＋标签" 块: 点击展开输入框, 回车添加标签 (参考 PAI 添加关键词, 支持自动补全) */
+  function makeAddChip() {
+    const chip = el("div", { class: "p-chip p-chip-add", title: "添加标签", text: "＋ 标签" });
+    chip.addEventListener("click", () => startAdd());
+    return chip;
+  }
+
+  function startAdd() {
+    const anchor = chipsView.querySelector(".p-chip-add");
+    const inputChip = el("div", { class: "p-chip p-chip-add-input" });
+    const input = el("input", { class: "p-chip-input", placeholder: "输入标签后回车 (可逗号分隔多个, Esc 取消)" });
+    let done = false;
+    const commit = () => {
+      if (done) return;
+      done = true;
+      const parts = input.value.split(",").map((v) => v.trim()).filter(Boolean);
+      if (parts.length) {
+        applyTags([...splitTags(ta.value), ...parts]);
+        const add = chipsView.querySelector(".p-chip-add");
+        if (add) startAdd();  // 保持输入状态, 方便连续添加
+      } else {
+        renderChips();
+      }
+    };
+    const cancel = () => {
+      if (done) return;
+      done = true;
+      renderChips();
+    };
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); commit(); }
+      else if (e.key === "Escape") { e.stopPropagation(); cancel(); }
+    });
+    input.addEventListener("blur", () => { if (input.value.trim()) commit(); else cancel(); });
+    inputChip.append(input);
+    if (anchor) chipsView.replaceChild(inputChip, anchor);
+    else chipsView.append(inputChip);
+    input.focus();
   }
 
   function applyTags(tags) {
@@ -238,7 +280,7 @@ export function openWildcardsModal(source, { title = "提示词" } = {}) {
     e.preventDefault();
     e.stopPropagation();
     if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
-    const chips = [...chipsView.querySelectorAll(".p-chip")];
+    const chips = [...chipsView.querySelectorAll(".p-chip:not(.p-chip-add):not(.p-chip-add-input)")];
     let target = -1;
     for (let k = 0; k < chips.length; k++) {
       if (k === chipDragIdx) continue;
@@ -247,9 +289,16 @@ export function openWildcardsModal(source, { title = "提示词" } = {}) {
         || (e.clientY >= r.top && e.clientY <= r.bottom && r.left + r.width / 2 <= e.clientX);
       if (!past) { target = k; break; }
     }
-    chipDropIdx = target;
     $$(".p-chip.drop-before", chipsView).forEach((c) => c.classList.remove("drop-before"));
-    if (target >= 0 && target !== chipDragIdx) chips[target].classList.add("drop-before");
+    if (target < 0) {
+      // 拖过所有标签: 追加到末尾
+      chipDropIdx = splitTags(ta.value).length;
+      const addChip = chipsView.querySelector(".p-chip-add");
+      if (addChip) addChip.classList.add("drop-before");
+    } else {
+      chipDropIdx = target;
+      if (target !== chipDragIdx) chips[target].classList.add("drop-before");
+    }
   });
   chipsView.addEventListener("drop", (e) => {
     if (chipDragIdx < 0) return;
@@ -259,10 +308,11 @@ export function openWildcardsModal(source, { title = "提示词" } = {}) {
     const to = chipDropIdx;
     chipDragIdx = -1;
     chipDropIdx = -1;
-    if (to < 0 || to === from) { renderChips(); return; }
     const tags = splitTags(ta.value);
+    if (to < 0 || to === from) { renderChips(); return; }
     const [moved] = tags.splice(from, 1);
-    tags.splice(to > from ? to - 1 : to, 0, moved);
+    if (to >= tags.length) tags.push(moved);
+    else tags.splice(to > from ? to - 1 : to, 0, moved);
     applyTags(tags);
   });
 

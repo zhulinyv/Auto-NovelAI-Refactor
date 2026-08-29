@@ -16,7 +16,7 @@ let popoverEl = null;
 let bgState = { single: null, folder: null, interval: 10 };
 
 function savedInterval() {
-  return Number.isFinite(bgState.interval) && bgState.interval >= 3 ? bgState.interval : 10;
+  return Number.isFinite(bgState.interval) && bgState.interval >= 10 ? bgState.interval : 10;
 }
 
 export function applyBackground() {
@@ -112,6 +112,7 @@ async function loadState() {
 
 export async function initBackground() {
   await loadState();
+  if (bgState.api) startApiRotation();
   // 单张图片失效探测 (仅在服务端无数据时用 localStorage 兜底)
   if (bgState.single) {
     const probe = new Image();
@@ -122,6 +123,41 @@ export async function initBackground() {
       toast("背景图片已失效, 已恢复默认", "warning");
     };
     probe.src = imageUrl(bgState.single);
+  }
+}
+
+// ---------------- 在线壁纸: 获取与按切换间隔自动轮换 ----------------
+
+let apiTimer = null;
+
+function stopApiRotation() {
+  if (apiTimer) { clearInterval(apiTimer); apiTimer = null; }
+}
+
+function startApiRotation() {
+  stopApiRotation();
+  if (!bgState.api) return;
+  apiTimer = setInterval(async () => {
+    await fetchApiWallpaper({ silent: true });
+  }, Math.max(10, savedInterval()) * 1000);
+}
+
+/** 从 /api/bg/random 获取一张在线壁纸并应用; silent=true 时不弹通知 (自动轮换) */
+async function fetchApiWallpaper({ silent = false } = {}) {
+  try {
+    const res = await post("/api/bg/random", {});
+    bgState.single = res.path;
+    bgState.folder = null;
+    rotationList = [];
+    stopRotation();
+    await saveState();
+    applyBackground();
+    if (popoverEl) refreshPopoverState(popoverEl);
+    if (!silent) toast(`背景已更新: ${res.source || "在线壁纸"} 🖼️`, "success");
+    return true;
+  } catch (e) {
+    if (!silent) toast("获取在线壁纸失败: " + e.message, "error");
+    return false;
   }
 }
 
@@ -165,8 +201,10 @@ function getPopover() {
       if (!res.length) return;
       bgState.single = res[0].path;
       bgState.folder = null;
+      bgState.api = false;
       rotationList = [];
       stopRotation();
+      stopApiRotation();
       await saveState();
       applyBackground();
       refreshPopoverState(pop);
@@ -182,8 +220,10 @@ function getPopover() {
       if (path) {
         bgState.single = path;
         bgState.folder = null;
+        bgState.api = false;
         rotationList = [];
         stopRotation();
+        stopApiRotation();
         await saveState();
         applyBackground();
         refreshPopoverState(pop);
@@ -203,30 +243,42 @@ function getPopover() {
   pop.append(singleBox);
 
   // ---- 在线壁纸 (API 随机换图): Bing 每日精选 / Picsum, 后端代理下载 ----
-  const apiBox = el("div", { class: "field" }, [el("label", { text: "🌐 在线壁纸 (一键随机换图)" })]);
-  const apiBtn = el("button", { class: "btn btn-sm", style: "width:100%;", type: "button", text: "🎲 随机换一张精美壁纸" });
+  const apiBox = el("div", { class: "field bg-api-auto" }, [el("label", { text: "🌐 在线壁纸 (Bing 每日精选)" })]);
+  const apiBtn = el("button", { class: "btn btn-sm", style: "width:100%;", type: "button", text: "🎲 立即随机换一张" });
   apiBtn.addEventListener("click", async () => {
     apiBtn.disabled = true;
     const oldText = apiBtn.textContent;
     apiBtn.textContent = "⏳ 正在获取壁纸...";
-    try {
-      const res = await post("/api/bg/random", {});
-      bgState.single = res.path;
+    await fetchApiWallpaper();
+    apiBtn.disabled = false;
+    apiBtn.textContent = oldText;
+  });
+  // 按切换间隔自动轮换 (与文件夹轮播共用间隔, 最小 10 秒)
+  const apiAutoCb = el("input", { type: "checkbox" });
+  apiAutoCb.checked = !!bgState.api;
+  const apiAutoLabel = el("label", { class: "checkline", title: "按下方切换间隔自动换图, 无需手动操作" }, [
+    apiAutoCb,
+    document.createTextNode("按切换间隔自动轮换"),
+  ]);
+  apiAutoCb.addEventListener("change", async () => {
+    bgState.api = apiAutoCb.checked;
+    if (bgState.api) {
       bgState.folder = null;
       rotationList = [];
       stopRotation();
       await saveState();
-      applyBackground();
+      const ok = await fetchApiWallpaper({ silent: true });
+      startApiRotation();
       refreshPopoverState(pop);
-      toast(`背景已更新: ${res.source || "在线壁纸"} 🖼️`, "success");
-    } catch (e) {
-      toast("获取在线壁纸失败: " + e.message, "error");
-    } finally {
-      apiBtn.disabled = false;
-      apiBtn.textContent = oldText;
+      if (ok) toast("在线壁纸自动轮换已开启 🎠", "success");
+    } else {
+      stopApiRotation();
+      await saveState();
+      toast("在线壁纸自动轮换已关闭", "info");
     }
+    refreshPopoverState(pop);
   });
-  apiBox.append(apiBtn);
+  apiBox.append(apiBtn, apiAutoLabel);
   pop.append(apiBox);
 
   // ---- 文件夹轮播 ----
@@ -241,6 +293,8 @@ function getPopover() {
     try {
       const res = await post("/api/bg/list", { path: p });
       if (!res.files || !res.files.length) { toast("文件夹中没有图片", "warning"); return; }
+      bgState.api = false;
+      stopApiRotation();
       setFolder(res.files);
       refreshPopoverState(pop);
       toast(`已载入 ${res.files.length} 张图片轮播 🎠`, "success");
@@ -266,14 +320,15 @@ function getPopover() {
 
   // ---- 切换间隔 ----
   const intBox = el("div", { class: "field" }, [el("label", { text: "⏱️ 切换间隔 (秒)" })]);
-  const intervalInput = el("input", { type: "number", min: 3, max: 3600, step: 1, value: savedInterval() });
+  const intervalInput = el("input", { type: "number", min: 10, max: 3600, step: 1, value: savedInterval() });
   intervalInput.addEventListener("change", () => {
     let v = parseInt(intervalInput.value, 10);
-    if (!Number.isFinite(v) || v < 3) v = 10;
+    if (!Number.isFinite(v) || v < 10) v = 10;
     intervalInput.value = v;
     bgState.interval = v;
     saveState();
     startRotation();
+    if (bgState.api) startApiRotation();
     toast(`切换间隔已设为 ${v} 秒`, "info");
   });
   intBox.append(intervalInput);
@@ -284,8 +339,10 @@ function getPopover() {
   resetBtn.addEventListener("click", async () => {
     bgState.single = null;
     bgState.folder = null;
+    bgState.api = false;
     rotationList = [];
     stopRotation();
+    stopApiRotation();
     await saveState();
     applyBackground();
     refreshPopoverState(pop);
@@ -312,4 +369,6 @@ function refreshPopoverState(pop) {
   if (pathInput && !pathInput.value) pathInput.value = "";
   const intervalInput = pop.querySelector('input[type="number"]');
   if (intervalInput) intervalInput.value = savedInterval();
+  const apiAuto = pop.querySelector(".bg-api-auto input[type='checkbox']");
+  if (apiAuto) apiAuto.checked = !!bgState.api;
 }
