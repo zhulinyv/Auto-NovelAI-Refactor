@@ -1798,7 +1798,7 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
 /* ============================================================
    图片浏览视图
    ============================================================ */
-.browse-layout { display: grid; grid-template-columns: 1fr 2fr; gap: 16px; align-items: start; }
+.browse-layout { display: grid; grid-template-columns: 1fr 3fr; gap: 16px; align-items: start; }
 @media (max-width: 1100px) { .browse-layout { grid-template-columns: 1fr; } }
 .browse-folders { display: flex; flex-direction: column; gap: 2px; max-height: calc(100vh - 260px); overflow-y: auto; }
 .browse-folder {
@@ -1852,3 +1852,78 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
 .p-chip[draggable="true"] { cursor: grab; }
 .p-chip.chip-dragging { opacity: 0.4; }
 .p-chip.drop-before { box-shadow: -3px 0 0 0 var(--primary); }
+
+
+/* ------- 图片浏览: 递归复选框 + 应用内查看器 ------- */
+.browse-recursive {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  color: var(--text-2);
+  cursor: pointer;
+  user-select: none;
+}
+.browse-recursive input { margin: 0; }
+.img-viewer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 3600;
+  background: rgba(8, 9, 14, 0.94);
+  display: flex;
+  flex-direction: column;
+  animation: wc-fade 0.18s ease;
+}
+.img-viewer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 18px;
+  flex-shrink: 0;
+}
+.img-viewer-name { font-size: 13px; color: #9aa0ae; word-break: break-all; }
+.img-viewer-body { flex: 1; min-height: 0; display: flex; }
+.img-viewer-img-wrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.img-viewer-img-wrap img {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: var(--radius-sm);
+  box-shadow: 0 10px 44px rgba(0, 0, 0, 0.55);
+  cursor: zoom-in;
+  background: var(--surface-3);
+}
+.img-viewer-side {
+  width: 236px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px 20px;
+  border-left: 1px solid var(--border);
+  background: var(--panel-solid);
+}
+.img-viewer-side .btn { width: 100%; }
+.img-viewer-tip { font-size: 12px; color: var(--text-2); line-height: 1.7; margin-bottom: 6px; }
+
+/* ------- 标签块双语 (英文标签 + 中文翻译) ------- */
+.p-chip { flex-direction: column; align-items: flex-start; gap: 1px; }
+.p-chip .p-chip-row { display: flex; align-items: center; gap: 6px; max-width: 100%; }
+.p-chip .p-chip-zh {
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--text-2);
+  line-height: 1.3;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

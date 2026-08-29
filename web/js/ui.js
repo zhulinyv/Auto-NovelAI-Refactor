@@ -497,8 +497,6 @@ export function fileDropZone({ label = null, placeholder = "点击选择或拖�
 
 // ---------------- 提示词自动补全 (插入时补逗号) ----------------
 
-let suggestTimer = null;
-
 function insertSuggestion(textarea, suggestion) {
   const value = textarea.value;
   // 各段先去首尾空格, 避免中间段残留前导空格被 join(", ") 反复累积 (越补空格越多)
@@ -573,9 +571,14 @@ export function wireAutocomplete(textarea, wrap) {
     if (it) { insertSuggestion(textarea, it.tag); hide(); }
   }
 
+  // 每个输入框独立计时器: 共享计时器会被其它输入框的 input 事件清除,
+  // 导致补全列表不出现或在他处自发弹出
+  let suggestTimer = null;
   textarea.addEventListener("input", () => {
     clearTimeout(suggestTimer);
     suggestTimer = setTimeout(async () => {
+      // 焦点已不在本输入框时不弹出, 避免干扰其它参数操作
+      if (document.activeElement !== textarea) { hide(); return; }
       const text = textarea.value;
       const kw = text.split(",").pop().trim();
       if (!kw) { hide(); return; }

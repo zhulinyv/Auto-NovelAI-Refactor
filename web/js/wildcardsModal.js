@@ -107,6 +107,23 @@ export function openWildcardsModal(source, { title = "提示词" } = {}) {
   let mode = "tags";
   let chipDragIdx = -1;   // 正在拖拽的标签块索引
   let chipDropIdx = -1;   // 拖拽悬停的目标插入索引 (-1 表示原位)
+  const zhCache = new Map();   // 标签 -> 中文翻译 (会话内缓存)
+  let translating = false;
+
+  const zhKey = (content) => (content || "").trim().toLowerCase().replace(/\s+/g, "_");
+
+  /** 批量获取缺失的翻译 (PAI 风格双语标签), 拿到后重渲染一次 */
+  async function fetchTranslations(contents) {
+    const missing = [...new Set(contents.map(zhKey).filter((k) => k && !zhCache.has(k)))];
+    if (!missing.length || translating) return;
+    translating = true;
+    try {
+      const res = await post("/api/suggest/translate", { tags: missing });
+      Object.entries(res.translations || {}).forEach(([tag, zh]) => zhCache.set(zhKey(tag), zh || ""));
+      if (mode === "tags" && modalOpen) renderChips();
+    } catch { /* 翻译获取失败静默处理, 标签块仍正常显示 */ }
+    finally { translating = false; }
+  }
 
   function renderChips() {
     clear(chipsView);
@@ -116,6 +133,9 @@ export function openWildcardsModal(source, { title = "提示词" } = {}) {
       return;
     }
     tags.forEach((raw, i) => chipsView.append(makeChip(raw, i)));
+    // 收集未翻译的普通标签, 批量查询 (通配符 <分类:卡片名> 不翻译)
+    const need = tags.map((raw) => parseWeight(raw).content).filter((c) => c && !c.startsWith("<"));
+    if (need.some((c) => !zhCache.has(zhKey(c)))) fetchTranslations(need);
   }
 
   function applyTags(tags) {
@@ -178,9 +198,13 @@ export function openWildcardsModal(source, { title = "提示词" } = {}) {
 
   function makeChip(raw, i) {
     const { content, weight } = parseWeight(raw);
+    const zh = zhCache.get(zhKey(content)) || "";
     const chip = el("div", { class: "p-chip", title: "拖动可排序; 双击编辑 (Esc 取消); 悬停显示操作按钮" }, [
-      el("span", { class: "p-chip-text", text: content }),
-      weight !== 1 ? el("span", { class: "p-chip-w", text: "×" + weight }) : null,
+      el("div", { class: "p-chip-row" }, [
+        el("span", { class: "p-chip-text", text: content }),
+        weight !== 1 ? el("span", { class: "p-chip-w", text: "×" + weight }) : null,
+      ]),
+      zh ? el("div", { class: "p-chip-zh", text: zh }) : null,
     ]);
     chip.draggable = true;
     chip.addEventListener("dragstart", (e) => {

@@ -129,16 +129,19 @@ async def browse_folders():
 
 
 @router.get("/browse/images")
-async def browse_images(dir: str = ""):
-    """列出 outputs 下指定子目录的图片文件 (前端自行按名称/时间/大小排序)。"""
+async def browse_images(dir: str = "", recursive: bool = False):
+    """列出 outputs 下指定子目录的图片 (recursive=True 时含子目录, 前端自行排序)。"""
     base = (BASE_DIR / "outputs").resolve()
     target = (base / dir).resolve()
     images = []
     # 防目录穿越: 解析后必须仍在 outputs 内
     if str(target).startswith(str(base)) and target.is_dir():
-        for p in sorted(target.iterdir()):
+        candidates = target.rglob("*") if recursive else target.iterdir()
+        for p in candidates:
             try:
                 if not p.is_file() or p.suffix.lower() not in _BROWSE_EXTS:
+                    continue
+                if "temp_" in p.name.lower():  # 排除临时文件
                     continue
                 st = p.stat()
                 images.append({
@@ -548,6 +551,7 @@ def _load_tags(csv_filename: str = "./assets/danbooru_tags_full_zh.csv"):
 
 
 _TAGS_CACHE: dict | None = None
+_ZH_MAP: dict | None = None
 
 
 def _get_tag_cache() -> dict:
@@ -560,6 +564,20 @@ def _get_tag_cache() -> dict:
             ]
         }
     return _TAGS_CACHE
+
+
+def _get_zh_map() -> dict:
+    """标签/别名 -> 中文翻译 查询表 (小写键), 供标签块批量翻译。"""
+    global _ZH_MAP
+    if _ZH_MAP is None:
+        m: dict = {}
+        for tag_l, tag, cat, count, aliases, zh in _get_tag_cache()["rows"]:
+            if zh:
+                m[tag_l] = zh
+                for a in aliases:
+                    m.setdefault(a, zh)
+        _ZH_MAP = m
+    return _ZH_MAP
 
 
 _SUGGEST_LIMIT = 20
@@ -602,3 +620,16 @@ async def suggest_tags(payload: dict):
         "keyword": keyword,
         "items": [{"tag": t, "category": c, "count": n, "alias": a, "zh": z} for t, c, n, a, z in items],
     }
+
+
+@router.post("/suggest/translate")
+async def suggest_translate(payload: dict):
+    """批量查询标签中文翻译 (供提示词标签块双语展示)。匹配标签名与别名。"""
+    zh_map = _get_zh_map()
+    translations = {}
+    for tag in (payload.get("tags") or [])[:300]:
+        key = str(tag).strip().lower().replace(" ", "_")
+        if not key or key in translations:
+            continue
+        translations[str(tag)] = zh_map.get(key, "")
+    return {"translations": translations}

@@ -136,8 +136,9 @@ export function initBackgroundUI() {
     pop.classList.toggle("hidden");
     if (!pop.classList.contains("hidden")) refreshPopoverState(pop);
   });
-  document.addEventListener("click", () => {
-    if (popoverEl) popoverEl.classList.add("hidden");
+  // 点击弹层内部不关闭 (与外观设置弹层一致); 点击外部或再次点击按钮才关闭
+  document.addEventListener("click", (e) => {
+    if (popoverEl && !popoverEl.contains(e.target)) popoverEl.classList.add("hidden");
   });
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && popoverEl) popoverEl.classList.add("hidden");

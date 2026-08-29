@@ -42,39 +42,7 @@ export async function renderPanel(container, ctx, opts = {}) {
 
   // ---------------- 左: 卡片库 ----------------
   const countEl = el("span", { class: "wc-count muted" });
-  const newType = el("input", { type: "text", placeholder: "新分类" });
-  const newName = el("input", { type: "text", placeholder: "新卡片名" });
-  const newTags = el("input", { type: "text", placeholder: "提示词内容 (逗号分隔多个标签)" });
-  // "添加当前提示词": 把上方提示词编辑器中的当前内容填入此输入框 (已有时追加)
-  const addCurBtn = el("button", {
-    class: "btn btn-sm btn-file",
-    type: "button",
-    text: "➕ 添加当前提示词",
-    title: "把上方提示词编辑器中的当前内容填入此输入框",
-    onclick: () => {
-      const cur = (opts.addTarget?.get() || "").trim();
-      if (!cur) { toast("上方提示词为空, 没有可添加的内容", "warning"); return; }
-      const existing = newTags.value.trim().replace(/,\s*$/, "");
-      newTags.value = existing ? `${existing}, ${cur}` : cur;
-      newTags.dispatchEvent(new Event("input", { bubbles: true }));
-      toast("已填入当前提示词 🌸", "success");
-    },
-  });
-  const createRow = el("div", { class: "wc-create-row hidden" }, [
-    el("div", { class: "field" }, [el("label", { text: "分类" }), newType]),
-    el("div", { class: "field" }, [el("label", { text: "名称" }), newName]),
-    el("div", { class: "field" }, [
-      el("label", { text: "提示词" }),
-      el("div", { style: "display:flex;gap:6px;align-items:center;" }, [newTags, addCurBtn]),
-    ]),
-    el("button", { class: "btn btn-sm btn-primary", text: "✅ 创建", onclick: () => createCard() }),
-    el("button", { class: "btn btn-sm btn-ghost", text: "✖", title: "收起", onclick: () => createRow.classList.add("hidden") }),
-  ]);
-  function toggleCreate() {
-    createRow.classList.toggle("hidden");
-    if (!createRow.classList.contains("hidden")) newType.focus();
-  }
-
+  // ---------------- 右: 新建 / 编辑卡片 (共用一个面板区域) ----------------
   const typeList = el("div", { class: "wc-types" });
   const searchBox = el("input", { type: "text", class: "wc-search", placeholder: "🔍 搜索卡片名称 (大量卡片时快速筛选)..." });
   const grid = el("div", { class: "wc-grid" });
@@ -94,20 +62,15 @@ export async function renderPanel(container, ctx, opts = {}) {
       el("div", { class: "card-title", text: "🗂️ 卡片库" }),
       countEl,
       el("span", { class: "spacer" }),
-      el("button", { class: "btn btn-sm", text: "➕ 新建卡片", onclick: toggleCreate }),
+      el("button", { class: "btn btn-sm", text: "➕ 新建卡片", onclick: () => showCreate() }),
     ]),
-    createRow,
     typeList,
     searchBox,
     grid,
     selBar,
   ]);
 
-  // ---------------- 右: 卡片编辑 ----------------
-  const editCard = el("div", { class: "card wc-edit" }, [
-    el("div", { class: "card-title", text: "✏️ 编辑卡片" }),
-    el("div", { class: "muted", text: "从左侧选择一张卡片后在此编辑。Ctrl+点击多选, Shift+点击范围选; 选中后可拖入上方提示词或点 \"添加选中\"" }),
-  ]);
+  const editCard = el("div", { class: "card wc-edit" });
 
   const layout = el("div", { class: "wc-panel-grid" });
   layout.append(browseCard, editCard);
@@ -378,31 +341,78 @@ export async function renderPanel(container, ctx, opts = {}) {
     await del(`/api/wildcards/${encodeURIComponent(state.type)}/${encodeURIComponent(name)}`);
     toast("已删除 (移到回收站) 🗑️", "success");
     selection.delete(name);
-    clear(editCard);
-    editCard.append(
-      el("div", { class: "card-title", text: "✏️ 编辑卡片" }),
-      el("div", { class: "muted", text: "从左侧选择一张卡片后在此编辑" }),
-    );
+    renderEditPlaceholder();
     syncSelection();
     await loadCards();
   }
 
-  async function createCard() {
-    const type = newType.value.trim();
-    const name = newName.value.trim();
-    const tags = newTags.value;
+  /** 编辑区占位 (未选中任何卡片) */
+  function renderEditPlaceholder() {
+    state.name = null;
+    clear(editCard);
+    editCard.append(
+      el("div", { class: "card-title", text: "✏️ 编辑卡片" }),
+      el("div", { class: "muted", text: "从左侧选择一张卡片后在此编辑。Ctrl+点击多选, Shift+点击范围选; 选中后可拖入上方提示词或点 \"添加选中\"" }),
+    );
+  }
+
+  /** 新建卡片: 在右侧编辑区展示完整表单 */
+  function showCreate() {
+    state.name = null;
+    clear(editCard);
+    const typeInput = el("input", { type: "text", placeholder: "新分类 (已存在的分类会直接添加到该分类)" });
+    const nameInput = el("input", { type: "text", placeholder: "新卡片名" });
+    const tagsInput = el("textarea", { rows: 8, placeholder: "提示词内容 (逗号分隔多个标签, 支持自动补全)" });
+    // "添加当前提示词": 把上方提示词编辑器中的当前内容填入此输入框 (已有时追加)
+    const addCurBtn = el("button", {
+      class: "btn btn-sm btn-file",
+      type: "button",
+      text: "➕ 添加当前提示词",
+      title: "把上方提示词编辑器中的当前内容填入此输入框",
+      onclick: () => {
+        const cur = (opts.addTarget?.get() || "").trim();
+        if (!cur) { toast("上方提示词为空, 没有可添加的内容", "warning"); return; }
+        const existing = tagsInput.value.trim().replace(/,\s*$/, "");
+        tagsInput.value = existing ? `${existing}, ${cur}` : cur;
+        tagsInput.dispatchEvent(new Event("input", { bubbles: true }));
+        toast("已填入当前提示词 🌸", "success");
+      },
+    });
+    const tagsField = el("div", { class: "field" }, [el("label", { text: "提示词" })]);
+    const tagsRow = el("div", { style: "display:flex;gap:6px;align-items:flex-start;" });
+    tagsRow.append(tagsInput, addCurBtn);
+    tagsField.append(tagsRow);
+    wireAutocomplete(tagsInput, tagsField);
+
+    editCard.append(
+      el("div", { class: "card-title", text: "✨ 新建卡片" }),
+      el("div", { class: "field" }, [el("label", { text: "分类" }), typeInput]),
+      el("div", { class: "field" }, [el("label", { text: "名称" }), nameInput]),
+      tagsField,
+      el("div", { class: "wc-edit-actions" }, [
+        el("button", { class: "btn btn-sm btn-primary", text: "✅ 创建", onclick: () => createCard(typeInput, nameInput, tagsInput) }),
+        el("button", { class: "btn btn-sm btn-ghost", text: "✖ 取消", onclick: renderEditPlaceholder }),
+      ]),
+    );
+    typeInput.focus();
+  }
+
+  async function createCard(typeInput, nameInput, tagsInput) {
+    const type = typeInput.value.trim();
+    const name = nameInput.value.trim();
+    const tags = tagsInput.value;
     if (!type || !name) { toast("分类和名称不能为空", "warning"); return; }
     await post("/api/wildcards", { type, name, tags });
     toast(`已创建 <${type}:${name}> ✨`, "success");
-    newType.value = "";
-    newName.value = "";
-    newTags.value = "";
-    createRow.classList.add("hidden");
+    typeInput.value = "";
+    nameInput.value = "";
+    tagsInput.value = "";
     state.type = type;
     await loadTypes();
     await loadCards();
   }
 
+  renderEditPlaceholder();
   await loadTypes();
   await loadCards();
 }
