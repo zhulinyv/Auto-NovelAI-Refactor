@@ -120,8 +120,18 @@ export function openWildcardsModal(source, { title = "提示词" } = {}) {
     try {
       const res = await post("/api/suggest/translate", { tags: missing });
       Object.entries(res.translations || {}).forEach(([tag, zh]) => zhCache.set(zhKey(tag), zh || ""));
-      // 输入/编辑状态打开时不重渲染 (避免冲掉正在输入的内容), 下次渲染自然带上翻译
-      if (mode === "tags" && modalOpen && !chipsView.querySelector(".p-chip-input")) renderChips();
+      if (mode !== "tags" || !modalOpen) return;
+      // 输入/编辑状态打开时不整体重渲染 (避免冲掉正在输入的内容), 改为就地更新翻译
+      if (chipsView.querySelector(".p-chip-input")) {
+        const tags = splitTags(ta.value);
+        [...chipsView.querySelectorAll(".p-chip")].forEach((chip, i) => {
+          if (tags[i] === undefined) return;
+          const zhEl = chip.querySelector(".p-chip-zh");
+          if (zhEl) zhEl.textContent = zhCache.get(zhKey(parseWeight(tags[i]).content)) || "";
+        });
+        return;
+      }
+      renderChips();
     } catch { /* 翻译获取失败静默处理, 标签块仍正常显示 */ }
     finally { translating = false; }
   }
@@ -174,6 +184,7 @@ export function openWildcardsModal(source, { title = "提示词" } = {}) {
       else if (e.key === "Escape") { e.stopPropagation(); cancel(); }
     });
     input.addEventListener("blur", () => { if (input.value.trim()) commit(); else cancel(); });
+    wireAutocomplete(input, inputChip);  // 添加关键词同样支持自动补全
     inputChip.append(input);
     if (anchor) chipsView.replaceChild(inputChip, anchor);
     else chipsView.append(inputChip);
@@ -246,7 +257,7 @@ export function openWildcardsModal(source, { title = "提示词" } = {}) {
         el("span", { class: "p-chip-text", text: content }),
         weight !== 1 ? el("span", { class: "p-chip-w", text: "×" + weight }) : null,
       ]),
-      zh ? el("div", { class: "p-chip-zh", text: zh }) : null,
+      el("div", { class: "p-chip-zh", text: zh }),  // 始终占位, 保证有/无翻译的标签等高
     ]);
     chip.draggable = true;
     chip.addEventListener("dragstart", (e) => {

@@ -61,6 +61,7 @@ async function saveState() {
       single: bgState.single,
       folder: bgState.folder,
       interval: bgState.interval,
+      api: !!bgState.api,
     });
   } catch { /* 静默失败 */ }
 }
@@ -69,6 +70,7 @@ async function loadState() {
   try {
     const res = await get("/api/bg/state");
     if (res && res.single) bgState.single = res.single;
+    bgState.api = !!res.api;
     if (res && Array.isArray(res.folder) && res.folder.length) bgState.folder = res.folder;
     if (res && Number.isFinite(res.interval) && res.interval >= 3) bgState.interval = res.interval;
 
@@ -245,77 +247,45 @@ function getPopover() {
   // ---- 在线壁纸 (API 随机换图): Bing 每日精选 / Picsum, 后端代理下载 ----
   const apiBox = el("div", { class: "field bg-api-auto" }, [el("label", { text: "🌐 在线壁纸 (Bing 每日精选)" })]);
   const apiBtn = el("button", { class: "btn btn-sm", style: "width:100%;", type: "button", text: "🎲 立即随机换一张" });
+  // 点击 "立即随机换一张" 即开启自动轮换 (按下方切换间隔, 无需再手动操作)
   apiBtn.addEventListener("click", async () => {
     apiBtn.disabled = true;
     const oldText = apiBtn.textContent;
     apiBtn.textContent = "⏳ 正在获取壁纸...";
-    await fetchApiWallpaper();
+    bgState.api = true;
+    bgState.folder = null;
+    rotationList = [];
+    stopRotation();
+    await saveState();
+    const ok = await fetchApiWallpaper();
+    startApiRotation();
     apiBtn.disabled = false;
     apiBtn.textContent = oldText;
-  });
-  // 按切换间隔自动轮换 (与文件夹轮播共用间隔, 最小 10 秒)
-  const apiAutoCb = el("input", { type: "checkbox" });
-  apiAutoCb.checked = !!bgState.api;
-  const apiAutoLabel = el("label", { class: "checkline", title: "按下方切换间隔自动换图, 无需手动操作" }, [
-    apiAutoCb,
-    document.createTextNode("按切换间隔自动轮换"),
-  ]);
-  apiAutoCb.addEventListener("change", async () => {
-    bgState.api = apiAutoCb.checked;
-    if (bgState.api) {
-      bgState.folder = null;
-      rotationList = [];
-      stopRotation();
-      await saveState();
-      const ok = await fetchApiWallpaper({ silent: true });
-      startApiRotation();
-      refreshPopoverState(pop);
-      if (ok) toast("在线壁纸自动轮换已开启 🎠", "success");
-    } else {
-      stopApiRotation();
-      await saveState();
-      toast("在线壁纸自动轮换已关闭", "info");
-    }
     refreshPopoverState(pop);
+    if (ok) toast(`在线壁纸自动轮换已开启 (每 ${savedInterval()} 秒) 🎠`, "success");
   });
-  apiBox.append(apiBtn, apiAutoLabel);
+  apiBox.append(apiBtn);
   pop.append(apiBox);
 
-  // ---- 文件夹轮播 ----
-  const folderBox = el("div", { class: "field" }, [el("label", { text: "📁 文件夹轮播" })]);
-  const folderPath = el("input", { type: "text", placeholder: "输入服务器文件夹路径, 如 D:/壁纸" });
-  const folderLoad = el("button", { class: "btn btn-sm", text: "载入" });
-  const folderPick = el("button", { class: "btn btn-sm btn-file", text: "选择文件夹" });
+  // ---- 文件夹轮播: 选择后立即展示一张, 之后按间隔自动切换 ----
+  const folderBox = el("div", { class: "field" }, [el("label", { text: "📁 文件夹轮播 (选择后立即生效)" })]);
+  const folderPick = el("button", { class: "btn btn-sm", style: "width:100%;", type: "button", text: "📁 选择文件夹" });
   const folderInfo = el("div", { class: "muted bg-folder-info" });
-  async function loadFolderPath() {
-    const p = folderPath.value.trim();
-    if (!p) { toast("请输入文件夹路径", "warning"); return; }
+  folderPick.addEventListener("click", async () => {
     try {
+      const { pickFolder } = await import("./api.js");
+      const p = await pickFolder();
+      if (!p) return;
       const res = await post("/api/bg/list", { path: p });
       if (!res.files || !res.files.length) { toast("文件夹中没有图片", "warning"); return; }
       bgState.api = false;
       stopApiRotation();
       setFolder(res.files);
       refreshPopoverState(pop);
-      toast(`已载入 ${res.files.length} 张图片轮播 🎠`, "success");
-    } catch (e) {
-      toast("载入失败: " + e.message, "error");
-    }
-  }
-  folderLoad.addEventListener("click", loadFolderPath);
-  folderPath.addEventListener("keydown", (e) => { if (e.key === "Enter") loadFolderPath(); });
-  folderPick.addEventListener("click", async () => {
-    try {
-      const { pickFolder } = await import("./api.js");
-      const p = await pickFolder();
-      if (p) { folderPath.value = p; await loadFolderPath(); }
+      toast(`已载入 ${res.files.length} 张图片, 立即生效并按间隔轮播 🎠`, "success");
     } catch (e) { toast("选择文件夹失败: " + e.message, "error"); }
   });
-  folderBox.append(
-    el("div", { class: "bg-folder-row" }, [folderPath, folderLoad]),
-    el("div", { class: "bg-folder-row" }, [folderPick]),
-    folderInfo,
-  );
+  folderBox.append(folderPick, folderInfo);
   pop.append(folderBox);
 
   // ---- 切换间隔 ----
@@ -361,7 +331,9 @@ function refreshPopoverState(pop) {
   const pathInput = pop.querySelector('input[type="text"]');
   singleName.textContent = bgState.single ? bgState.single.split("/").pop() : "未设置";
   singleName.title = bgState.single || "";
-  if (bgState.folder && bgState.folder.length) {
+  if (bgState.api) {
+    folderInfo.textContent = `当前: 在线壁纸自动轮换 (每 ${savedInterval()} 秒)`;
+  } else if (bgState.folder && bgState.folder.length) {
     folderInfo.textContent = `轮播中: ${bgState.folder.length} 张, 间隔 ${savedInterval()} 秒`;
   } else {
     folderInfo.textContent = bgState.single ? "当前: 单张背景" : "未设置背景";

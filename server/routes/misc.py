@@ -401,7 +401,7 @@ async def bg_random_wallpaper():
 @router.get("/bg/state")
 async def bg_state_get():
     """读取状态 (背景 + 自定义颜色/模糊), 跨端口与浏览器保留。"""
-    data = {"single": None, "folder": None, "interval": 10}
+    data = {"single": None, "folder": None, "interval": 10, "api": False}
     if _BG_STATE_FILE.exists():
         try:
             data.update(json.loads(_BG_STATE_FILE.read_text(encoding="utf-8")))
@@ -426,12 +426,14 @@ async def bg_state_save(payload: dict):
         data["single"] = payload.get("single") or None
     if "folder" in payload:
         data["folder"] = payload.get("folder") if isinstance(payload.get("folder"), list) else None
+    if "api" in payload:
+        data["api"] = bool(payload.get("api"))
     if "interval" in payload:
         try:
             interval = int(payload.get("interval") or 10)
         except (TypeError, ValueError):
             interval = 10
-        if interval < 3:
+        if interval < 10:
             interval = 10
         data["interval"] = interval
     if "color" in payload:
@@ -628,6 +630,49 @@ async def suggest_tags(payload: dict):
         "keyword": keyword,
         "items": [{"tag": t, "category": c, "count": n, "alias": a, "zh": z} for t, c, n, a, z in items],
     }
+
+
+_PROMPT_LIB_FILE = BASE_DIR / "outputs" / "prompt_library.json"
+
+
+def _read_prompt_lib():
+    """读取提示词库 (用户收藏的关键词/短语, 按最近保存倒序)。"""
+    try:
+        data = json.loads(_PROMPT_LIB_FILE.read_text(encoding="utf-8"))
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+@router.get("/prompt-library")
+async def prompt_library_get():
+    return {"items": _read_prompt_lib()}
+
+
+@router.post("/prompt-library/add")
+async def prompt_library_add(payload: dict):
+    """保存关键词到提示词库 (已存在则移到最前, 最多保留 500 条)。"""
+    text = str(payload.get("text") or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="内容不能为空")
+    items = _read_prompt_lib()
+    if text in items:
+        items.remove(text)
+    items.insert(0, text)
+    items = items[:500]
+    _PROMPT_LIB_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _PROMPT_LIB_FILE.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {"items": items}
+
+
+@router.post("/prompt-library/delete")
+async def prompt_library_delete(payload: dict):
+    """从提示词库删除指定关键词。"""
+    text = str(payload.get("text") or "").strip()
+    items = [x for x in _read_prompt_lib() if x != text]
+    _PROMPT_LIB_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _PROMPT_LIB_FILE.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {"items": items}
 
 
 @router.post("/suggest/translate")

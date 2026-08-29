@@ -57,17 +57,35 @@ export async function renderPanel(container, ctx, opts = {}) {
     }),
   ]);
 
+  const libTabs = el("div", { class: "wc-lib-tabs" }, [
+    el("button", { class: "tab-btn active", text: "🗂️ 卡片库", onclick: () => switchLib("cards") }),
+    el("button", { class: "tab-btn", text: "📚 提示词库", onclick: () => switchLib("prompts") }),
+  ]);
+  const cardLibBox = el("div", {}, [typeList, searchBox, grid, selBar]);
+  const plList = el("div", { class: "wc-pl-list" });
+  const plSearch = el("input", { type: "text", class: "wc-search", placeholder: "🔍 搜索提示词..." });
+  plSearch.addEventListener("input", () => { plKeyword = plSearch.value; renderPromptLib(); });
+  const plInput = el("input", { type: "text", placeholder: "输入关键词, 保存后可随时加入提示词" });
+  plInput.addEventListener("keydown", (e) => { if (e.key === "Enter") savePromptLib(); });
+  const promptLibBox = el("div", { class: "hidden" }, [
+    el("div", { style: "display:flex;gap:6px;margin-bottom:10px;" }, [
+      plInput,
+      el("button", { class: "btn btn-sm btn-primary", text: "💾 保存", onclick: savePromptLib }),
+    ]),
+    plSearch,
+    plList,
+  ]);
+
   const browseCard = el("div", { class: "card wc-browse" }, [
     el("div", { class: "wc-browse-head" }, [
-      el("div", { class: "card-title", text: "🗂️ 卡片库" }),
+      el("div", { class: "card-title", text: "🗂️ 素材库" }),
       countEl,
       el("span", { class: "spacer" }),
-      el("button", { class: "btn btn-sm", text: "➕ 新建卡片", onclick: () => showCreate() }),
+      el("button", { class: "btn btn-sm", text: "➕ 新建卡片", onclick: () => { switchLib("cards"); showCreate(); } }),
     ]),
-    typeList,
-    searchBox,
-    grid,
-    selBar,
+    libTabs,
+    cardLibBox,
+    promptLibBox,
   ]);
 
   const editCard = el("div", { class: "card wc-edit" });
@@ -85,6 +103,95 @@ export async function renderPanel(container, ctx, opts = {}) {
       syncSelectionClasses();
     }
   });
+
+  // ---------------- 提示词库 (参考 PAI 关键词库: 收藏关键词, 点击加入提示词) ----------------
+  const plZh = new Map();
+  let plItems = [];
+  let plKeyword = "";
+  let plLoaded = false;
+
+  function switchLib(which) {
+    const isCards = which === "cards";
+    [...libTabs.children].forEach((b, i) => b.classList.toggle("active", i === 0 === isCards));
+    cardLibBox.classList.toggle("hidden", !isCards);
+    promptLibBox.classList.toggle("hidden", isCards);
+    if (!isCards && !plLoaded) { plLoaded = true; loadPromptLib(); }
+  }
+
+  const plKey = (t) => (t || "").trim().toLowerCase().replace(/\s+/g, "_");
+
+  async function loadPromptLib() {
+    try {
+      const res = await get("/api/prompt-library");
+      plItems = res.items || [];
+      renderPromptLib();
+      await translatePromptLib(plItems);
+    } catch (e) {
+      toast("读取提示词库失败: " + e.message, "error");
+    }
+  }
+
+  async function translatePromptLib(items) {
+    const missing = items.filter((t) => !plZh.has(plKey(t)));
+    if (!missing.length) return;
+    try {
+      const r = await post("/api/suggest/translate", { tags: missing });
+      Object.entries(r.translations || {}).forEach(([k, v]) => plZh.set(plKey(k), v || ""));
+      renderPromptLib();
+    } catch { /* 翻译失败静默 */ }
+  }
+
+  function renderPromptLib() {
+    clear(plList);
+    const kw = plKeyword.trim().toLowerCase();
+    const list = plItems.filter((t) => !kw || t.toLowerCase().includes(kw));
+    if (!list.length) {
+      plList.append(el("div", { class: "gallery-empty", text: "暂无收藏 — 输入关键词后保存到库中" }));
+      return;
+    }
+    list.forEach((text) => {
+      const zh = plZh.get(plKey(text)) || "";
+      const row = el("div", { class: "wc-pl-item", title: text + (zh ? " · " + zh : "") }, [
+        el("div", { class: "wc-pl-text" }, [
+          el("span", { class: "wc-pl-en", text }),
+          zh ? el("span", { class: "wc-pl-zh", text: zh }) : null,
+        ]),
+        el("button", { class: "btn btn-sm", text: "➕", title: "添加到提示词", onclick: (e) => { e.stopPropagation(); addToPromptText(text); } }),
+        el("button", { class: "btn btn-sm btn-clear-file", text: "🗑", title: "从库中删除", onclick: async (e) => {
+          e.stopPropagation();
+          try {
+            const res = await post("/api/prompt-library/delete", { text });
+            plItems = res.items || [];
+            renderPromptLib();
+            toast("已从提示词库删除 🗑️", "success");
+          } catch (err) { toast(err.message, "error"); }
+        } }),
+      ]);
+      row.addEventListener("click", () => addToPromptText(text));
+      plList.append(row);
+    });
+  }
+
+  /** 把一段文字追加到当前提示词 (提示词库使用) */
+  function addToPromptText(text) {
+    if (!opts.addTarget) return;
+    const cur = (opts.addTarget.get() || "").trim().replace(/,\s*$/, "");
+    opts.addTarget.set(cur ? `${cur}, ${text}` : text);
+    toast("已添加到提示词 🌸", "success");
+  }
+
+  async function savePromptLib() {
+    const text = plInput.value.trim();
+    if (!text) { toast("请输入要收藏的关键词", "warning"); return; }
+    try {
+      const res = await post("/api/prompt-library/add", { text });
+      plItems = res.items || [];
+      plInput.value = "";
+      renderPromptLib();
+      await translatePromptLib(plItems);
+      toast("已保存到提示词库 📚", "success");
+    } catch (e) { toast(e.message, "error"); }
+  }
 
   // ---------------- 数据加载 ----------------
   let allTypes = [];
@@ -363,12 +470,14 @@ export async function renderPanel(container, ctx, opts = {}) {
   function showCreate() {
     state.name = null;
     clear(editCard);
-    const typeInput = el("input", {
-      type: "text",
-      list: "wc-type-options",
-      placeholder: "从下拉选择已有分类, 或输入新分类",
-    });
-    const datalist = el("datalist", { id: "wc-type-options" }, (allTypes || []).map((t) => el("option", { value: t })));
+    const typeInput = el("input", { type: "text", placeholder: "从下拉选择已有分类, 或输入新分类" });
+    const typeWrap = el("div", { class: "wc-type-wrap" }, [typeInput, el("button", {
+      class: "wc-type-caret",
+      type: "button",
+      text: "▾",
+      title: "选择已有分类",
+      onclick: (e) => { e.stopPropagation(); toggleTypeDropdown(typeWrap); },
+    })]);
     const nameInput = el("input", { type: "text", placeholder: "新卡片名" });
     const tagsInput = el("textarea", { rows: 8, placeholder: "提示词内容 (逗号分隔多个标签, 支持自动补全)" });
     // "添加当前提示词": 把上方提示词编辑器中的当前内容填入此输入框 (已有时追加)
@@ -389,7 +498,7 @@ export async function renderPanel(container, ctx, opts = {}) {
 
     editCard.append(
       el("div", { class: "card-title", text: "✨ 新建卡片" }),
-      el("div", { class: "field" }, [el("label", { text: "分类" }), typeInput, datalist]),
+      el("div", { class: "field" }, [el("label", { text: "分类" }), typeWrap]),
       el("div", { class: "field" }, [el("label", { text: "名称" }), nameInput]),
       el("div", { class: "field" }, [el("label", { text: "提示词" }), tagsInput]),
       el("div", { class: "wc-edit-actions" }, [
@@ -399,6 +508,23 @@ export async function renderPanel(container, ctx, opts = {}) {
       ]),
     );
     typeInput.focus();
+
+    // 统一样式的分类下拉: 与 WebUI 其它下拉菜单观感一致
+    function toggleTypeDropdown(wrap) {
+      const dd = wrap.querySelector(".wc-type-dd");
+      if (dd) { dd.remove(); return; }
+      document.querySelectorAll(".wc-type-dd").forEach((x) => x.remove());
+      const list = el("div", { class: "wc-type-dd" }, (allTypes || []).map((t) =>
+        el("div", { class: "wc-type-item", text: "📁 " + t, onclick: () => { typeInput.value = t; dd.remove(); } })
+      ));
+      if (!(allTypes || []).length) list.append(el("div", { class: "muted", style: "padding:10px;text-align:center;", text: "暂无已有分类" }));
+      wrap.append(list);
+    }
+    const closeTypeDd = (e) => {
+      const wrap = editCard.querySelector(".wc-type-wrap");
+      if (wrap && e.target instanceof Element && !wrap.contains(e.target)) wrap.querySelector(".wc-type-dd")?.remove();
+    };
+    document.addEventListener("click", closeTypeDd);
   }
 
   async function createCard(typeInput, nameInput, tagsInput) {
