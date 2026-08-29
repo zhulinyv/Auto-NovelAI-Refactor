@@ -480,6 +480,33 @@ async def serve_image(path: str):
     return FileResponse(target)
 
 
+@router.get("/hitokoto")
+async def hitokoto():
+    """一言 (随机句子, 来源 hitokoto.cn): 标题栏展示, 前端每 30 分钟刷新一次。
+
+    服务端转发避免浏览器跨域; 主源失败时尝试国际镜像, 全部失败返回空文本 (前端静默)。
+    """
+    import requests as _requests
+
+    errors = []
+    for url in ("https://v1.hitokoto.cn/", "https://international.v1.hitokoto.cn/"):
+        try:
+            resp = _requests.get(url, timeout=8)
+            resp.raise_for_status()
+            data = resp.json()
+            text = (data.get("hitokoto") or "").strip()
+            if text:
+                return {
+                    "text": text,
+                    "from": (data.get("from") or "").strip(),
+                    "from_who": (data.get("from_who") or "").strip(),
+                }
+        except Exception as e:
+            errors.append(f"{e}")
+    logger.warning(f"一言获取失败: {'; '.join(errors)}")
+    return {"text": "", "from": "", "from_who": ""}
+
+
 # ---------------------------------------------------------------- wildcards
 
 

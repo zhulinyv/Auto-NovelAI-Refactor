@@ -5,6 +5,7 @@ import { initTheme } from "./theme.js";
 import { initBackground, initBackgroundUI } from "./background.js";
 import { initLogConsole } from "./components.js";
 import { initEmoji } from "./emoji.js";
+import { initHitokoto } from "./hitokoto.js";
 import { fetchState } from "./api.js";
 import { $, $$, el, bus, toast, initFancySelects } from "./ui.js";
 
@@ -39,6 +40,7 @@ async function boot() {
   initTheme();
   initEmoji();
   initFancySelects();
+  initHitokoto();
   await initBackground();
   initBackgroundUI();
   const log = initLogConsole();
