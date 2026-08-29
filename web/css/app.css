@@ -1878,6 +1878,12 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
   flex-direction: column;
   animation: wc-fade 0.18s ease;
 }
+/* 浅色模式下查看器遮罩用浅色毛玻璃 (深色模式保持深色) */
+[data-theme="light"] .img-viewer-overlay {
+  background: rgba(246, 247, 250, 0.86);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
 .img-viewer-head {
   display: flex;
   align-items: center;
