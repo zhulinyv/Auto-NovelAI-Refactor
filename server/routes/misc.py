@@ -955,65 +955,27 @@ def _read_translate_cache():
         return {}
 
 
-_TRANSLATE_TRUST_ENV = None   # 翻译服务可用连接方式 (None=未探测, False=直连, True=代理)
-
-
 def _online_translate(text: str) -> str:
-    """在线翻译一段英文 -> 中文: Google (直连优先/代理兜底) 失败再用 MyMemory。"""
-    global _TRANSLATE_TRUST_ENV
-    import requests as _requests
+    """在线翻译一段英文 -> 中文: 多源免费接口链 (参考 sd-webui-prompt-all-in-one)。
 
+    按"大陆可直连优先"顺序自动切换: Google/Sogou/Iciba/Youdao/Alibaba/Caiyun/
+    CloudTranslation/QQ/Bing/Baidu/MyMemory/海外免费接口, 失败自动换下一个,
+    结果由 translate_online 写入缓存。
+    """
     q = text.strip()
     if not q:
         return ""
-
-    def _get(url, **kw):
-        global _TRANSLATE_TRUST_ENV
-        # 上次成功的连接方式优先, 失败仍会尝试另一种 (直连/代理互为兜底)
-        modes = (False, True)
-        if _TRANSLATE_TRUST_ENV is not None:
-            modes = tuple(sorted(modes, key=lambda t: t != _TRANSLATE_TRUST_ENV))
-        last = None
-        for trust in modes:
-            try:
-                sess = _requests.Session()
-                sess.trust_env = trust
-                resp = sess.get(url, timeout=(4, 12), **kw)
-                resp.raise_for_status()
-                _TRANSLATE_TRUST_ENV = trust
-                return resp
-            except Exception as e:
-                last = e
-        raise last
+    from utils.translate import translate_en_to_zh
 
     try:
-        resp = _get(
-            "https://translate.googleapis.com/translate_a/single",
-            params={"client": "gtx", "sl": "en", "tl": "zh-CN", "dt": "t", "q": q},
-        )
-        data = resp.json()
-        parts = [seg[0] for seg in (data[0] or []) if seg and seg[0]]
-        return "".join(parts).strip()
+        return translate_en_to_zh(q)
     except Exception as e:
-        logger.warning(f"Google 翻译失败, 改用 MyMemory: {e}")
-    try:
-        resp = _get(
-            "https://api.mymemory.translated.net/get",
-            params={"q": q, "langpair": "en|zh-CN"},
-        )
-        data = resp.json()
-        zh = str(data.get("responseData", {}).get("translatedText") or "").strip()
-        # 过滤 MyMemory 的错误提示串
-        if zh and "MYMEMORY WARNING" not in zh.upper() and "EXCEEDED" not in zh.upper():
-            return zh
-        return ""
-    except Exception as e:
-        logger.warning(f"MyMemory 翻译失败: {e}")
+        logger.warning(f"在线翻译失败: {e}")
     return ""
 
 
 @router.post("/translate")
-async def translate_online(payload: dict):
+def translate_online(payload: dict):
     """在线批量翻译标签 (仅翻译离线词表没有的内容), 结果写入缓存供后续直接使用。
 
     payload.tags: 待翻译标签列表 (最长 100 个); 已含中日韩文字的跳过。

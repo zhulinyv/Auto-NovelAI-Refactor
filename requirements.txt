@@ -14,3 +14,4 @@ playsound==1.2.2
 gitpython>=3.1.40
 gradio-client>=1.0.0
 brotli>=1.1.0
+translators>=6.0.4  # 在线翻译多源免费接口 (搜狗/有道/阿里/彩云/腾讯等, 无需 API Key)

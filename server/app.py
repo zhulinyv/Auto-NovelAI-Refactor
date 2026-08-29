@@ -33,6 +33,12 @@ def create_app() -> FastAPI:
             misc._get_tag_cache()
         except Exception as e:
             logger.warning(f"标签词典预热失败: {e}")
+        # 在线翻译多源引擎: 后台预导入 translators 库 (首次在线翻译不再卡几秒)
+        try:
+            from utils.translate import _get_tss
+            _get_tss()
+        except Exception as e:
+            logger.debug(f"在线翻译库预热失败: {e}")
 
     threading.Thread(target=_warm_caches, daemon=True, name="warmup").start()
 

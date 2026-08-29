@@ -102,7 +102,7 @@ export function openWildcardsModal(source, { title = "提示词" } = {}) {
     class: "btn btn-sm",
     type: "button",
     text: "🌐 翻译",
-    title: "在线翻译没有译文的标签 (结果缓存, 离线词表没有的标签也能翻译)",
+    title: "在线翻译没有译文的标签 (多源免费接口: 爱词霸/搜狗/阿里/有道/彩云/腾讯/Google 等自动切换, 结果缓存)",
   });
 
   const promptSec = el("div", { class: "wc-modal-prompt" }, [
