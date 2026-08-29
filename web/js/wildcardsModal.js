@@ -98,6 +98,12 @@ export function openWildcardsModal(source, { title = "提示词" } = {}) {
     title: "清除当前库中选中的项 (卡片/提示词)",
   });
   const modeBtn = el("button", { class: "btn btn-sm", type: "button", text: "✏️ 文本编辑", title: "在 标签块视图 / 文本输入 之间切换 (手动输入保留)" });
+  const translateBtn = el("button", {
+    class: "btn btn-sm",
+    type: "button",
+    text: "🌐 翻译",
+    title: "在线翻译没有译文的标签 (结果缓存, 离线词表没有的标签也能翻译)",
+  });
 
   const promptSec = el("div", { class: "wc-modal-prompt" }, [
     el("div", { class: "wc-modal-prompt-head" }, [
@@ -106,6 +112,7 @@ export function openWildcardsModal(source, { title = "提示词" } = {}) {
       el("span", { class: "spacer" }),
       addSelBtn,
       clearSelBtn,
+      translateBtn,
       modeBtn,
     ]),
     editor,
@@ -334,6 +341,36 @@ export function openWildcardsModal(source, { title = "提示词" } = {}) {
     if (to >= tags.length) tags.push(moved);
     else tags.splice(to > from ? to - 1 : to, 0, moved);
     applyTags(tags);
+  });
+
+  // ---- 在线翻译: 补齐没有译文的标签 (离线词表没有的也能翻) ----
+  let onlineTranslating = false;
+  translateBtn.addEventListener("click", async () => {
+    if (onlineTranslating) return;
+    const tags = splitTags(ta.value)
+      .map((raw) => parseWeight(raw).content)
+      .filter((c) => c && !c.startsWith("<") && !zhCache.get(zhKey(c)));   // 空译文也重试
+    if (!tags.length) { toast("所有标签都已有译文 ✨", "info"); return; }
+    onlineTranslating = true;
+    translateBtn.disabled = true;
+    const oldText = translateBtn.textContent;
+    translateBtn.textContent = "⏳ 翻译中...";
+    try {
+      const res = await post("/api/translate", { tags });
+      let n = 0;
+      Object.entries(res.translations || {}).forEach(([tag, zh]) => {
+        zhCache.set(zhKey(tag), zh || "");
+        if (zh) n++;
+      });
+      renderChips();
+      toast(n ? `已翻译 ${n} 个标签 🌐` : "没有翻译出结果, 可稍后重试", n ? "success" : "warning");
+    } catch (e) {
+      toast("在线翻译失败: " + e.message, "error");
+    } finally {
+      onlineTranslating = false;
+      translateBtn.disabled = false;
+      translateBtn.textContent = oldText;
+    }
   });
 
   function setMode(m) {

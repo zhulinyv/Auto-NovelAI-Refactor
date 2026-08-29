@@ -911,10 +911,115 @@ async def prompt_library_meta_save(payload: dict):
 async def suggest_translate(payload: dict):
     """批量查询标签中文翻译 (供提示词标签块双语展示)。匹配标签名与别名。"""
     zh_map = _get_zh_map()
+    cache = _read_translate_cache()
     translations = {}
     for tag in (payload.get("tags") or [])[:300]:
         key = str(tag).strip().lower().replace(" ", "_")
         if not key or key in translations:
             continue
-        translations[str(tag)] = zh_map.get(key, "")
+        translations[str(tag)] = cache.get(key) or zh_map.get(key, "")
+    return {"translations": translations}
+
+
+_TRANSLATE_CACHE_FILE = BASE_DIR / "outputs" / "translate_cache.json"
+_CJK_RE = re.compile(r"[一-鿿぀-ヿ가-힯]")
+
+
+def _read_translate_cache():
+    """在线翻译结果缓存 (避免重复请求翻译服务)。"""
+    try:
+        data = json.loads(_TRANSLATE_CACHE_FILE.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+_TRANSLATE_TRUST_ENV = None   # 翻译服务可用连接方式 (None=未探测, False=直连, True=代理)
+
+
+def _online_translate(text: str) -> str:
+    """在线翻译一段英文 -> 中文: Google (直连优先/代理兜底) 失败再用 MyMemory。"""
+    global _TRANSLATE_TRUST_ENV
+    import requests as _requests
+
+    q = text.strip()
+    if not q:
+        return ""
+
+    def _get(url, **kw):
+        global _TRANSLATE_TRUST_ENV
+        # 上次成功的连接方式优先, 失败仍会尝试另一种 (直连/代理互为兜底)
+        modes = (False, True)
+        if _TRANSLATE_TRUST_ENV is not None:
+            modes = tuple(sorted(modes, key=lambda t: t != _TRANSLATE_TRUST_ENV))
+        last = None
+        for trust in modes:
+            try:
+                sess = _requests.Session()
+                sess.trust_env = trust
+                resp = sess.get(url, timeout=(4, 12), **kw)
+                resp.raise_for_status()
+                _TRANSLATE_TRUST_ENV = trust
+                return resp
+            except Exception as e:
+                last = e
+        raise last
+
+    try:
+        resp = _get(
+            "https://translate.googleapis.com/translate_a/single",
+            params={"client": "gtx", "sl": "en", "tl": "zh-CN", "dt": "t", "q": q},
+        )
+        data = resp.json()
+        parts = [seg[0] for seg in (data[0] or []) if seg and seg[0]]
+        return "".join(parts).strip()
+    except Exception as e:
+        logger.warning(f"Google 翻译失败, 改用 MyMemory: {e}")
+    try:
+        resp = _get(
+            "https://api.mymemory.translated.net/get",
+            params={"q": q, "langpair": "en|zh-CN"},
+        )
+        data = resp.json()
+        zh = str(data.get("responseData", {}).get("translatedText") or "").strip()
+        # 过滤 MyMemory 的错误提示串
+        if zh and "MYMEMORY WARNING" not in zh.upper() and "EXCEEDED" not in zh.upper():
+            return zh
+        return ""
+    except Exception as e:
+        logger.warning(f"MyMemory 翻译失败: {e}")
+    return ""
+
+
+@router.post("/translate")
+async def translate_online(payload: dict):
+    """在线批量翻译标签 (仅翻译离线词表没有的内容), 结果写入缓存供后续直接使用。
+
+    payload.tags: 待翻译标签列表 (最长 100 个); 已含中日韩文字的跳过。
+    """
+    tags = payload.get("tags") or []
+    if not isinstance(tags, list):
+        raise HTTPException(status_code=400, detail="参数不合法")
+    zh_map = _get_zh_map()
+    cache = _read_translate_cache()
+    changed = False
+    translations = {}
+    for raw in tags[:100]:
+        tag = str(raw).strip()
+        key = tag.lower().replace(" ", "_")
+        if not tag or key in translations:
+            continue
+        if _CJK_RE.search(tag):
+            translations[tag] = ""   # 已是中文/日文等, 无需翻译
+            continue
+        zh = cache.get(key) or zh_map.get(key, "")
+        if not zh:
+            zh = _online_translate(tag)
+            if zh:
+                cache[key] = zh
+                changed = True
+        translations[tag] = zh
+    if changed:
+        _TRANSLATE_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _TRANSLATE_CACHE_FILE.write_text(json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8")
     return {"translations": translations}
