@@ -81,10 +81,11 @@
       <div class="log-body" id="log-body"></div>
     </div>
 
-    <!-- Toast 容器 -->
-    <div id="toasts" class="toasts"></div>
   </div>
 
+
+  <!-- Toast 容器: 挂在 body 下, 不受 #app (z-index:1) 层叠上下文限制, 永远显示在所有弹窗最上层 -->
+  <div id="toasts" class="toasts"></div>
   <script src="/js/vendor/twemoji.min.js"></script>
   <script type="module" src="/js/app.js"></script>
 </body>

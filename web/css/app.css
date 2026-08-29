@@ -482,7 +482,7 @@ input.slider-num {
 .log-exception.collapsed { max-height: 3.2em; overflow: hidden; }
 
 /* ------- Toast ------- */
-.toasts { position: fixed; top: 70px; right: 20px; z-index: 5000; display: flex; flex-direction: column; gap: 8px; align-items: stretch; }
+.toasts { position: fixed; top: 70px; right: 20px; z-index: 2147483000; display: flex; flex-direction: column; gap: 8px; align-items: stretch; }
 .toast {
   display: flex;
   align-items: center;
@@ -1573,8 +1573,8 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
   position: fixed;
   inset: 0;
   z-index: 3600;
-  /* 遮罩提到 0.8 不透明: 盖住底层文字, 零性能开销 (不使用 backdrop-filter) */
-  background: rgba(0, 0, 0, 0.8);
+  /* 无遮罩底色: 弹窗周围不再有黑底 (深色/浅色主题一致), 页面内容可见但不响应点击 */
+  background: transparent;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1586,7 +1586,7 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
   height: min(1040px, 95vh);
   display: flex;
   flex-direction: column;
-  background: var(--panel);
+  background: var(--panel-solid);  /* 无遮罩时窗口本体用不透明底色, 避免透出页面内容 */
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow-lg);
