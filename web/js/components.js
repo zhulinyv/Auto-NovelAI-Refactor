@@ -29,7 +29,10 @@ export function renderTabs(tabs, container) {
 
 // ---------------- 全窗口看图 (Lightbox) ----------------
 
+let _closeLightbox = null;
+
 export function openLightbox(src, name = "") {
+  if (_closeLightbox) _closeLightbox();   // 已有灯箱时先关闭, 避免叠加 (快速连点/双击会触发多次)
   const overlay = el("div", { class: "lightbox" });
   let zoomed = false;
   const img = el("img", { src: src, alt: name });
@@ -38,7 +41,7 @@ export function openLightbox(src, name = "") {
     zoomed = !zoomed;
     overlay.classList.toggle("zoomed", zoomed);
   });
-  const close = () => { document.removeEventListener("keydown", onKey); overlay.remove(); };
+  const close = () => { _closeLightbox = null; document.removeEventListener("keydown", onKey); overlay.remove(); };
   const onKey = (e) => { if (e.key === "Escape") close(); };
   overlay.append(
     el("button", { class: "lightbox-close", text: "✖", onclick: (e) => { e.stopPropagation(); close(); } }),
@@ -48,11 +51,12 @@ export function openLightbox(src, name = "") {
   overlay.addEventListener("click", close);
   document.addEventListener("keydown", onKey);
   document.body.append(overlay);
+  _closeLightbox = close;
 }
 
 // ---------------- 画廊 ----------------
 
-export function gallery(container, images, { onSelect } = {}) {
+export function gallery(container, images, { onSelect, zoomOnClick = false } = {}) {
   clear(container);
   container.classList.add("gallery");
   ["count-1", "count-2", "count-3", "count-4"].forEach((c) => container.classList.remove(c));
@@ -78,6 +82,8 @@ export function gallery(container, images, { onSelect } = {}) {
       $$(".gallery-item", container).forEach((x) => x.classList.remove("selected"));
       item.classList.add("selected");
       if (onSelect) onSelect(path);
+      // zoomOnClick: 单击即放大展示 (图片生成输出区), 关闭放大后图片保持选中
+      if (zoomOnClick) openLightbox(imageUrl(path), name);
     });
     item.addEventListener("dblclick", () => openLightbox(imageUrl(path), name));
     container.append(item);

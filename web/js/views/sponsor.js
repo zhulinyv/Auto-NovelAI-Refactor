@@ -1,14 +1,14 @@
 // ============================================================
-// 赞助一下视图 (侧边栏独立页面):
+// 支持鸣谢视图 (侧边栏独立页面):
 //   PPT 式翻页: 当前区域仅显示一页, 底部按钮上/下翻页, 翻页后另一页不显示
-//     第 1 页: 赞助收款码    第 2 页: 鸣谢项目使用到的开源项目
+//     第 1 页: 鸣谢项目使用到的开源项目    第 2 页: 赞助收款码
 // ============================================================
 import { el, clear } from "../ui.js";
 
 export async function render(container, ctx) {
   clear(container);
   container.append(
-    el("h2", {}, ["💰 赞助一下", el("span", { class: "sub", text: "请作者喝杯奶茶 · 鸣谢项目使用到的开源项目" })]),
+    el("h2", {}, ["🙏 支持鸣谢", el("span", { class: "sub", text: "鸣谢项目使用到的开源项目 · 请作者喝杯奶茶" })]),
   );
 
   function sponsorItem(src, label) {
@@ -62,11 +62,11 @@ export async function render(container, ctx) {
     ]),
   ]);
 
-  // PPT 式翻页: 当前区域仅显示一页, 上/下翻页切换
+  // PPT 式翻页: 当前区域仅显示一页, 上/下翻页切换 (鸣谢第 1 页, 赞助第 2 页)
   const pagerViewport = el("div", { class: "pager-viewport" });
-  const pageSponsor = el("div", { class: "pager-page active" }, [sponsorCard]);
-  const pageAck = el("div", { class: "pager-page" }, [ackCard]);
-  pagerViewport.append(pageSponsor, pageAck);
+  const pageAck = el("div", { class: "pager-page active" }, [ackCard]);
+  const pageSponsor = el("div", { class: "pager-page" }, [sponsorCard]);
+  pagerViewport.append(pageAck, pageSponsor);
 
   const prevBtn = el("button", { class: "btn btn-sm", type: "button", text: "▲ 上一页", disabled: true });
   const nextBtn = el("button", { class: "btn btn-sm", type: "button", text: "▼ 下一页" });
@@ -74,7 +74,7 @@ export async function render(container, ctx) {
   const indicator = el("span", { class: "pager-indicator", text: "1 / 2" });
   const nav = el("div", { class: "pager-nav" }, [prevBtn, ...dots, indicator, nextBtn]);
 
-  const pagerPages = [pageSponsor, pageAck];
+  const pagerPages = [pageAck, pageSponsor];
   let pagerIdx = 0;
   function gotoPage(i) {
     const dir = i > pagerIdx ? 1 : -1;

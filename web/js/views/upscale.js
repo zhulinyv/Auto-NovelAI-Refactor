@@ -1,7 +1,7 @@
 // ============================================================
 // 超分降噪视图
 // ============================================================
-import { $, el, clear, toast, bus, sliderRow, showResult } from "../ui.js";
+import { $, el, clear, toast, bus, sliderRow, showResult, imageDropZone } from "../ui.js";
 import { post } from "../api.js";
 import { gallery } from "../components.js";
 
@@ -39,21 +39,15 @@ export async function render(container, ctx) {
   pathCtl = pathCtlInput;
   pathField.append(el("div", { class: "file-pick-row" }, [pathCtlInput, pathBtn]));
 
-  // 单张图片: 直接输入/选择本地路径 (不上传, 处理后保存到原目录)
-  const imgField = el("div", { class: "field" }, [
-    el("label", { text: "单张图片路径" }),
-  ]);
-  const imgCtlInput = el("input", { type: "text", placeholder: "例如: D:/images/1.png" });
-  const imgBtn = el("button", { class: "btn btn-sm btn-file", type: "button", text: "🖼️ 选择图片" });
-  imgBtn.addEventListener("click", async () => {
-    try {
-      const { pickFile } = await import("../api.js");
-      const p = await pickFile();
-      if (p) { imgCtlInput.value = p; toast(`已选择图片: ${p} 🖼️`, "success"); }
-    } catch (e) { toast("选择图片失败: " + e.message, "error"); }
+  // 单张图片: 点击/拖入均打开系统选择框, 直接取真实路径 (不上传副本, 处理后保存到原目录)
+  const imgPick = imageDropZone({
+    label: "单张图片",
+    placeholder: "点击选择或拖入图片",
+    native: true,
+    dropNative: true,
   });
-  imgCtl = imgCtlInput;
-  imgField.append(el("div", { class: "file-pick-row" }, [imgCtlInput, imgBtn]));
+  imgCtl = imgPick;
+  const imgField = imgPick.node;
 
   const tabsWrap = el("div");
   // 左栏: 一张实底卡包含 输入 + 各引擎参数(含模型)
@@ -176,7 +170,7 @@ function renderEngine(eng, body) {
     const payload = {
       kind: eng.id,
       path: pathCtl.value.trim() || null,
-      image: imgCtl.value.trim() || null,
+      image: imgCtl.get() || null,
       options: Object.fromEntries(Object.entries(options).map(([k, v]) => [k, v.value])),
     };
     runBtn.disabled = true;

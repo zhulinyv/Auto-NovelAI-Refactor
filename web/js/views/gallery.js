@@ -183,7 +183,11 @@ function openViewer(path, name) {
     ]),
   );
 
-  viewerEl.addEventListener("mousedown", (e) => { if (e.target === viewerEl) closeViewer(); });
+  // 单击空白处关闭: 点击图片 / 右侧操作区 / 顶部栏时不关闭 (图片自身点击 = 切换原始大小)
+  viewerEl.addEventListener("click", (e) => {
+    if (e.target.closest(".img-viewer-img-wrap img, .img-viewer-side, .img-viewer-head")) return;
+    closeViewer();
+  });
   document.addEventListener("keydown", viewerOnKey);
   document.body.append(viewerEl);
   document.body.style.overflow = "hidden";
