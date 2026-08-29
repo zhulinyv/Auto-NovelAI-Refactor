@@ -33,10 +33,40 @@ export const cardSelection = {
 /** 正在被拖拽的卡片 (弹窗提示词编辑器 drop 时读取) */
 export const cardDrag = { type: null, names: [] };
 
+/** 提示词库当前多选的内置提示词 (弹窗的 "添加选中/清除选择" 按钮据此操作) */
+export const promptSelection = {
+  tags: [],
+  _listeners: new Set(),
+  set(tags) {
+    this.tags = tags;
+    for (const fn of this._listeners) {
+      try { fn(tags); } catch { /* 忽略监听器异常 */ }
+    }
+  },
+  clear() { this.set([]); },
+  onChange(fn) { this._listeners.add(fn); },
+};
+
+/** 弹窗面板当前所在的库 (cards / prompts), 弹窗共用按钮据此切换作用对象 */
+export const activeLib = {
+  lib: "cards",
+  _listeners: new Set(),
+  set(lib) {
+    if (this.lib === lib) return;
+    this.lib = lib;
+    for (const fn of this._listeners) {
+      try { fn(lib); } catch { /* 忽略监听器异常 */ }
+    }
+  },
+  onChange(fn) { this._listeners.add(fn); },
+};
+
 export async function renderPanel(container, ctx, opts = {}) {
   S = ctx;
   clear(container);
   cardSelection.set(null, []);
+  promptSelection.set([]);
+  activeLib.set("cards");
   const selection = new Set();
   let allCards = [];
   let visibleCards = [];
@@ -51,11 +81,6 @@ export async function renderPanel(container, ctx, opts = {}) {
   const selBar = el("div", { class: "wc-sel-bar hidden" }, [
     selText,
     el("span", { class: "spacer" }),
-    el("button", {
-      class: "btn btn-sm btn-ghost",
-      text: "✖ 清除选择",
-      onclick: () => { selection.clear(); state.lastIdx = -1; syncSelection(); },
-    }),
   ]);
 
   const libTabs = el("div", { class: "wc-lib-tabs" }, [
@@ -70,11 +95,8 @@ export async function renderPanel(container, ctx, opts = {}) {
   plSearch.addEventListener("input", () => { plKeyword = plSearch.value; renderPromptLib(); renderBuiltinPrompts(); });
   const plInput = el("input", { type: "text", placeholder: "输入关键词, 保存后可随时加入提示词" });
   plInput.addEventListener("keydown", (e) => { if (e.key === "Enter") savePromptLib(); });
-  // 内置提示词多选操作条 (选中后才显示)
-  const plSelText = el("span", { class: "muted", text: "" });
-  const plAddSelBtn = el("button", { class: "btn btn-sm btn-primary", text: "➕ 添加选中", onclick: addSelectedBuiltin });
-  const plClearSelBtn = el("button", { class: "btn btn-sm btn-ghost", text: "✖ 清除选择", onclick: () => { builtinSel.clear(); renderBuiltinPrompts(); } });
-  const plSelBar = el("div", { class: "wc-pl-selbar hidden" }, [plSelText, el("span", { class: "spacer" }), plClearSelBtn, plAddSelBtn]);
+  // 内置提示词多选计数 (添加/清除使用弹窗右上角的共用按钮)
+  const plSelText = el("div", { class: "wc-pl-selbar muted hidden", text: "" });
   const builtinBox = el("div", { class: "wc-pl-builtin" });
   const promptLibBox = el("div", { class: "hidden" }, [
     el("div", { style: "display:flex;gap:6px;margin-bottom:10px;" }, [
@@ -82,9 +104,9 @@ export async function renderPanel(container, ctx, opts = {}) {
       el("button", { class: "btn btn-sm btn-primary", text: "💾 保存", onclick: savePromptLib }),
     ]),
     plSearch,
-    el("div", { class: "wc-pl-title", text: "✨ 内置提示词 (点击标签多选, 再点 \"添加选中\" 一次加入)" }),
+    el("div", { class: "wc-pl-title", text: "✨ 内置提示词 (点击标签多选, 点右上角 \"添加选中\" 一次加入)" }),
     builtinBox,
-    plSelBar,
+    plSelText,
     el("div", { class: "wc-pl-title", text: "⭐ 我的收藏" }),
     plList,
   ]);
@@ -133,6 +155,8 @@ export async function renderPanel(container, ctx, opts = {}) {
     createBtn.classList.toggle("hidden", !isCards);
     editCard.classList.toggle("hidden", !isCards);
     layout.classList.toggle("single", !isCards);
+    // 同步当前库给弹窗 (共用按钮的作用对象随之切换)
+    activeLib.set(isCards ? "cards" : "prompts");
     if (!isCards && !plLoaded) { plLoaded = true; loadPromptLib(); renderBuiltinPrompts(); }
   }
 
@@ -161,8 +185,8 @@ export async function renderPanel(container, ctx, opts = {}) {
           chip.addEventListener("click", () => {
             if (builtinSel.has(en)) builtinSel.delete(en);
             else builtinSel.add(en);
-            chip.classList.toggle("selected", builtinSel.has(en));
-            syncBuiltinSelBar();
+            // 共享给弹窗的 "添加选中/清除选择" 按钮 (onChange 里统一重渲染)
+            promptSelection.set([...builtinSel]);
           });
           return chip;
         })),
@@ -174,18 +198,17 @@ export async function renderPanel(container, ctx, opts = {}) {
 
   function syncBuiltinSelBar() {
     const n = builtinSel.size;
-    plSelText.textContent = n ? `已选 ${n} 个内置提示词` : "";
-    plSelBar.classList.toggle("hidden", !n);
+    plSelText.textContent = n ? `已选 ${n} 个内置提示词 — 点右上角 "➕ 添加选中" 加入, "✖ 清除选择" 取消` : "";
+    plSelText.classList.toggle("hidden", !n);
   }
 
-  /** 把多选的内置提示词一次性加入当前提示词输入框 */
-  function addSelectedBuiltin() {
-    if (!builtinSel.size) { toast("请先点击选择内置提示词", "warning"); return; }
-    if (!opts.addTarget) return;
-    addToPromptText([...builtinSel].join(", "));
+  // 弹窗 "✖ 清除选择" 或批量添加后会重置共享选择, 这里同步本地面板 UI
+  promptSelection.onChange((tags) => {
+    if (!container.isConnected) return;
     builtinSel.clear();
+    tags.forEach((t) => builtinSel.add(t));
     renderBuiltinPrompts();
-  }
+  });
 
   const plKey = (t) => (t || "").trim().toLowerCase().replace(/\s+/g, "_");
 

@@ -11,7 +11,7 @@
 // ============================================================
 import { $, $$, el, clear, toast, wireAutocomplete } from "./ui.js";
 import { post } from "./api.js";
-import { renderPanel, cardSelection, cardDrag } from "./views/wildcards.js";
+import { renderPanel, cardSelection, cardDrag, promptSelection, activeLib } from "./views/wildcards.js";
 import { appState } from "./app.js";
 
 let modalOpen = false;
@@ -88,7 +88,14 @@ export function openWildcardsModal(source, { title = "提示词" } = {}) {
     type: "button",
     text: "➕ 添加选中",
     disabled: true,
-    title: "把卡片库中选中的卡片批量加入下方提示词 (Ctrl+点击多选 / Shift+点击范围选, 也可直接拖入)",
+    title: "把下方库中选中的项批量加入提示词 (卡片库: Ctrl+点击多选 / Shift+点击范围选, 也可直接拖入; 提示词库: 点击标签多选)",
+  });
+  const clearSelBtn = el("button", {
+    class: "btn btn-sm",
+    type: "button",
+    text: "✖ 清除选择",
+    disabled: true,
+    title: "清除当前库中选中的项 (卡片/提示词)",
   });
   const modeBtn = el("button", { class: "btn btn-sm", type: "button", text: "✏️ 文本编辑", title: "在 标签块视图 / 文本输入 之间切换 (手动输入保留)" });
 
@@ -98,6 +105,7 @@ export function openWildcardsModal(source, { title = "提示词" } = {}) {
       el("span", { class: "muted wc-prompt-hint", text: "编辑实时同步回原输入框, 可直接生成" }),
       el("span", { class: "spacer" }),
       addSelBtn,
+      clearSelBtn,
       modeBtn,
     ]),
     editor,
@@ -365,11 +373,33 @@ export function openWildcardsModal(source, { title = "提示词" } = {}) {
     cardSelection.set(cardSelection.type, []);
   }
 
-  addSelBtn.addEventListener("click", () => addCards(cardSelection.names, cardSelection.type));
-  cardSelection.onChange((names) => {
-    addSelBtn.disabled = !names.length;
-    addSelBtn.textContent = names.length ? `➕ 添加选中 (${names.length})` : "➕ 添加选中";
+  addSelBtn.addEventListener("click", () => {
+    if (activeLib.lib === "prompts") {
+      const tags = [...promptSelection.tags];
+      if (!tags.length) { toast("请先在提示词库点击标签多选", "warning"); return; }
+      const cur = (ta.value || "").trim().replace(/,\s*$/, "");
+      addTarget.set(cur ? `${cur}, ${tags.join(", ")}` : tags.join(", "));
+      promptSelection.clear();
+      toast(`已添加 ${tags.length} 个提示词到提示词 🌸`, "success");
+    } else {
+      addCards(cardSelection.names, cardSelection.type);
+    }
   });
+  clearSelBtn.addEventListener("click", () => {
+    if (activeLib.lib === "prompts") promptSelection.clear();
+    else cardSelection.set(cardSelection.type, []);
+  });
+  /** 共用按钮状态: 随当前库和各自选择数量刷新 */
+  function refreshSelBtns() {
+    if (!addSelBtn.isConnected) return;
+    const n = activeLib.lib === "prompts" ? promptSelection.tags.length : cardSelection.names.length;
+    addSelBtn.disabled = !n;
+    addSelBtn.textContent = n ? `➕ 添加选中 (${n})` : "➕ 添加选中";
+    clearSelBtn.disabled = !n;
+  }
+  cardSelection.onChange(refreshSelBtns);
+  promptSelection.onChange(refreshSelBtns);
+  activeLib.onChange(refreshSelBtns);
 
   // ---- 拖拽: 卡片库 -> 提示词编辑器 ----
   editor.addEventListener("dragover", (e) => {
