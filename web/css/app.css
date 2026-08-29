@@ -2145,3 +2145,18 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
 .hitokoto:hover { color: var(--primary); }
 .hitokoto.swap { animation: hitokoto-in 0.45s ease; }
 @keyframes hitokoto-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+
+/* ------- 运行日志栏系统状态行 (版本 + CPU/内存/GPU 占用, 10 秒刷新) ------- */
+.sys-stats {
+  flex: 1;
+  min-width: 0;
+  margin-left: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-2);
+  font-family: var(--mono);
+  cursor: default;
+}

@@ -2,7 +2,7 @@
 // 可复用组件: 页签、画廊、日志、图片编辑器
 // ============================================================
 import { $, $$, el, clear, toast, sliderRow, enableDrop, edgeScroll, imageDropZone, wireAutocomplete, wildcardsButton } from "./ui.js";
-import { imageUrl, uploadFiles } from "./api.js";
+import { imageUrl, uploadFiles, get } from "./api.js";
 
 // ---------------- 页签 ----------------
 
@@ -100,6 +100,27 @@ export function initLogConsole() {
   autoScrollInput.checked = true;
   const logActions = document.querySelector(".log-actions");
   if (logActions) logActions.prepend(autoScroll);
+
+  // ---- 系统状态行: 系统版本 + CPU/内存/GPU 占用 ----
+  // 刷新间隔 10 秒: 采样 (尤其 nvidia-smi 子进程) 有开销, 不宜过短
+  const sysStats = el("span", { class: "sys-stats", id: "sys-stats", title: "系统资源占用 (每 10 秒刷新)" });
+  document.querySelector(".log-header span")?.after(sysStats);
+  const STATS_MS = 10 * 1000;
+  const fmtGb = (mb) => (mb >= 1024 ? (mb / 1024).toFixed(1) + "G" : Math.round(mb) + "M");
+  async function refreshStats() {
+    try {
+      const d = await get("/api/system/stats");
+      const parts = [`${d.os} · v${d.app_version}`, `💻 CPU ${Math.round(d.cpu_percent)}%`,
+        `🧠 内存 ${Math.round(d.mem_percent)}% (${d.mem_used_gb}/${d.mem_total_gb}G)`];
+      if (d.gpu) parts.push(`🎮 GPU ${Math.round(d.gpu.util)}% (${fmtGb(d.gpu.mem_used)}/${fmtGb(d.gpu.mem_total)})`);
+      sysStats.textContent = parts.join(" ┃ ");
+      sysStats.title = (d.gpu ? `GPU: ${d.gpu.name}\n` : "") +
+        `CPU ${d.cpu_cores} 线程 · 内存 ${d.mem_total_gb}G · ${d.arch}\n每 ${STATS_MS / 1000} 秒自动刷新`;
+    } catch { /* 读取失败静默, 保留上一次内容 */ }
+  }
+  refreshStats();
+  setInterval(refreshStats, STATS_MS);
+
   // 全量日志缓冲: 导出时包含启动至今的所有日志 (DOM 只保留最近若干条)
   const logBuffer = [];
   const DOM_MAX = 2000;

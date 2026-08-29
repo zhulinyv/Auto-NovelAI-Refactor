@@ -3,10 +3,14 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import re
+import subprocess
+import time
 import uuid
 from pathlib import Path
 
+import psutil
 from fastapi import APIRouter, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
@@ -505,6 +509,72 @@ async def hitokoto():
             errors.append(f"{e}")
     logger.warning(f"一言获取失败: {'; '.join(errors)}")
     return {"text": "", "from": "", "from_who": ""}
+
+
+# ---------------- 系统资源占用 (运行日志栏展示) ----------------
+
+# psutil.cpu_percent(interval=None) 首次调用无意义, 启动时先采样一次
+psutil.cpu_percent(interval=None)
+
+_GPU_CACHE = {"t": 0.0, "data": None}
+
+
+def _gpu_stats():
+    """通过 nvidia-smi 查询 GPU 占用; 结果缓存 5 秒, 避免频繁拉起子进程增加开销。"""
+    now = time.time()
+    if now - _GPU_CACHE["t"] < 5:
+        return _GPU_CACHE["data"]
+    try:
+        out = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name,utilization.gpu,memory.used,memory.total",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=4,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+        )
+        line = out.stdout.strip().splitlines()[0]
+        name, util, mem_used, mem_total = [x.strip() for x in line.split(",")]
+        _GPU_CACHE["data"] = {
+            "name": name,
+            "util": float(util),
+            "mem_used": float(mem_used),
+            "mem_total": float(mem_total),
+        }
+    except Exception:
+        _GPU_CACHE["data"] = None  # 无独立显卡或 nvidia-smi 不可用
+    _GPU_CACHE["t"] = now
+    return _GPU_CACHE["data"]
+
+
+def _os_name():
+    """系统版本: Windows 按构建号区分 10/11, 其余用 内核名+版本。"""
+    try:
+        if platform.system() == "Windows":
+            build = int(platform.version().split(".")[-1] or 0)
+            return f"Windows {'11' if build >= 22000 else platform.release()}"
+        return f"{platform.system()} {platform.release()}"
+    except Exception:
+        return platform.system()
+
+
+@router.get("/system/stats")
+async def system_stats():
+    """系统版本与资源占用 (CPU / 内存 / GPU): 运行日志栏展示。
+
+    刷新频率由前端控制 (10 秒一次), GPU 查询另有 5 秒缓存, 不宜再频繁调用。
+    """
+    mem = psutil.virtual_memory()
+    gpu = _gpu_stats()
+    return {
+        "app_version": VERSION,
+        "os": _os_name(),
+        "arch": platform.machine(),
+        "cpu_percent": psutil.cpu_percent(interval=None),
+        "cpu_cores": psutil.cpu_count(logical=True),
+        "mem_percent": mem.percent,
+        "mem_used_gb": round(mem.used / 1024**3, 1),
+        "mem_total_gb": round(mem.total / 1024**3, 1),
+        "gpu": gpu,
+    }
 
 
 # ---------------------------------------------------------------- wildcards
