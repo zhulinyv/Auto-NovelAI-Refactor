@@ -557,9 +557,9 @@ _GPU_CACHE = {"t": 0.0, "data": None}
 
 
 def _gpu_stats():
-    """通过 nvidia-smi 查询 GPU 占用; 结果缓存 5 秒, 避免频繁拉起子进程增加开销。"""
+    """通过 nvidia-smi 查询 GPU 占用; 结果缓存 1 秒 (与前端刷新频率一致)。"""
     now = time.time()
-    if now - _GPU_CACHE["t"] < 5:
+    if now - _GPU_CACHE["t"] < 1:
         return _GPU_CACHE["data"]
     try:
         out = subprocess.run(
@@ -595,10 +595,7 @@ def _os_name():
 
 @router.get("/system/stats")
 async def system_stats():
-    """系统版本与资源占用 (CPU / 内存 / GPU): 运行日志栏展示。
-
-    刷新频率由前端控制 (10 秒一次), GPU 查询另有 5 秒缓存, 不宜再频繁调用。
-    """
+    """系统版本与资源占用 (CPU / 内存 / GPU): 运行日志栏展示, 前端每 1 秒轮询。"""
     mem = psutil.virtual_memory()
     gpu = _gpu_stats()
     return {
