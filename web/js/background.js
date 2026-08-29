@@ -173,6 +173,8 @@ export function initBackgroundUI() {
   btn.addEventListener("click", (e) => {
     e.stopPropagation();
     const pop = getPopover();
+    // 打开本弹层前先收起其它顶部弹层 (背景/外观互斥, 避免重叠)
+    document.querySelectorAll(".bg-popover").forEach((p) => { if (p !== pop) p.classList.add("hidden"); });
     pop.classList.toggle("hidden");
     if (!pop.classList.contains("hidden")) refreshPopoverState(pop);
   });
