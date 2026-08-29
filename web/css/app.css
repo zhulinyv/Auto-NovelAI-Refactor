@@ -2230,3 +2230,13 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
 .wc-pl-chip-del:hover { background: color-mix(in srgb, var(--danger) 15%, transparent); }
 .wc-pl-cat-del { margin-left: 6px; opacity: 0.6; }
 .wc-pl-cat-del:hover { opacity: 1; }
+
+/* ------- 分类拖拽排序 (卡片 tab / 提示词分组) ------- */
+.tab-btn.drop-before { box-shadow: -3px 0 0 0 var(--primary); }
+.tab-btn.dragging { opacity: 0.45; }
+.wc-pl-group-drag { display: flex; align-items: center; gap: 4px; cursor: grab; }
+.wc-pl-group-drag:active { cursor: grabbing; }
+.wc-pl-group-name .wc-pl-chip-del { display: none; margin-left: 4px; font-size: 11px; }
+.wc-pl-group-name:hover .wc-pl-chip-del { display: inline; }
+.wc-pl-group.drop-before { box-shadow: 0 -3px 0 0 var(--primary); }
+.wc-pl-group.pl-dragging { opacity: 0.45; }

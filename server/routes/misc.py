@@ -674,6 +674,16 @@ async def delete_wildcard(wildcard_type: str, wildcard_name: str):
     return {"message": f"已将 <{wildcard_type}:{wildcard_name}> 移动到回收站!"}
 
 
+@router.post("/wildcards/reorder-types")
+async def wildcards_reorder_types(payload: dict):
+    """保存卡片库分类的自定义排序 (拖拽调整)。"""
+    types = payload.get("types")
+    if not isinstance(types, list) or not all(isinstance(t, str) for t in types):
+        raise HTTPException(status_code=400, detail="参数不合法")
+    wildcards.save_types_order([t.strip() for t in types if t.strip()])
+    return {"ok": True}
+
+
 @router.post("/wildcards/delete-type")
 async def wildcards_delete_type(payload: dict):
     """删除整个 wildcards 分类 (文件夹连同卡片/封面移到回收站)。"""
@@ -861,6 +871,40 @@ async def prompt_library_delete_category(payload: dict):
     items = [x for x in _read_prompt_lib() if x["category"] != category]
     _write_prompt_lib(items)
     return {"items": items}
+
+
+_PROMPT_LIB_META_FILE = BASE_DIR / "outputs" / "prompt_library_meta.json"
+
+
+def _read_prompt_lib_meta():
+    """提示词库附加信息: 自带标签/分类隐藏列表 + 分类自定义排序。"""
+    meta = {"hidden_tags": [], "hidden_categories": [], "category_order": []}
+    try:
+        data = json.loads(_PROMPT_LIB_META_FILE.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            for key in meta:
+                if isinstance(data.get(key), list):
+                    meta[key] = [str(x) for x in data[key]]
+    except Exception:
+        pass
+    return meta
+
+
+@router.get("/prompt-library/meta")
+async def prompt_library_meta_get():
+    return _read_prompt_lib_meta()
+
+
+@router.post("/prompt-library/meta")
+async def prompt_library_meta_save(payload: dict):
+    """部分更新提示词库附加信息 (hidden_tags / hidden_categories / category_order)。"""
+    meta = _read_prompt_lib_meta()
+    for key in ("hidden_tags", "hidden_categories", "category_order"):
+        if key in payload and isinstance(payload[key], list):
+            meta[key] = [str(x) for x in payload[key]]
+    _PROMPT_LIB_META_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _PROMPT_LIB_META_FILE.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    return meta
 
 
 @router.post("/suggest/translate")

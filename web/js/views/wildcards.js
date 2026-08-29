@@ -89,21 +89,68 @@ export async function renderPanel(container, ctx, opts = {}) {
   ]);
   const cardLibBox = el("div", {}, [typeList, searchBox, grid, selBar]);
 
+  // ---- 分类 tab 拖拽排序 ----
+  let typeDragKey = null;
+  let typeDropKey = null;
+
+  typeList.addEventListener("dragover", (e) => {
+    if (!typeDragKey) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+    const tabs = [...typeList.querySelectorAll(".tab-btn")];
+    let target = null;
+    for (const tb of tabs) {
+      if (tb.dataset.key === typeDragKey) continue;
+      const r = tb.getBoundingClientRect();
+      if (e.clientX < r.left + r.width / 2) { target = tb; break; }
+    }
+    $$(".tab-btn.drop-before", typeList).forEach((x) => x.classList.remove("drop-before"));
+    (target || tabs[tabs.length - 1])?.classList.add("drop-before");
+    typeDropKey = target ? target.dataset.key : "__end__";
+  });
+  typeList.addEventListener("dragleave", (e) => {
+    if (!typeList.contains(e.relatedTarget)) {
+      $$(".tab-btn.drop-before", typeList).forEach((x) => x.classList.remove("drop-before"));
+    }
+  });
+  typeList.addEventListener("drop", async (e) => {
+    if (!typeDragKey) return;
+    e.preventDefault();
+    const key = typeDragKey;
+    typeDragKey = null;
+    $$(".tab-btn.drop-before", typeList).forEach((x) => x.classList.remove("drop-before"));
+    const ordered = allTypes.filter((t) => t !== key);
+    let at = typeDropKey === "__end__" ? ordered.length : ordered.indexOf(typeDropKey);
+    if (at < 0) at = ordered.length;
+    ordered.splice(at, 0, key);
+    allTypes = ordered;
+    try {
+      await post("/api/wildcards/reorder-types", { types: ordered });
+      toast("分类顺序已保存 ↕️", "success");
+    } catch (err) { toast(err.message, "error"); }
+    await loadTypes();   // 按新顺序重绘 tab
+  });
+
   // ---------------- 提示词库 (内置分类提示词 + 用户收藏) ----------------
   const plSearch = el("input", { type: "text", class: "wc-search", placeholder: "🔍 搜索提示词..." });
   plSearch.addEventListener("input", () => { plKeyword = plSearch.value; renderPromptChips(); });
   const plInput = el("input", { type: "text", style: "flex:1;min-width:0;", placeholder: "输入关键词或一段提示词, 保存后可随时加入提示词" });
   plInput.addEventListener("keydown", (e) => { if (e.key === "Enter") savePromptLib(); });
-  // 分类: 从已有分类中选择, 也可直接输入新分类
-  const plCatInput = el("input", { type: "text", list: "pl-cat-list", style: "width:150px;flex-shrink:0;", placeholder: "📁 分类 (可新建)" });
-  const plCatList = el("datalist", { id: "pl-cat-list" });
+  // 分类: 与新建卡片一致的下拉形式, 支持选择已有分类或直接输入新分类
+  const plCatInput = el("input", { type: "text", placeholder: "选择已有分类, 或输入新分类" });
+  const plCatWrap = el("div", { class: "wc-type-wrap", style: "width:180px;flex-shrink:0;" }, [
+    plCatInput,
+    el("button", {
+      class: "wc-type-caret", type: "button", text: "▾", title: "选择已有分类",
+      onclick: (e) => { e.stopPropagation(); togglePlCatDropdown(); },
+    }),
+  ]);
   // 内置提示词多选计数 (添加/清除使用弹窗右上角的共用按钮)
   const plSelText = el("div", { class: "wc-pl-selbar muted hidden", text: "" });
   const builtinBox = el("div", { class: "wc-pl-builtin" });
   const promptLibBox = el("div", { class: "hidden" }, [
     el("div", { style: "display:flex;gap:6px;margin-bottom:10px;" }, [
-      plCatInput,
-      plCatList,
+      plCatWrap,
       plInput,
       el("button", { class: "btn btn-sm btn-primary", text: "💾 保存", onclick: savePromptLib }),
     ]),
@@ -147,6 +194,7 @@ export async function renderPanel(container, ctx, opts = {}) {
   let plItems = [];
   let plKeyword = "";
   let plLoaded = false;
+  let plMeta = { hidden_tags: [], hidden_categories: [], category_order: [] };
 
   function switchLib(which) {
     const isCards = which === "cards";
@@ -183,22 +231,41 @@ export async function renderPanel(container, ctx, opts = {}) {
 
   async function loadPromptLib() {
     try {
-      const res = await get("/api/prompt-library");
+      const [res, meta] = await Promise.all([
+        get("/api/prompt-library"),
+        get("/api/prompt-library/meta"),
+      ]);
       plItems = res.items || [];
+      plMeta = meta || plMeta;
       renderPromptChips();
-      syncCatList();
       await translatePromptLib(plItems.map((it) => it.text));
     } catch (e) {
       toast("读取提示词库失败: " + e.message, "error");
     }
   }
 
-  /** 分类下拉候选: 已有的用户分类 */
-  function syncCatList() {
-    clear(plCatList);
-    [...new Set(plItems.map((it) => it.category || "默认"))].forEach((c) =>
-      plCatList.append(el("option", { value: c })));
+  /** 部分更新提示词库元数据 (隐藏标签/分类, 分类排序) */
+  async function savePlMeta(patch) {
+    try {
+      plMeta = await post("/api/prompt-library/meta", patch);
+    } catch (e) { toast(e.message, "error"); }
   }
+
+  /** 分类下拉: 与新建卡片一致的形式 (选择已有 / 直接输入新建) */
+  function togglePlCatDropdown() {
+    const dd = plCatWrap.querySelector(".wc-type-dd");
+    if (dd) { dd.remove(); return; }
+    document.querySelectorAll(".wc-type-dd").forEach((x) => x.remove());
+    const cats = [...new Set(plItems.map((it) => it.category || "默认"))];
+    const list = el("div", { class: "wc-type-dd" }, cats.map((c) =>
+      el("div", { class: "wc-type-item", text: "📁 " + c, onclick: () => { plCatInput.value = c; dd.remove(); } })));
+    if (!cats.length) list.append(el("div", { class: "muted", style: "padding:10px;text-align:center;", text: "暂无已有分类, 直接输入即新建" }));
+    plCatWrap.append(list);
+  }
+  const closePlCatDd = (e) => {
+    if (e.target instanceof Element && !plCatWrap.contains(e.target)) plCatWrap.querySelector(".wc-type-dd")?.remove();
+  };
+  document.addEventListener("click", closePlCatDd);
 
   async function translatePromptLib(texts) {
     const missing = texts.filter((t) => !plZh.has(plKey(t)));
@@ -213,20 +280,31 @@ export async function renderPanel(container, ctx, opts = {}) {
   function renderPromptChips() {
     clear(builtinBox);
     const kw = plKeyword.trim().toLowerCase();
+    const hiddenTags = new Set(plMeta.hidden_tags || []);
+    const hiddenCats = new Set(plMeta.hidden_categories || []);
+    const order = plMeta.category_order || [];
     let shown = 0;
-    // 内置分组 (静态数据)
+    const groups = [];
+    // 内置分组 (可隐藏分类/标签)
     for (const group of builtinPromptGroups) {
+      if (hiddenCats.has(group.name)) continue;
       const tags = group.tags.filter(([en, zh]) =>
-        !kw || en.toLowerCase().includes(kw) || (zh || "").toLowerCase().includes(kw));
+        !hiddenTags.has(en) && (!kw || en.toLowerCase().includes(kw) || (zh || "").toLowerCase().includes(kw)));
       if (!tags.length) continue;
       shown += tags.length;
-      builtinBox.append(chipGroup(`${group.name} (${tags.length})`,
-        tags.map(([en, zh]) => makePromptChip(en, zh, null))));
+      groups.push({
+        key: group.name,
+        name: `${group.name} (${tags.length})`,
+        chips: tags.map(([en, zh]) => makePromptChip(en, zh, { builtin: en })),
+        builtinCat: group.name,
+        builtinCount: tags.length,
+      });
     }
     // 用户收藏分组 (与内置同样式; 分类和单条均可删除)
     const userGroups = new Map();
     plItems.forEach((it) => {
       const cat = it.category || "默认";
+      if (hiddenCats.has(cat)) return;
       if (!userGroups.has(cat)) userGroups.set(cat, []);
       userGroups.get(cat).push(it);
     });
@@ -234,42 +312,145 @@ export async function renderPanel(container, ctx, opts = {}) {
       const visible = items.filter((it) => !kw || it.text.toLowerCase().includes(kw) || cat.toLowerCase().includes(kw));
       if (!visible.length) return;
       shown += visible.length;
-      builtinBox.append(chipGroup(`📁 ${cat} (${visible.length})`,
-        visible.map((it) => makePromptChip(it.text, plZh.get(plKey(it.text)) || "", it)), cat));
+      groups.push({
+        key: cat,
+        name: `📁 ${cat} (${visible.length})`,
+        chips: visible.map((it) => makePromptChip(it.text, plZh.get(plKey(it.text)) || "", { userItem: it })),
+        userCat: cat,
+        userCount: items.length,
+      });
     });
+    // 应用自定义排序 (未排序的按原顺序追加在后)
+    const rank = (key) => {
+      const i = order.indexOf(key);
+      return i === -1 ? 9999 : i;
+    };
+    groups.sort((a, b) => rank(a.key) - rank(b.key));
+    groups.forEach((g) => builtinBox.append(buildGroupRow(g)));
     if (!shown) builtinBox.append(el("div", { class: "gallery-empty", text: "没有匹配的提示词" }));
     syncBuiltinSelBar();
   }
 
-  /** 一个横向标签分组: 标题 + 标签行; deleteCat 非空时附分类删除按钮 */
-  function chipGroup(name, chips, deleteCat) {
-    const tagsRow = el("div", { class: "wc-pl-group-tags" }, chips);
-    if (deleteCat != null) {
-      tagsRow.append(el("button", {
-        class: "btn btn-sm btn-clear-file wc-pl-cat-del", text: "🗑",
-        title: "删除该分类及其中所有收藏 (不可恢复)",
-        onclick: async () => {
-          const n = plItems.filter((it) => (it.category || "默认") === deleteCat).length;
-          const ok = await confirmDialog(`确定删除分类「${deleteCat}」? 其中 ${n} 条收藏将一并删除, 不可恢复。`, { danger: true });
+  /** 一个横向标签分组行: 分类名 (拖拽排序 + 悬停显示删除) + 标签行 */
+  function buildGroupRow(g) {
+    const nameCell = el("div", {
+      class: "wc-pl-group-name wc-pl-group-drag",
+      title: "拖动调整分类顺序",
+      draggable: true,
+    }, [el("span", { class: "wc-pl-group-title", text: g.name })]);
+    if (g.builtinCat != null) {
+      // 自带分类: 悬停显示隐藏按钮 (可编辑 meta 文件恢复)
+      nameCell.append(el("span", {
+        class: "wc-pl-chip-del", text: "✕", title: "隐藏该自带分类 (含全部标签)",
+        onclick: async (e) => {
+          e.stopPropagation();
+          const ok = await confirmDialog(`隐藏自带分类「${g.builtinCat}」(含 ${g.builtinCount} 个标签)? 恢复需编辑 outputs/prompt_library_meta.json。`, { danger: true });
+          if (!ok) return;
+          await savePlMeta({ hidden_categories: [...new Set([...(plMeta.hidden_categories || []), g.builtinCat])] });
+          renderPromptChips();
+          toast(`自带分类「${g.builtinCat}」已隐藏 🫥`, "success");
+        },
+      }));
+    }
+    if (g.userCat != null) {
+      // 用户分类: 悬停显示删除按钮 (连带所有收藏)
+      nameCell.append(el("span", {
+        class: "wc-pl-chip-del", text: "🗑", title: "删除该分类及其中所有收藏 (不可恢复)",
+        onclick: async (e) => {
+          e.stopPropagation();
+          const ok = await confirmDialog(`确定删除分类「${g.userCat}」? 其中 ${g.userCount} 条收藏将一并删除, 不可恢复。`, { danger: true });
           if (!ok) return;
           try {
-            const res = await post("/api/prompt-library/delete-category", { category: deleteCat });
+            const res = await post("/api/prompt-library/delete-category", { category: g.userCat });
             plItems = res.items || [];
             renderPromptChips();
-            syncCatList();
-            toast(`分类「${deleteCat}」已删除 🗑️`, "success");
+            toast(`分类「${g.userCat}」已删除 🗑️`, "success");
           } catch (err) { toast(err.message, "error"); }
         },
       }));
     }
-    return el("div", { class: "wc-pl-group" }, [
-      el("div", { class: "wc-pl-group-name", text: name }),
-      tagsRow,
+    const row = el("div", { class: "wc-pl-group", "data-key": g.key }, [
+      nameCell,
+      el("div", { class: "wc-pl-group-tags" }, g.chips),
     ]);
+    // 拖拽排序: 按住分类名拖动
+    nameCell.addEventListener("dragstart", (e) => {
+      plDragKey = g.key;
+      row.classList.add("pl-dragging");
+      try {
+        e.dataTransfer.setData("text/plain", g.key);
+        e.dataTransfer.effectAllowed = "move";
+      } catch { /* 忽略 */ }
+    });
+    nameCell.addEventListener("dragend", () => {
+      plDragKey = null;
+      row.classList.remove("pl-dragging");
+      clearPlDropMarks();
+    });
+    return row;
   }
 
-  /** 提示词标签: 内置与用户通用; userItem 非空时悬停显示单条删除按钮 */
-  function makePromptChip(en, zh, userItem) {
+  // ---- 提示词分类拖拽排序 ----
+  let plDragKey = null;
+  let plDropTargetKey = null;
+
+  function clearPlDropMarks() {
+    $$(".wc-pl-group.drop-before", builtinBox).forEach((x) => x.classList.remove("drop-before"));
+  }
+
+  builtinBox.addEventListener("dragover", (e) => {
+    if (!plDragKey) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+    const rows = [...builtinBox.querySelectorAll(".wc-pl-group")];
+    let target = null;
+    for (const r of rows) {
+      if (r.dataset.key === plDragKey) continue;
+      const rect = r.getBoundingClientRect();
+      if (e.clientY < rect.top + rect.height / 2) { target = r; break; }
+    }
+    clearPlDropMarks();
+    (target || rows[rows.length - 1])?.classList.add("drop-before");
+    plDropTargetKey = target ? target.dataset.key : "__end__";
+  });
+  builtinBox.addEventListener("dragleave", (e) => {
+    if (!builtinBox.contains(e.relatedTarget)) clearPlDropMarks();
+  });
+  builtinBox.addEventListener("drop", async (e) => {
+    if (!plDragKey) return;
+    e.preventDefault();
+    const key = plDragKey;
+    plDragKey = null;
+    clearPlDropMarks();
+    // 完整分类键序 = 可见组 (内置+用户) + 隐藏分类补尾
+    const hidden = new Set(plMeta.hidden_categories || []);
+    const allKeys = [];
+    for (const g of builtinPromptGroups) {
+      if (!hidden.has(g.name) && !allKeys.includes(g.name)) allKeys.push(g.name);
+    }
+    plItems.forEach((it) => {
+      const c = it.category || "默认";
+      if (!hidden.has(c) && !allKeys.includes(c)) allKeys.push(c);
+    });
+    (plMeta.hidden_categories || []).forEach((c) => { if (!allKeys.includes(c)) allKeys.push(c); });
+    const prev = plMeta.category_order || [];
+    const rank = (k) => {
+      const i = prev.indexOf(k);
+      return i === -1 ? 9999 : i;
+    };
+    const ordered = [...allKeys].sort((a, b) => rank(a) - rank(b));
+    const without = ordered.filter((k) => k !== key);
+    let at = plDropTargetKey === "__end__" ? without.length : without.indexOf(plDropTargetKey);
+    if (at < 0) at = without.length;
+    without.splice(at, 0, key);
+    plDropTargetKey = null;
+    await savePlMeta({ category_order: without });
+    renderPromptChips();
+    toast("分类顺序已保存 ↕️", "success");
+  });
+
+  /** 提示词标签: 内置与用户通用; 悬停可删除 (内置为隐藏, 用户为真删除) */
+  function makePromptChip(en, zh, opts = {}) {
     const chip = el("span", {
       class: "wc-pl-chip" + (builtinSel.has(en) ? " selected" : ""),
       title: zh ? `${en} · ${zh}` : en,
@@ -277,7 +458,7 @@ export async function renderPanel(container, ctx, opts = {}) {
       el("span", { text: en }),
       zh ? el("span", { class: "wc-pl-chip-zh", text: zh }) : null,
     ]);
-    if (userItem) {
+    if (opts.userItem) {
       chip.append(el("span", {
         class: "wc-pl-chip-del", text: "✕", title: "从库中删除这条收藏",
         onclick: async (e) => {
@@ -288,9 +469,20 @@ export async function renderPanel(container, ctx, opts = {}) {
             builtinSel.delete(en);
             promptSelection.set([...builtinSel]);
             renderPromptChips();
-            syncCatList();
             toast("已从提示词库删除 🗑️", "success");
           } catch (err) { toast(err.message, "error"); }
+        },
+      }));
+    } else if (opts.builtin) {
+      chip.append(el("span", {
+        class: "wc-pl-chip-del", text: "✕", title: "隐藏该自带标签 (可编辑 meta 文件恢复)",
+        onclick: async (e) => {
+          e.stopPropagation();
+          await savePlMeta({ hidden_tags: [...new Set([...(plMeta.hidden_tags || []), en])] });
+          builtinSel.delete(en);
+          promptSelection.set([...builtinSel]);
+          renderPromptChips();
+          toast(`自带标签「${en}」已隐藏 🫥`, "success");
         },
       }));
     }
@@ -303,7 +495,7 @@ export async function renderPanel(container, ctx, opts = {}) {
     return chip;
   }
 
-  /** 把一段文字追加到当前提示词 (提示词库使用) */
+  /** 把一段文字追加到当前提示词 (提示词库使用) (提示词库使用) */
   function addToPromptText(text) {
     if (!opts.addTarget) return;
     const cur = (opts.addTarget.get() || "").trim().replace(/,\s*$/, "");
@@ -320,7 +512,6 @@ export async function renderPanel(container, ctx, opts = {}) {
       plItems = res.items || [];
       plInput.value = "";
       renderPromptChips();
-      syncCatList();
       await translatePromptLib(plItems.map((it) => it.text));
       toast(`已保存到提示词库「${category}」📚`, "success");
     } catch (e) { toast(e.message, "error"); }
@@ -334,7 +525,21 @@ export async function renderPanel(container, ctx, opts = {}) {
     allTypes = res.types || [];
     clear(typeList);
     allTypes.forEach((t) => {
-      const tab = el("button", { class: "tab-btn" + (t === state.type ? " active" : ""), title: t });
+      const tab = el("button", { class: "tab-btn" + (t === state.type ? " active" : ""), title: t, "data-key": t });
+      tab.draggable = true;
+      tab.addEventListener("dragstart", (e) => {
+        typeDragKey = t;
+        tab.classList.add("dragging");
+        try {
+          e.dataTransfer.setData("text/plain", t);
+          e.dataTransfer.effectAllowed = "move";
+        } catch { /* 忽略 */ }
+      });
+      tab.addEventListener("dragend", () => {
+        typeDragKey = null;
+        tab.classList.remove("dragging");
+        $$(".tab-btn.drop-before", typeList).forEach((x) => x.classList.remove("drop-before"));
+      });
       tab.append(el("span", { text: "📁 " + t }));
       // 悬停显示删除分类按钮 (文件夹连同卡片移到回收站)
       tab.append(el("span", {

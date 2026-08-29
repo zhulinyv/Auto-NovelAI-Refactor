@@ -1,6 +1,7 @@
 """Wildcards 管理服务 (支持图片封面)。"""
 from __future__ import annotations
 
+import json
 import os
 import send2trash
 from pathlib import Path
@@ -13,10 +14,35 @@ WILDCARDS_DIR = Path("./wildcards")
 _COVER_EXTS = (".png", ".jpg", ".jpeg", ".webp", ".gif")
 
 
+_TYPES_ORDER_FILE = Path("./outputs/wildcards_order.json")
+
+
 def list_types() -> list[str]:
     if not WILDCARDS_DIR.exists():
         return []
-    return [d for d in sorted(os.listdir(WILDCARDS_DIR)) if (WILDCARDS_DIR / d).is_dir()]
+    actual = [d for d in sorted(os.listdir(WILDCARDS_DIR)) if (WILDCARDS_DIR / d).is_dir()]
+    # 应用用户自定义排序 (拖拽调整, 新分类追加在后)
+    order = []
+    try:
+        data = json.loads(_TYPES_ORDER_FILE.read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            order = [t for t in data if isinstance(t, str)]
+    except Exception:
+        pass
+    known = [t for t in order if t in actual]
+    rest = [t for t in actual if t not in known]
+    return known + rest
+
+
+def save_types_order(types: list[str]) -> None:
+    """保存卡片库分类的自定义排序。"""
+    if not WILDCARDS_DIR.exists():
+        return
+    actual = {d for d in os.listdir(WILDCARDS_DIR) if (WILDCARDS_DIR / d).is_dir()}
+    ordered = [t for t in types if t in actual]
+    rest = sorted(t for t in actual if t not in ordered)
+    _TYPES_ORDER_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _TYPES_ORDER_FILE.write_text(json.dumps(ordered + rest, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def list_names(wildcard_type: str) -> list[str]:
