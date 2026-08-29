@@ -19,10 +19,12 @@ const state = {
   images: [],
   sortKey: "name", // name | mtime | size
   sortAsc: true,
-  recursive: false,
+  recursive: true, // 递归展示默认开启
   folderSig: "",
   imgSig: "",
 };
+// 文件夹树展开状态 (已展开的文件夹路径集合; 未展开的有子级文件夹只显示一行)
+const expandedDirs = new Set();
 
 // ---------------- 查看动作 (查看器按钮直接调用) ----------------
 
@@ -144,28 +146,72 @@ function renderGrid() {
   });
 }
 
+// ---------------- 文件夹树 (可展开 / 收起) ----------------
+
+/** 把相对路径列表组装成树: { path, children: Map } */
+function buildFolderTree(folders) {
+  const root = { path: "", children: new Map() };
+  for (const f of folders) {
+    if (!f) continue;
+    const parts = f.split("/");
+    let node = root;
+    parts.forEach((p, i) => {
+      const path = parts.slice(0, i + 1).join("/");
+      if (!node.children.has(path)) node.children.set(path, { path, children: new Map() });
+      node = node.children.get(path);
+    });
+  }
+  return root;
+}
+
+function folderRow(path, label, depth, hasChildren) {
+  const open = expandedDirs.has(path);
+  const row = el("div", {
+    class: "browse-folder" + (path === state.dir ? " active" : ""),
+    title: path || "outputs",
+    style: `padding-left:${10 + depth * 14}px;`,
+  });
+  // 展开 / 收起箭头 (无子文件夹的目录占位对齐)
+  const caret = el("span", {
+    class: "browse-caret" + (hasChildren ? "" : " leaf"),
+    text: hasChildren ? (open ? "▾" : "▸") : "",
+    title: hasChildren ? (open ? "收起子文件夹" : "展开子文件夹") : "",
+  });
+  caret.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (!hasChildren) return;
+    if (expandedDirs.has(path)) expandedDirs.delete(path);
+    else expandedDirs.add(path);
+    renderFolders();
+  });
+  row.append(
+    caret,
+    el("span", { text: path ? (open && hasChildren ? "📂" : "📁") : "🏠" }),
+    el("span", { text: label, style: "overflow:hidden;text-overflow:ellipsis;" }),
+  );
+  row.addEventListener("click", async () => {
+    state.dir = path;
+    // 选中目录时自动展开, 方便继续往里浏览
+    if (hasChildren) expandedDirs.add(path);
+    renderFolders();
+    await loadImages();
+  });
+  return row;
+}
+
 function renderFolders() {
   const box = document.getElementById("browse-folders");
   if (!box) return;
   clear(box);
-  state.folders.forEach((f) => {
-    const depth = f ? f.split("/").length : 0;
-    const label = f ? f.split("/").pop() : "outputs (根目录)";
-    const row = el("div", {
-      class: "browse-folder" + (f === state.dir ? " active" : ""),
-      title: f || "outputs",
-      style: `padding-left:${10 + depth * 14}px;`,
-    }, [
-      el("span", { text: f ? "📁" : "🏠" }),
-      el("span", { text: label, style: "overflow:hidden;text-overflow:ellipsis;" }),
-    ]);
-    row.addEventListener("click", async () => {
-      state.dir = f;
-      renderFolders();
-      await loadImages();
-    });
-    box.append(row);
-  });
+  box.append(folderRow("", "outputs (根目录)", 0, false));
+  const root = buildFolderTree(state.folders);
+  const walk = (node, depth) => {
+    for (const child of node.children.values()) {
+      box.append(folderRow(child.path, child.path.split("/").pop(), depth, child.children.size > 0));
+      if (expandedDirs.has(child.path)) walk(child, depth + 1);
+    }
+  };
+  walk(root, 1);
 }
 
 async function loadFolders() {

@@ -512,12 +512,35 @@ function insertSuggestion(textarea, suggestion) {
 }
 
 /** 为提示词输入框接入 /api/suggest 自动补全 (TAB 快速插入, ↑/↓ 切换, Enter 确认, Esc 关闭)。
- *  支持 标签 / 别名 / 中文翻译 三种方式匹配, 结果带 Danbooru 分类着色、匹配高亮与热度。 */
-export function wireAutocomplete(textarea, wrap) {
-  const list = el("div", { class: "suggest-list hidden", style: "left:0;right:0;" });
-  wrap.append(list);
+ *  支持 标签 / 别名 / 中文翻译 三种方式匹配, 结果带 Danbooru 分类着色、匹配高亮与热度。
+ *  opts.portal: 传入一个定位根元素 (如全屏弹窗的 overlay) 时, 补全列表挂到该根节点并用
+ *  fixed 定位, 避免被输入框所在的 overflow 裁剪容器 (如标签块视图) 挡住。 */
+export function wireAutocomplete(textarea, wrap, opts = {}) {
+  const portalRoot = opts.portal || null;
+  const list = el("div", { class: "suggest-list hidden" + (portalRoot ? " suggest-portal" : "") });
+  if (!portalRoot) { list.style.left = "0"; list.style.right = "0"; }
+  (portalRoot || wrap).append(list);
   let items = [];
   let active = -1;
+
+  /** portal 模式: 按输入框视口位置放置下拉 (下方放不下时向上弹) */
+  function place() {
+    if (!portalRoot) return;
+    const r = textarea.getBoundingClientRect();
+    list.style.left = Math.round(r.left) + "px";
+    list.style.top = Math.round(r.bottom + 4) + "px";
+    list.style.width = Math.max(Math.round(r.width), 360) + "px";
+    const h = list.offsetHeight;
+    if (r.bottom + 4 + h > window.innerHeight - 8 && r.top - h - 4 > 0) {
+      list.style.top = Math.round(r.top - h - 4) + "px";
+    }
+  }
+  if (portalRoot) {
+    // 输入框所在容器滚动时同步位置 (capture 捕获内部滚动); 监听挂在 portal 根上, 随弹窗销毁
+    portalRoot.addEventListener("scroll", () => {
+      if (!list.classList.contains("hidden")) place();
+    }, true);
+  }
 
   function hide() { list.classList.add("hidden"); active = -1; }
   function setActive(i) {
@@ -563,7 +586,10 @@ export function wireAutocomplete(textarea, wrap) {
       item.addEventListener("mousemove", () => setActive(i));
       list.append(item);
     });
-    if (results.length) list.classList.remove("hidden");
+    if (results.length) {
+      list.classList.remove("hidden");
+      place();
+    }
   }
   function insertActive() {
     if (active < 0) active = 0;

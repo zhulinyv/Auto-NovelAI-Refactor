@@ -10,6 +10,7 @@
 import { $, $$, el, clear, toast, wireAutocomplete } from "../ui.js";
 import { get, post, del, imageUrl } from "../api.js";
 import { getCurrentOutputImage } from "./generate.js";
+import { builtinPromptGroups } from "../data/builtinPrompts.js";
 
 let S = null;
 const state = { type: null, name: null, keyword: "", lastIdx: -1 };
@@ -62,26 +63,39 @@ export async function renderPanel(container, ctx, opts = {}) {
     el("button", { class: "tab-btn", text: "📚 提示词库", onclick: () => switchLib("prompts") }),
   ]);
   const cardLibBox = el("div", {}, [typeList, searchBox, grid, selBar]);
+
+  // ---------------- 提示词库 (内置分类提示词 + 用户收藏) ----------------
   const plList = el("div", { class: "wc-pl-list" });
   const plSearch = el("input", { type: "text", class: "wc-search", placeholder: "🔍 搜索提示词..." });
-  plSearch.addEventListener("input", () => { plKeyword = plSearch.value; renderPromptLib(); });
+  plSearch.addEventListener("input", () => { plKeyword = plSearch.value; renderPromptLib(); renderBuiltinPrompts(); });
   const plInput = el("input", { type: "text", placeholder: "输入关键词, 保存后可随时加入提示词" });
   plInput.addEventListener("keydown", (e) => { if (e.key === "Enter") savePromptLib(); });
+  // 内置提示词多选操作条 (选中后才显示)
+  const plSelText = el("span", { class: "muted", text: "" });
+  const plAddSelBtn = el("button", { class: "btn btn-sm btn-primary", text: "➕ 添加选中", onclick: addSelectedBuiltin });
+  const plClearSelBtn = el("button", { class: "btn btn-sm btn-ghost", text: "✖ 清除选择", onclick: () => { builtinSel.clear(); renderBuiltinPrompts(); } });
+  const plSelBar = el("div", { class: "wc-pl-selbar hidden" }, [plSelText, el("span", { class: "spacer" }), plClearSelBtn, plAddSelBtn]);
+  const builtinBox = el("div", { class: "wc-pl-builtin" });
   const promptLibBox = el("div", { class: "hidden" }, [
     el("div", { style: "display:flex;gap:6px;margin-bottom:10px;" }, [
       plInput,
       el("button", { class: "btn btn-sm btn-primary", text: "💾 保存", onclick: savePromptLib }),
     ]),
     plSearch,
+    el("div", { class: "wc-pl-title", text: "✨ 内置提示词 (点击标签多选, 再点 \"添加选中\" 一次加入)" }),
+    builtinBox,
+    plSelBar,
+    el("div", { class: "wc-pl-title", text: "⭐ 我的收藏" }),
     plList,
   ]);
 
+  const createBtn = el("button", { class: "btn btn-sm", text: "➕ 新建卡片", onclick: () => { switchLib("cards"); showCreate(); } });
   const browseCard = el("div", { class: "card wc-browse" }, [
     el("div", { class: "wc-browse-head" }, [
       el("div", { class: "card-title", text: "🗂️ 素材库" }),
       countEl,
       el("span", { class: "spacer" }),
-      el("button", { class: "btn btn-sm", text: "➕ 新建卡片", onclick: () => { switchLib("cards"); showCreate(); } }),
+      createBtn,
     ]),
     libTabs,
     cardLibBox,
@@ -115,7 +129,62 @@ export async function renderPanel(container, ctx, opts = {}) {
     [...libTabs.children].forEach((b, i) => b.classList.toggle("active", i === 0 === isCards));
     cardLibBox.classList.toggle("hidden", !isCards);
     promptLibBox.classList.toggle("hidden", isCards);
-    if (!isCards && !plLoaded) { plLoaded = true; loadPromptLib(); }
+    // 提示词库下没有"卡片"概念: 隐藏新建卡片入口和右侧编辑卡片区域 (单栏布局)
+    createBtn.classList.toggle("hidden", !isCards);
+    editCard.classList.toggle("hidden", !isCards);
+    layout.classList.toggle("single", !isCards);
+    if (!isCards && !plLoaded) { plLoaded = true; loadPromptLib(); renderBuiltinPrompts(); }
+  }
+
+  // ---------------- 内置提示词 (参考 PAI 预设: 分类分组, 横向标签, 可多选) ----------------
+  const builtinSel = new Set();   // 已勾选的内置提示词 (英文 tag)
+
+  function renderBuiltinPrompts() {
+    clear(builtinBox);
+    const kw = plKeyword.trim().toLowerCase();
+    let shown = 0;
+    for (const group of builtinPromptGroups) {
+      const tags = group.tags.filter(([en, zh]) =>
+        !kw || en.toLowerCase().includes(kw) || (zh || "").toLowerCase().includes(kw));
+      if (!tags.length) continue;
+      shown += tags.length;
+      builtinBox.append(el("div", { class: "wc-pl-group" }, [
+        el("div", { class: "wc-pl-group-name", text: group.name }),
+        el("div", { class: "wc-pl-group-tags" }, tags.map(([en, zh]) => {
+          const chip = el("span", {
+            class: "wc-pl-chip" + (builtinSel.has(en) ? " selected" : ""),
+            title: zh ? `${en} · ${zh}` : en,
+          }, [
+            el("span", { text: en }),
+            zh ? el("span", { class: "wc-pl-chip-zh", text: zh }) : null,
+          ]);
+          chip.addEventListener("click", () => {
+            if (builtinSel.has(en)) builtinSel.delete(en);
+            else builtinSel.add(en);
+            chip.classList.toggle("selected", builtinSel.has(en));
+            syncBuiltinSelBar();
+          });
+          return chip;
+        })),
+      ]));
+    }
+    if (!shown) builtinBox.append(el("div", { class: "gallery-empty", text: "没有匹配的内置提示词" }));
+    syncBuiltinSelBar();
+  }
+
+  function syncBuiltinSelBar() {
+    const n = builtinSel.size;
+    plSelText.textContent = n ? `已选 ${n} 个内置提示词` : "";
+    plSelBar.classList.toggle("hidden", !n);
+  }
+
+  /** 把多选的内置提示词一次性加入当前提示词输入框 */
+  function addSelectedBuiltin() {
+    if (!builtinSel.size) { toast("请先点击选择内置提示词", "warning"); return; }
+    if (!opts.addTarget) return;
+    addToPromptText([...builtinSel].join(", "));
+    builtinSel.clear();
+    renderBuiltinPrompts();
   }
 
   const plKey = (t) => (t || "").trim().toLowerCase().replace(/\s+/g, "_");

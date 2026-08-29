@@ -184,7 +184,8 @@ export function openWildcardsModal(source, { title = "提示词" } = {}) {
       else if (e.key === "Escape") { e.stopPropagation(); cancel(); }
     });
     input.addEventListener("blur", () => { if (input.value.trim()) commit(); else cancel(); });
-    wireAutocomplete(input, inputChip);  // 添加关键词同样支持自动补全
+    // portal 到弹窗 overlay: 补全下拉不会被标签块视图的 overflow 裁剪容器挡住
+    wireAutocomplete(input, inputChip, { portal: overlay });  // 添加关键词同样支持自动补全
     inputChip.append(input);
     if (anchor) chipsView.replaceChild(inputChip, anchor);
     else chipsView.append(inputChip);

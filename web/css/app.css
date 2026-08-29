@@ -2087,3 +2087,41 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
 .ack-name { font-size: 13px; font-weight: 600; color: var(--text); }
 .ack-item:hover .ack-name { color: var(--primary); }
 .ack-desc { font-size: 12px; color: var(--text-soft, var(--text)); opacity: 0.7; line-height: 1.5; }
+
+/* ------- 自动补全 portal 模式 (逃出 overflow 裁剪容器, 挂到弹窗层 fixed 定位) ------- */
+.suggest-list.suggest-portal { position: fixed; left: 0; top: 0; }
+
+/* ------- 提示词库: 内置分类提示词 (参考 PAI 预设: 分组 + 横向标签 + 多选) ------- */
+.wc-pl-title { font-size: 12.5px; font-weight: 700; color: var(--text-2); margin: 12px 0 6px; }
+.wc-pl-builtin { display: flex; flex-direction: column; }
+.wc-pl-group { display: flex; align-items: flex-start; gap: 10px; padding: 7px 0; border-bottom: 1px dashed var(--border); }
+.wc-pl-group:last-child { border-bottom: none; }
+.wc-pl-group-name { flex-shrink: 0; width: 96px; font-size: 12.5px; font-weight: 700; color: var(--text-2); padding-top: 3px; }
+.wc-pl-group-tags { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; min-width: 0; }
+.wc-pl-chip {
+  display: inline-flex; align-items: baseline; gap: 6px;
+  padding: 3px 11px; font-size: 12.5px; font-weight: 600; color: var(--text);
+  border: 1px solid var(--border); border-radius: 999px; background: var(--input);
+  cursor: pointer; user-select: none; transition: all 0.15s;
+}
+.wc-pl-chip:hover { border-color: var(--primary); color: var(--primary); transform: translateY(-1px); }
+.wc-pl-chip.selected {
+  border-color: var(--primary); color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 15%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 22%, transparent);
+}
+.wc-pl-chip-zh { font-size: 11px; font-weight: 500; opacity: 0.72; }
+.wc-pl-selbar { display: flex; align-items: center; gap: 8px; margin: 10px 0 0; }
+.wc-pl-selbar .muted { font-size: 12.5px; }
+
+/* 提示词库模式: 素材库单栏 (右侧编辑卡片隐藏) */
+.wc-panel-grid.single { grid-template-columns: 1fr; }
+
+/* ------- 图片浏览: 文件夹树展开/收起 ------- */
+.browse-caret {
+  width: 14px; flex-shrink: 0; text-align: center;
+  font-size: 11px; line-height: 1; color: var(--text-2);
+  cursor: pointer; user-select: none; transition: color 0.15s;
+}
+.browse-caret:hover { color: var(--primary); }
+.browse-caret.leaf { visibility: hidden; }
