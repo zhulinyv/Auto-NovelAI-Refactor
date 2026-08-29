@@ -1573,7 +1573,8 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
   position: fixed;
   inset: 0;
   z-index: 3600;
-  background: rgba(0, 0, 0, 0.45);
+  /* 遮罩提到 0.8 不透明: 盖住底层文字, 零性能开销 (不使用 backdrop-filter) */
+  background: rgba(0, 0, 0, 0.8);
   display: flex;
   align-items: center;
   justify-content: center;
