@@ -16,7 +16,7 @@ let popoverEl = null;
 let bgState = { single: null, folder: null, interval: 10, api: false, apiSource: "bing" };
 
 function savedInterval() {
-  return Number.isFinite(bgState.interval) && bgState.interval >= 10 ? bgState.interval : 10;
+  return Number.isFinite(bgState.interval) && bgState.interval >= 10 ? bgState.interval : 90;
 }
 
 export function applyBackground() {

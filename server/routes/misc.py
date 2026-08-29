@@ -426,7 +426,7 @@ async def bg_random_wallpaper(payload: dict = None):
 @router.get("/bg/state")
 async def bg_state_get():
     """读取状态 (背景 + 自定义颜色/模糊), 跨端口与浏览器保留。"""
-    data = {"single": None, "folder": None, "interval": 10, "api": False}
+    data = {"single": None, "folder": None, "interval": 90, "api": False}
     if _BG_STATE_FILE.exists():
         try:
             data.update(json.loads(_BG_STATE_FILE.read_text(encoding="utf-8")))
@@ -455,7 +455,7 @@ async def bg_state_save(payload: dict):
         data["api"] = bool(payload.get("api"))
     if "interval" in payload:
         try:
-            interval = int(payload.get("interval") or 10)
+            interval = int(payload.get("interval") or 90)
         except (TypeError, ValueError):
             interval = 10
         if interval < 10:
