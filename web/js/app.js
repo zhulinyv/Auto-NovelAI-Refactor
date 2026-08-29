@@ -102,19 +102,23 @@ async function boot() {
     item.addEventListener("click", () => showView(item.dataset.view));
   });
 
-  // ---- 渲染各视图 ----
-  for (const [name, view] of Object.entries(VIEWS)) {
-    const container = document.getElementById(`view-${name}`);
-    try {
-      await view.render(container, { app: appState, store: makeStore(name) });
-    } catch (e) {
-      console.error(`view ${name} render error`, e);
-      container.innerHTML = `<div class="card">视图 ${name} 渲染失败: ${e.message}</div>`;
-    }
-  }
-
   initSidebarResize();
   showView("generate");
+}
+
+/** 视图首次访问时渲染 (加快启动); 已渲染过的直接复用 */
+const renderedViews = new Set();
+
+function ensureView(name) {
+  const view = VIEWS[name];
+  const container = document.getElementById(`view-${name}`);
+  if (!view || !container || renderedViews.has(name)) return Promise.resolve();
+  renderedViews.add(name);
+  return view.render(container, { app: appState, store: makeStore(name) }).catch((e) => {
+    console.error(`view ${name} render error`, e);
+    renderedViews.delete(name);
+    container.innerHTML = `<div class="card">视图 ${name} 渲染失败: ${e.message}</div>`;
+  });
 }
 
 function makeStore(name) {
@@ -153,7 +157,13 @@ export function showView(name) {
   if (target) {
     target.style.display = "block";
     const view = VIEWS[name];
-    if (view && view.onShow) view.onShow();
+    if (view) {
+      // 首次访问异步渲染, 完成后再调 onShow; 再次访问只调 onShow。
+      // 返回渲染完成的 Promise, 供跨视图跳转后需要立即操作目标视图组件的调用方 await。
+      return ensureView(name).then(() => {
+        try { view.onShow?.(); } catch { /* 忽略 onShow 异常 */ }
+      });
+    }
   }
 }
 

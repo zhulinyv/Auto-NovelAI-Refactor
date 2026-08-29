@@ -223,22 +223,14 @@ function getPopover() {
   });
   accentInput.addEventListener("change", () => scheduleSave());
 
-  // ---- 模糊度 ----
+  // ---- 模糊度 (组件模糊已随毛玻璃移除, 仅保留背景模糊) ----
   const blurBgWrap = sliderRow("背景模糊度", "blur-bg", 0, 40, 4);
-  const blurPanelWrap = sliderRow("组件模糊度", "blur-panel", 0, 40, 12);
   blurBgWrap.input.addEventListener("input", () => {
-    const panel = blurPanelWrap.input.value;
-    applyBlur(Number(blurBgWrap.input.value), Number(panel));
+    applyBlur(Number(blurBgWrap.input.value), 0);
     syncPopover(pop);
   });
   blurBgWrap.input.addEventListener("change", () => scheduleSave());
-  blurPanelWrap.input.addEventListener("input", () => {
-    const bg = blurBgWrap.input.value;
-    applyBlur(Number(bg), Number(blurPanelWrap.input.value));
-    syncPopover(pop);
-  });
-  blurPanelWrap.input.addEventListener("change", () => scheduleSave());
-  pop.append(blurBgWrap.node, blurPanelWrap.node);
+  pop.append(blurBgWrap.node);
 
   // ---- 操作 ----
   const resetBtn = el("button", { class: "btn btn-sm btn-danger", text: "♻️ 恢复默认外观" });

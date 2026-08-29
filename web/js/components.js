@@ -113,7 +113,7 @@ export function initLogConsole() {
       const parts = [d.os, `💻 CPU ${Math.round(d.cpu_percent)}%`,
         `🧠 内存 ${Math.round(d.mem_percent)}% (${d.mem_used_gb}/${d.mem_total_gb}G)`];
       if (d.gpu) parts.push(`🎮 GPU ${Math.round(d.gpu.util)}% (${fmtGb(d.gpu.mem_used)}/${fmtGb(d.gpu.mem_total)})`);
-      sysStats.textContent = parts.join(" ┃ ");
+      sysStats.textContent = parts.join(" │ ");
       sysStats.title = (d.gpu ? `GPU: ${d.gpu.name}\n` : "") +
         `CPU ${d.cpu_cores} 线程 · 内存 ${d.mem_total_gb}G · ${d.arch}\n每 ${STATS_MS / 1000} 秒自动刷新`;
     } catch { /* 读取失败静默, 保留上一次内容 */ }

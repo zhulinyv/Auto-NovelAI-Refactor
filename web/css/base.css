@@ -237,18 +237,13 @@ img.twemoji {
   opacity: 0.45;
   pointer-events: none;
   z-index: 0;
-  animation: ambient-float 18s ease-in-out infinite;
-  will-change: transform;
+  /* 动画已移除: 持续重合成 70px 模糊层导致 GPU 常驻高负载 */
 }
 .ambient-blob-1 { width: 420px; height: 420px; top: -120px; left: -100px; background: var(--primary); }
-.ambient-blob-2 { width: 380px; height: 380px; bottom: -140px; right: -80px; background: var(--secondary); animation-duration: 24s; animation-delay: -6s; }
-.ambient-blob-3 { width: 300px; height: 300px; top: 40%; left: 55%; background: var(--accent); opacity: 0.25; animation-duration: 21s; animation-delay: -11s; }
+.ambient-blob-2 { width: 380px; height: 380px; bottom: -140px; right: -80px; background: var(--secondary); }
+.ambient-blob-3 { width: 300px; height: 300px; top: 40%; left: 55%; background: var(--accent); opacity: 0.25; }
 
-@keyframes ambient-float {
-  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
-  33% { transform: translate3d(30px, -36px, 0) scale(1.08); }
-  66% { transform: translate3d(-26px, 24px, 0) scale(0.94); }
-}
+
 
 @keyframes fade-in-up {
   from { opacity: 0; transform: translateY(14px); }

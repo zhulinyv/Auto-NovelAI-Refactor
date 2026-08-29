@@ -17,8 +17,6 @@
   justify-content: space-between;
   padding: 10px 20px;
   background: var(--panel);
-  backdrop-filter: blur(var(--panel-blur));
-  -webkit-backdrop-filter: blur(var(--panel-blur));
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
@@ -61,8 +59,6 @@
   max-width: 340px;
   flex-shrink: 0;
   background: var(--panel);
-  backdrop-filter: blur(var(--panel-blur));
-  -webkit-backdrop-filter: blur(var(--panel-blur));
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
@@ -152,8 +148,6 @@
 /* ------- 卡片 (毛玻璃) ------- */
 .card {
   background: var(--panel);
-  backdrop-filter: blur(var(--panel-blur));
-  -webkit-backdrop-filter: blur(var(--panel-blur));
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 16px;
@@ -399,8 +393,6 @@ input.slider-num {
   flex-shrink: 0;
   height: 220px;
   background: var(--panel);
-  backdrop-filter: blur(var(--panel-blur));
-  -webkit-backdrop-filter: blur(var(--panel-blur));
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
@@ -742,8 +734,6 @@ input.slider-num {
   border-radius: var(--radius);
   padding: 16px;
   background: var(--panel);
-  backdrop-filter: blur(var(--panel-blur));
-  -webkit-backdrop-filter: blur(var(--panel-blur));
   margin-bottom: 14px;
   box-shadow: var(--shadow);
 }
@@ -984,8 +974,6 @@ select.corner-select { min-height: 0; height: 26px; }
   z-index: 120;
   padding: 10px 18px;
   background: var(--panel);
-  backdrop-filter: blur(var(--panel-blur));
-  -webkit-backdrop-filter: blur(var(--panel-blur));
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
@@ -1096,8 +1084,6 @@ select.corner-select { min-height: 0; height: 26px; }
   position: fixed; inset: 0; z-index: 4000;
   display: flex; align-items: center; justify-content: center;
   background: rgba(0,0,0,0.88);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
   animation: pop-in 0.18s ease;
   cursor: zoom-out;
 }
@@ -1135,8 +1121,6 @@ body.has-custom-bg::before {
   content: '';
   position: fixed; inset: 0; z-index: 0;
   background: rgba(255,255,255,0.35);
-  backdrop-filter: blur(var(--bg-blur));
-  -webkit-backdrop-filter: blur(var(--bg-blur));
 }
 body.has-custom-bg input, body.has-custom-bg select, body.has-custom-bg textarea {
   background-color: color-mix(in srgb, var(--panel-solid) 82%, var(--input));
@@ -1291,8 +1275,6 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
 /* 右列 (图表/说明/输出) 内的字段: 与左侧 card 同风格 (半透明+毛玻璃+同圆角) */
 .grid-2 > div:last-child > .field {
   background: var(--panel);
-  backdrop-filter: blur(var(--panel-blur));
-  -webkit-backdrop-filter: blur(var(--panel-blur));
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 10px 14px;
@@ -1318,8 +1300,6 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
   max-width: 66.67vw;
   margin: 0 auto;
   background: var(--panel);
-  backdrop-filter: blur(var(--panel-blur));
-  -webkit-backdrop-filter: blur(var(--panel-blur));
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
@@ -1591,8 +1571,6 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
   inset: 0;
   z-index: 3600;
   background: rgba(0, 0, 0, 0.45);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1605,8 +1583,6 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
   display: flex;
   flex-direction: column;
   background: var(--panel);
-  backdrop-filter: blur(var(--panel-blur));
-  -webkit-backdrop-filter: blur(var(--panel-blur));
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow-lg);
@@ -1881,8 +1857,6 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
 /* 浅色模式下查看器遮罩用浅色毛玻璃 (深色模式保持深色) */
 [data-theme="light"] .img-viewer-overlay {
   background: rgba(246, 247, 250, 0.86);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
 }
 .img-viewer-head {
   display: flex;
@@ -1922,8 +1896,6 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--panel);
-  backdrop-filter: blur(var(--panel-blur));
-  -webkit-backdrop-filter: blur(var(--panel-blur));
   box-shadow: var(--shadow);
 }
 .img-viewer-side .btn { width: 100%; }

@@ -625,7 +625,7 @@ function wireOutputActions() {
     if (!lastOutputPath) return;
     const { showView } = await import("../app.js");
     const { pnginfoPicker } = await import("./pnginfo.js");
-    showView("pnginfo");
+    await showView("pnginfo");
     if (pnginfoPicker && pnginfoPicker.set) {
       pnginfoPicker.set(lastOutputPath);
       if (pnginfoPicker.onChange) pnginfoPicker.onChange(lastOutputPath);

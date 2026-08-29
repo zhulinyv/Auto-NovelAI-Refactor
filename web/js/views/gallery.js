@@ -42,7 +42,7 @@ async function handleViewerAction(action, path) {
     const ok = await sendToImg2img(path);
     if (ok) toast("已发送到图片生成 (图生图基础图片) 🌸", "success");
   } else if (action === "to-pnginfo") {
-    showView("pnginfo");
+    await showView("pnginfo");
     if (pnginfoPicker?.set) {
       pnginfoPicker.set(path);
       if (pnginfoPicker.onChange) pnginfoPicker.onChange(path);
