@@ -293,7 +293,7 @@ export function toast(message, type = "info", _duration = 0) {
 export function confirmDialog(message, { danger = false } = {}) {
   return new Promise((resolve) => {
     const overlay = el("div", {
-      style: "position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:2000;display:flex;align-items:center;justify-content:center;",
+      style: "position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:5200;display:flex;align-items:center;justify-content:center;",
     });
     const box = el("div", {
       class: "card",

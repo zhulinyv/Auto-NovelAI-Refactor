@@ -2242,3 +2242,19 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
 .wc-pl-cat-head .spacer { flex: 1; }
 .wc-pl-cat-head .btn { opacity: 0.65; }
 .wc-pl-cat-head .btn:hover { opacity: 1; }
+
+/* ------- 提示词库: 用户标签悬停删除 + 分类删除按钮 ------- */
+.wc-pl-chip-del {
+  display: none;
+  margin-left: 2px;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--danger);
+  cursor: pointer;
+  padding: 1px 3px;
+  border-radius: 5px;
+}
+.wc-pl-chip:hover .wc-pl-chip-del { display: inline; }
+.wc-pl-chip-del:hover { background: color-mix(in srgb, var(--danger) 15%, transparent); }
+.wc-pl-cat-del { margin-left: 6px; opacity: 0.6; }
+.wc-pl-cat-del:hover { opacity: 1; }

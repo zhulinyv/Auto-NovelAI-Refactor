@@ -90,9 +90,8 @@ export async function renderPanel(container, ctx, opts = {}) {
   const cardLibBox = el("div", {}, [typeList, searchBox, grid, selBar]);
 
   // ---------------- 提示词库 (内置分类提示词 + 用户收藏) ----------------
-  const plList = el("div", { class: "wc-pl-list" });
   const plSearch = el("input", { type: "text", class: "wc-search", placeholder: "🔍 搜索提示词..." });
-  plSearch.addEventListener("input", () => { plKeyword = plSearch.value; renderPromptLib(); renderBuiltinPrompts(); });
+  plSearch.addEventListener("input", () => { plKeyword = plSearch.value; renderPromptChips(); });
   const plInput = el("input", { type: "text", style: "flex:1;min-width:0;", placeholder: "输入关键词或一段提示词, 保存后可随时加入提示词" });
   plInput.addEventListener("keydown", (e) => { if (e.key === "Enter") savePromptLib(); });
   // 分类: 从已有分类中选择, 也可直接输入新分类
@@ -109,11 +108,9 @@ export async function renderPanel(container, ctx, opts = {}) {
       el("button", { class: "btn btn-sm btn-primary", text: "💾 保存", onclick: savePromptLib }),
     ]),
     plSearch,
-    el("div", { class: "wc-pl-title", text: "✨ 内置提示词 (点击标签多选, 点右上角 \"添加选中\" 一次加入)" }),
+    el("div", { class: "wc-pl-title", text: "✨ 提示词标签 (点击标签多选, 点右上角 \"添加选中\" 一次加入)" }),
     builtinBox,
     plSelText,
-    el("div", { class: "wc-pl-title", text: "⭐ 我的收藏" }),
-    plList,
   ]);
 
   const createBtn = el("button", { class: "btn btn-sm", text: "➕ 新建卡片", onclick: () => { switchLib("cards"); showCreate(); } });
@@ -162,44 +159,11 @@ export async function renderPanel(container, ctx, opts = {}) {
     layout.classList.toggle("single", !isCards);
     // 同步当前库给弹窗 (共用按钮的作用对象随之切换)
     activeLib.set(isCards ? "cards" : "prompts");
-    if (!isCards && !plLoaded) { plLoaded = true; loadPromptLib(); renderBuiltinPrompts(); }
+    if (!isCards && !plLoaded) { plLoaded = true; loadPromptLib(); renderPromptChips(); }
   }
 
   // ---------------- 内置提示词 (参考 PAI 预设: 分类分组, 横向标签, 可多选) ----------------
   const builtinSel = new Set();   // 已勾选的内置提示词 (英文 tag)
-
-  function renderBuiltinPrompts() {
-    clear(builtinBox);
-    const kw = plKeyword.trim().toLowerCase();
-    let shown = 0;
-    for (const group of builtinPromptGroups) {
-      const tags = group.tags.filter(([en, zh]) =>
-        !kw || en.toLowerCase().includes(kw) || (zh || "").toLowerCase().includes(kw));
-      if (!tags.length) continue;
-      shown += tags.length;
-      builtinBox.append(el("div", { class: "wc-pl-group" }, [
-        el("div", { class: "wc-pl-group-name", text: group.name }),
-        el("div", { class: "wc-pl-group-tags" }, tags.map(([en, zh]) => {
-          const chip = el("span", {
-            class: "wc-pl-chip" + (builtinSel.has(en) ? " selected" : ""),
-            title: zh ? `${en} · ${zh}` : en,
-          }, [
-            el("span", { text: en }),
-            zh ? el("span", { class: "wc-pl-chip-zh", text: zh }) : null,
-          ]);
-          chip.addEventListener("click", () => {
-            if (builtinSel.has(en)) builtinSel.delete(en);
-            else builtinSel.add(en);
-            // 共享给弹窗的 "添加选中/清除选择" 按钮 (onChange 里统一重渲染)
-            promptSelection.set([...builtinSel]);
-          });
-          return chip;
-        })),
-      ]));
-    }
-    if (!shown) builtinBox.append(el("div", { class: "gallery-empty", text: "没有匹配的内置提示词" }));
-    syncBuiltinSelBar();
-  }
 
   function syncBuiltinSelBar() {
     const n = builtinSel.size;
@@ -212,7 +176,7 @@ export async function renderPanel(container, ctx, opts = {}) {
     if (!container.isConnected) return;
     builtinSel.clear();
     tags.forEach((t) => builtinSel.add(t));
-    renderBuiltinPrompts();
+    renderPromptChips();
   });
 
   const plKey = (t) => (t || "").trim().toLowerCase().replace(/\s+/g, "_");
@@ -221,7 +185,7 @@ export async function renderPanel(container, ctx, opts = {}) {
     try {
       const res = await get("/api/prompt-library");
       plItems = res.items || [];
-      renderPromptLib();
+      renderPromptChips();
       syncCatList();
       await translatePromptLib(plItems.map((it) => it.text));
     } catch (e) {
@@ -242,69 +206,101 @@ export async function renderPanel(container, ctx, opts = {}) {
     try {
       const r = await post("/api/suggest/translate", { tags: missing });
       Object.entries(r.translations || {}).forEach(([k, v]) => plZh.set(plKey(k), v || ""));
-      renderPromptLib();
+      renderPromptChips();
     } catch { /* 翻译失败静默 */ }
   }
 
-  function renderPromptLib() {
-    clear(plList);
+  function renderPromptChips() {
+    clear(builtinBox);
     const kw = plKeyword.trim().toLowerCase();
-    const list = plItems.filter((it) =>
-      !kw || it.text.toLowerCase().includes(kw) || (it.category || "").toLowerCase().includes(kw));
-    if (!list.length) {
-      plList.append(el("div", { class: "gallery-empty", text: "暂无收藏 — 输入关键词后保存到库中" }));
-      return;
+    let shown = 0;
+    // 内置分组 (静态数据)
+    for (const group of builtinPromptGroups) {
+      const tags = group.tags.filter(([en, zh]) =>
+        !kw || en.toLowerCase().includes(kw) || (zh || "").toLowerCase().includes(kw));
+      if (!tags.length) continue;
+      shown += tags.length;
+      builtinBox.append(chipGroup(`${group.name} (${tags.length})`,
+        tags.map(([en, zh]) => makePromptChip(en, zh, null))));
     }
-    // 按分类分组 (保持最近保存顺序), 每组标题可删除整个分类
-    const groups = new Map();
-    list.forEach((it) => {
+    // 用户收藏分组 (与内置同样式; 分类和单条均可删除)
+    const userGroups = new Map();
+    plItems.forEach((it) => {
       const cat = it.category || "默认";
-      if (!groups.has(cat)) groups.set(cat, []);
-      groups.get(cat).push(it);
+      if (!userGroups.has(cat)) userGroups.set(cat, []);
+      userGroups.get(cat).push(it);
     });
-    groups.forEach((items, cat) => {
-      plList.append(el("div", { class: "wc-pl-cat-head" }, [
-        el("span", { class: "wc-pl-cat-name", text: `📁 ${cat} (${items.length})` }),
-        el("span", { class: "spacer" }),
-        el("button", {
-          class: "btn btn-sm btn-clear-file", text: "🗑", title: "删除该分类及其中所有收藏 (不可恢复)",
-          onclick: async () => {
-            const ok = await confirmDialog(`确定删除分类「${cat}」? 其中 ${items.length} 条收藏将一并删除, 不可恢复。`, { danger: true });
-            if (!ok) return;
-            try {
-              const res = await post("/api/prompt-library/delete-category", { category: cat });
-              plItems = res.items || [];
-              renderPromptLib();
-              syncCatList();
-              toast(`分类「${cat}」已删除 🗑️`, "success");
-            } catch (err) { toast(err.message, "error"); }
-          },
-        }),
-      ]));
-      items.forEach((it) => {
-        const text = it.text;
-        const zh = plZh.get(plKey(text)) || "";
-        const row = el("div", { class: "wc-pl-item", title: text + (zh ? " · " + zh : "") }, [
-          el("div", { class: "wc-pl-text" }, [
-            el("span", { class: "wc-pl-en", text }),
-            zh ? el("span", { class: "wc-pl-zh", text: zh }) : null,
-          ]),
-          el("button", { class: "btn btn-sm", text: "➕", title: "添加到提示词", onclick: (e) => { e.stopPropagation(); addToPromptText(text); } }),
-          el("button", { class: "btn btn-sm btn-clear-file", text: "🗑", title: "从库中删除", onclick: async (e) => {
-            e.stopPropagation();
-            try {
-              const res = await post("/api/prompt-library/delete", { text });
-              plItems = res.items || [];
-              renderPromptLib();
-              syncCatList();
-              toast("已从提示词库删除 🗑️", "success");
-            } catch (err) { toast(err.message, "error"); }
-          } }),
-        ]);
-        row.addEventListener("click", () => addToPromptText(text));
-        plList.append(row);
-      });
+    userGroups.forEach((items, cat) => {
+      const visible = items.filter((it) => !kw || it.text.toLowerCase().includes(kw) || cat.toLowerCase().includes(kw));
+      if (!visible.length) return;
+      shown += visible.length;
+      builtinBox.append(chipGroup(`📁 ${cat} (${visible.length})`,
+        visible.map((it) => makePromptChip(it.text, plZh.get(plKey(it.text)) || "", it)), cat));
     });
+    if (!shown) builtinBox.append(el("div", { class: "gallery-empty", text: "没有匹配的提示词" }));
+    syncBuiltinSelBar();
+  }
+
+  /** 一个横向标签分组: 标题 + 标签行; deleteCat 非空时附分类删除按钮 */
+  function chipGroup(name, chips, deleteCat) {
+    const tagsRow = el("div", { class: "wc-pl-group-tags" }, chips);
+    if (deleteCat != null) {
+      tagsRow.append(el("button", {
+        class: "btn btn-sm btn-clear-file wc-pl-cat-del", text: "🗑",
+        title: "删除该分类及其中所有收藏 (不可恢复)",
+        onclick: async () => {
+          const n = plItems.filter((it) => (it.category || "默认") === deleteCat).length;
+          const ok = await confirmDialog(`确定删除分类「${deleteCat}」? 其中 ${n} 条收藏将一并删除, 不可恢复。`, { danger: true });
+          if (!ok) return;
+          try {
+            const res = await post("/api/prompt-library/delete-category", { category: deleteCat });
+            plItems = res.items || [];
+            renderPromptChips();
+            syncCatList();
+            toast(`分类「${deleteCat}」已删除 🗑️`, "success");
+          } catch (err) { toast(err.message, "error"); }
+        },
+      }));
+    }
+    return el("div", { class: "wc-pl-group" }, [
+      el("div", { class: "wc-pl-group-name", text: name }),
+      tagsRow,
+    ]);
+  }
+
+  /** 提示词标签: 内置与用户通用; userItem 非空时悬停显示单条删除按钮 */
+  function makePromptChip(en, zh, userItem) {
+    const chip = el("span", {
+      class: "wc-pl-chip" + (builtinSel.has(en) ? " selected" : ""),
+      title: zh ? `${en} · ${zh}` : en,
+    }, [
+      el("span", { text: en }),
+      zh ? el("span", { class: "wc-pl-chip-zh", text: zh }) : null,
+    ]);
+    if (userItem) {
+      chip.append(el("span", {
+        class: "wc-pl-chip-del", text: "✕", title: "从库中删除这条收藏",
+        onclick: async (e) => {
+          e.stopPropagation();
+          try {
+            const res = await post("/api/prompt-library/delete", { text: en });
+            plItems = res.items || [];
+            builtinSel.delete(en);
+            promptSelection.set([...builtinSel]);
+            renderPromptChips();
+            syncCatList();
+            toast("已从提示词库删除 🗑️", "success");
+          } catch (err) { toast(err.message, "error"); }
+        },
+      }));
+    }
+    chip.addEventListener("click", () => {
+      if (builtinSel.has(en)) builtinSel.delete(en);
+      else builtinSel.add(en);
+      // 共享给弹窗的 "添加选中/清除选择" 按钮 (onChange 里统一重渲染)
+      promptSelection.set([...builtinSel]);
+    });
+    return chip;
   }
 
   /** 把一段文字追加到当前提示词 (提示词库使用) */
@@ -323,7 +319,7 @@ export async function renderPanel(container, ctx, opts = {}) {
       const res = await post("/api/prompt-library/add", { text, category });
       plItems = res.items || [];
       plInput.value = "";
-      renderPromptLib();
+      renderPromptChips();
       syncCatList();
       await translatePromptLib(plItems.map((it) => it.text));
       toast(`已保存到提示词库「${category}」📚`, "success");
