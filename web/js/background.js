@@ -13,7 +13,7 @@ let rotationList = [];
 let rotationIdx = 0;
 let rotationTimer = null;
 let popoverEl = null;
-let bgState = { single: null, folder: null, interval: 10 };
+let bgState = { single: null, folder: null, interval: 10, api: false, apiSource: "bing" };
 
 function savedInterval() {
   return Number.isFinite(bgState.interval) && bgState.interval >= 10 ? bgState.interval : 10;
@@ -62,6 +62,7 @@ async function saveState() {
       folder: bgState.folder,
       interval: bgState.interval,
       api: !!bgState.api,
+      api_source: bgState.apiSource || "bing",
     });
   } catch { /* 静默失败 */ }
 }
@@ -71,6 +72,7 @@ async function loadState() {
     const res = await get("/api/bg/state");
     if (res && res.single) bgState.single = res.single;
     bgState.api = !!res.api;
+    if (res.api_source) bgState.apiSource = res.api_source;
     if (res && Array.isArray(res.folder) && res.folder.length) bgState.folder = res.folder;
     if (res && Number.isFinite(res.interval) && res.interval >= 3) bgState.interval = res.interval;
 
@@ -147,7 +149,7 @@ function startApiRotation() {
 /** 从 /api/bg/random 获取一张在线壁纸并应用; silent=true 时不弹通知 (自动轮换) */
 async function fetchApiWallpaper({ silent = false } = {}) {
   try {
-    const res = await post("/api/bg/random", {});
+    const res = await post("/api/bg/random", { source: bgState.apiSource || "bing" });
     bgState.single = res.path;
     bgState.folder = null;
     rotationList = [];
@@ -245,7 +247,20 @@ function getPopover() {
   pop.append(singleBox);
 
   // ---- 在线壁纸 (API 随机换图): Bing 每日精选 / Picsum, 后端代理下载 ----
-  const apiBox = el("div", { class: "field bg-api-auto" }, [el("label", { text: "🌐 在线壁纸 (Bing 每日精选)" })]);
+  const apiBox = el("div", { class: "field bg-api-auto" }, [el("label", { text: "🌐 在线壁纸 (选择图片来源)" })]);
+  // 壁纸源选择: Bing 每日精选 / ACG 随机动漫
+  const srcGroup = el("div", { class: "opt-group bg-api-src" }, [
+    el("label", { class: "opt-item" + (bgState.apiSource !== "acg" ? " selected" : ""), text: "Bing 每日精选" }),
+    el("label", { class: "opt-item" + (bgState.apiSource === "acg" ? " selected" : ""), text: "ACG 动漫" }),
+  ]);
+  srcGroup.addEventListener("click", (e) => {
+    const item = e.target instanceof Element ? e.target.closest(".opt-item") : null;
+    if (!item) return;
+    bgState.apiSource = item.textContent.includes("ACG") ? "acg" : "bing";
+    [...srcGroup.children].forEach((x) => x.classList.toggle("selected", x === item));
+    saveState();
+    toast(`壁纸来源已切换: ${item.textContent} 🖼️`, "info");
+  });
   const apiBtn = el("button", { class: "btn btn-sm", style: "width:100%;", type: "button", text: "🎲 立即随机换一张" });
   // 点击 "立即随机换一张" 即开启自动轮换 (按下方切换间隔, 无需再手动操作)
   apiBtn.addEventListener("click", async () => {
@@ -264,7 +279,7 @@ function getPopover() {
     refreshPopoverState(pop);
     if (ok) toast(`在线壁纸自动轮换已开启 (每 ${savedInterval()} 秒) 🎠`, "success");
   });
-  apiBox.append(apiBtn);
+  apiBox.append(srcGroup, apiBtn);
   pop.append(apiBox);
 
   // ---- 文件夹轮播: 选择后立即展示一张, 之后按间隔自动切换 ----

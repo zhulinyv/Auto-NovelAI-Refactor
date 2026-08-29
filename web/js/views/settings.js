@@ -2,7 +2,8 @@
 // 配置设置视图
 // ============================================================
 import { $, el, clear, toast, confirmDialog, sliderRow } from "../ui.js";
-import { post, get } from "../api.js";
+import { post, get, imageUrl } from "../api.js";
+import { renderTabs } from "../components.js";
 
 
 let S = null;
@@ -17,6 +18,11 @@ export async function render(container, ctx) {
 
   const settings = S.app.settings;
 
+  const tabsWrap = el("div");
+  container.append(tabsWrap);
+
+  // ---- 选项卡 1: 基本配置 ----
+  const basicBody = el("div");
   const card = el("div", { class: "card settings-card" });
   const grid = el("div", { class: "grid grid-2", style: "padding-top:34px;" });
 
@@ -76,7 +82,33 @@ export async function render(container, ctx) {
   const outBox = el("div", { class: "info-box", style: "margin-top:12px;" });
   actions.append(saveBtn, restartBtn, updateBtn);
   card.append(el("div", { class: "card-title", text: "⚙️ 基本配置" }), actions, grid);
-  container.append(card, outBox);
+  basicBody.append(card, outBox);
+
+  // ---- 选项卡 2: 赞助一下 ----
+  const sponsorBody = el("div");
+  sponsorBody.append(
+    el("div", { class: "card", style: "margin:0;" }, [
+      el("div", { class: "card-title", text: "💰 赞助一下" }),
+      el("p", { class: "muted", style: "margin:4px 0 14px;line-height:1.8;", text: "如果这个项目对你有帮助, 欢迎请作者喝杯奶茶 ~ 扫码时请备注昵称, 非常感谢每一份支持 💕" }),
+      el("div", { class: "sponsor-grid" }, [
+        sponsorItem("assets/sponsor/wechat.png", "💚 微信收款"),
+        sponsorItem("assets/sponsor/alipay.png", "💙 支付宝收款"),
+        sponsorItem("assets/sponsor/qq.png", "🧡 QQ 收款"),
+      ]),
+    ]),
+  );
+
+  function sponsorItem(src, label) {
+    return el("div", { class: "sponsor-item" }, [
+      el("div", { class: "sponsor-qr" }, [el("img", { src, alt: label, loading: "lazy" })]),
+      el("div", { class: "sponsor-label", text: label }),
+    ]);
+  }
+
+  renderTabs([
+    { title: "⚙️ 基本配置", render: (body) => body.append(basicBody) },
+    { title: "💰 赞助一下", render: (body) => body.append(sponsorBody) },
+  ], tabsWrap);
 
 
   function collect() {
