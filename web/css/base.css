@@ -8,7 +8,7 @@
   --surface-2: rgba(0, 0, 0, 0.04);
   --surface-3: rgba(0, 0, 0, 0.08);
   --text: #1d2029;
-  --text-2: #6b7280;
+  --text-2: #4b5563;  /* 浅色模式次级文字加深: 标题小字/提示/插件名等更清晰 (对比度 ~7:1) */
   --primary: #8b5cf6;
   --primary-2: #a78bfa;
   --secondary: #6366f1;
