@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException
 
 from src.director_tools import run_director
 from src.upscale_images import run_upscale
-from utils.errors import JobAlreadyRunningError
+from utils.gen_queue import gen_queue
 from utils.jobs import jobs
 from utils.logger import logger
 from utils.services import pnginfo as pnginfo_service
@@ -16,10 +16,8 @@ router = APIRouter(prefix="/api", tags=["tools"])
 _DIRECTOR_KINDS = {"remove_bg", "line_art", "sketch", "colorize", "emotion", "declutter"}
 _UPSCALE_KINDS = {"realcugan", "anime4k", "waifu2x"}
 
-
-def _check_busy():
-    if jobs.is_busy:
-        raise HTTPException(status_code=409, detail="已有任务正在运行, 请先停止或等待当前任务完成")
+# 导演工具调用 NovelAI augment-image 接口 -> 走生图队列;
+# 超分降噪为本地引擎 -> 不进队列, 多线程立即执行 (与生图队列互不阻塞)。
 
 
 # ---------------------------------------------------------------- 导演工具
@@ -27,15 +25,23 @@ def _check_busy():
 
 @router.post("/director")
 async def director(payload: dict):
-    _check_busy()
     kind = payload.get("kind", "")
     if kind not in _DIRECTOR_KINDS:
         raise HTTPException(status_code=400, detail=f"未知的导演工具: {kind}")
     try:
-        job_id = jobs.submit(f"导演工具:{kind}", run_director, kind, payload.get("path"), payload.get("image"), payload.get("options") or {})
-    except JobAlreadyRunningError as e:
-        raise HTTPException(status_code=409, detail=str(e))
-    return {"job_id": job_id}
+        task = gen_queue.submit(
+            f"导演工具:{kind}",
+            run_director,
+            kind,
+            payload.get("path"),
+            payload.get("image"),
+            payload.get("options") or {},
+            label=f"导演工具 · {kind}",
+        )
+    except Exception as e:
+        logger.error(f"提交导演工具任务失败: {e}")
+        raise HTTPException(status_code=500, detail=f"提交任务失败: {e}")
+    return {"job_id": task.id, "queued": True, "position": gen_queue.position(task.id)}
 
 
 # ---------------------------------------------------------------- 超分
@@ -43,7 +49,6 @@ async def director(payload: dict):
 
 @router.post("/upscale")
 async def upscale(payload: dict):
-    _check_busy()
     kind = payload.get("kind", "")
     if kind not in _UPSCALE_KINDS:
         raise HTTPException(status_code=400, detail=f"未知的超分工具: {kind}")
@@ -56,8 +61,9 @@ async def upscale(payload: dict):
             payload.get("image"),
             payload.get("options") or {},
         )
-    except JobAlreadyRunningError as e:
-        raise HTTPException(status_code=409, detail=str(e))
+    except Exception as e:
+        logger.error(f"提交超分任务失败: {e}")
+        raise HTTPException(status_code=500, detail=f"提交任务失败: {e}")
     return {"job_id": job_id}
 
 

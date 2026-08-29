@@ -15,6 +15,7 @@ SETTINGS_FILE = BASE_DIR / "settings.json"
 
 DEFAULTS: dict[str, Any] = {
     "token": None,
+    "tokens": [],
     "proxy": None,
     "custom_path": "<类型>/<日期>/<种子>_<编号>",
     "cool_time": 3,
@@ -32,6 +33,8 @@ DEFAULTS: dict[str, Any] = {
     "smtp_mail": None,
     "smtp_token": None,
 }
+
+_LIST_KEYS = {"tokens"}
 
 _BOOL_KEYS = {
     "share", "start_sound", "finish_sound", "retry_429",
@@ -102,6 +105,16 @@ class Settings:
         for key in DEFAULTS:
             if key in data:
                 setattr(self, key, _coerce(key, data[key]))
+        # tokens 列表与单 token 双向同步 (旧插件 / 旧调用只更新其中一个时也正确):
+        # - 提供了 tokens: token = 第一个有效 Token
+        # - 只提供了 token: tokens = [token]
+        if "tokens" in data:
+            tokens = [str(t).strip() for t in (self.tokens or []) if t and str(t).strip()]
+            self.tokens = tokens
+            self.token = tokens[0] if tokens else None
+        elif "token" in data:
+            single = str(self.token).strip() if self.token else ""
+            self.tokens = [single] if single else []
         self.persist()
 
     def persist(self) -> None:

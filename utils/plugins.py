@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from utils.config import env
+from utils.gen_queue import gen_queue
 from utils.helpers import install_requirements, read_json
 from utils.jobs import jobs
 from utils.logger import logger
@@ -83,6 +84,7 @@ class Action:
     show_output: bool = True  # 是否创建输出信息框 (False 时仅显示 toast)
     set_field: str = ""  # 完成后将 content 设置到该字段 (如恢复文件内容到 textarea)
     stop: bool = True  # 是否在该面板显示"停止"按钮 (耗时动作保留, 快捷动作可关闭)
+    uses_novelai: bool = True  # 是否调用 NovelAI API: True 时进入生图队列 (排队/冷却/多 Token 并发), False 时走本地多线程立即执行
 
 
 @dataclass
@@ -218,7 +220,7 @@ def get_manifest() -> list[dict]:
                         {
                             "id": a.id, "label": a.label, "inputs": a.inputs, "output": a.output,
                             "description": a.description, "show_output": a.show_output, "set_field": a.set_field,
-                            "stop": a.stop,
+                            "stop": a.stop, "uses_novelai": a.uses_novelai,
                         }
                         for a in panel.actions
                     ],
@@ -236,8 +238,8 @@ def get_manifest() -> list[dict]:
     return manifest
 
 
-def run_action(plugin_name: str, panel_id: str, action_id: str, values: dict) -> str:
-    """执行插件动作 (后台线程), 返回 job_id。"""
+def run_action(plugin_name: str, panel_id: str, action_id: str, values: dict) -> tuple[str, bool]:
+    """执行插件动作: NovelAI 类动作进生图队列, 其余本地多线程执行。返回 (job_id, queued)。"""
     plugin = _registry.get(plugin_name)
     if plugin is None:
         raise KeyError(f"插件不存在: {plugin_name}")
@@ -266,4 +268,8 @@ def run_action(plugin_name: str, panel_id: str, action_id: str, values: dict) ->
             return final or {}
         return result
 
-    return jobs.submit(f"plugin:{plugin_name}/{panel_id}/{action_id}", _execute)
+    job_name = f"plugin:{plugin_name}/{panel_id}/{action_id}"
+    if action.uses_novelai:
+        task = gen_queue.submit(job_name, _execute, label=f"{plugin.title} · {action.label}")
+        return task.id, True
+    return jobs.submit(f"{job_name}", _execute), False

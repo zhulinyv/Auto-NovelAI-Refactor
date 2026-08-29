@@ -642,7 +642,10 @@ function renderPanel(plugin, panel, body) {
         // 长时任务: 边框闪烁动画 + 右上角通知 (任务结束时会自动关闭该通知)
         if (action.stop !== false) {
           pvBox.classList.add("generating");
-          const startNode = toast(`任务已启动: ${res.job_id}`, "success");
+          const startMsg = res.queued
+            ? `已加入生图队列${res.position > 1 ? ` (第 ${res.position} 位)` : ""}: ${res.job_id}`
+            : `任务已启动: ${res.job_id}`;
+          const startNode = toast(startMsg, res.queued ? "info" : "success");
           startToasts.set(res.job_id, startNode);
         }
       } catch (e) {

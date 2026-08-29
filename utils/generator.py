@@ -1,8 +1,13 @@
-"""NovelAI API 客户端: 发送生成请求并保存图片。"""
+"""NovelAI API 客户端: 发送生成请求并保存图片。
+
+多 Token 支持请求头通过 utils.tokens 按线程自动选择 Token;
+剩余点数信息保存在线程本地, 并发生成时各任务互不串扰。
+"""
 from __future__ import annotations
 
 import io
 import os
+import threading
 import zipfile
 from datetime import date
 from pathlib import Path
@@ -17,8 +22,21 @@ from utils.logger import logger
 from utils.models.headers import build_headers
 from utils.variable import get_proxies
 
+_anlas_ctx = threading.local()
+
+# 兼容保留的全局值 (多通道并发时请使用 get_last_anlas())
 ANLAS = -1
 REMAINS = -1
+
+
+def _set_last_anlas(anlas, remains) -> None:
+    _anlas_ctx.anlas = anlas
+    _anlas_ctx.remains = remains
+
+
+def get_last_anlas() -> tuple:
+    """当前线程最近一次查询到的 (剩余点数, 剩余用量)。"""
+    return getattr(_anlas_ctx, "anlas", -1), getattr(_anlas_ctx, "remains", -1)
 
 
 def inquire_anlas():
@@ -100,9 +118,9 @@ class Generator:
             message = _response_error_message(rep)
             raise NovelAIAPIError(f"NovelAI 请求失败 (HTTP {rep.status_code}): {message}")
 
-        global ANLAS, REMAINS
-        ANLAS, REMAINS = inquire_anlas()
-        logger.success(f"请求成功! 剩余点数: {ANLAS}; 剩余用量: {REMAINS}%")
+        anlas, remains = inquire_anlas()
+        _set_last_anlas(anlas, remains)
+        logger.success(f"请求成功! 剩余点数: {anlas}; 剩余用量: {remains}%")
 
         try:
             with zipfile.ZipFile(io.BytesIO(rep.content), mode="r") as zip_file:

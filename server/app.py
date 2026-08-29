@@ -16,6 +16,9 @@ from utils.logger import logger
 from utils.services import plugins_store
 
 from .routes import generate, misc, plugins, settings, tools
+# 注意: 不能把路由模块导入为裸名 "queue", 否则会遮蔽标准库 queue,
+# 导致 /api/events 的 except queue.Empty 抛 AttributeError, SSE 事件流整体失效
+from .routes import queue as queue_routes
 
 
 def create_app() -> FastAPI:
@@ -55,6 +58,7 @@ def create_app() -> FastAPI:
     app.include_router(generate.router)
     app.include_router(tools.router)
     app.include_router(plugins.router)
+    app.include_router(queue_routes.router)
     app.include_router(settings.router)
 
     # 事件流 (SSE): 实时推送日志与任务状态

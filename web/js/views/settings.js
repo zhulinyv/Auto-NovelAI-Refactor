@@ -51,7 +51,19 @@ export async function render(container, ctx) {
     fields[key] = { get: () => s.get() };
   }
 
-  tf("🔑 Token", "token", "text", "NovelAI 账号 Token (必填)");
+  // 多 Token: 每行一个, 数量 = 并行生图通道数 (旧的单 token 字段自动兼容)
+  {
+    const tokensValue = (settings.tokens && settings.tokens.length ? settings.tokens : (settings.token ? [settings.token] : [])).join("\n");
+    const area = el("textarea", { rows: 3, placeholder: "pst-xxxx... (每行一个 Token)", spellcheck: "false" });
+    area.value = tokensValue;
+    const f = el("div", { class: "field" }, [
+      el("label", {}, [document.createTextNode("🔑 Token (每行一个)"), el("span", { class: "hint", text: "多 Token 可并行生成" })]),
+      area,
+      el("div", { class: "muted", text: "Token 数量 = 同时执行的生图任务数; 修改保存后立即生效 (正在执行的任务不受影响)" }),
+    ]);
+    fields.tokens = { get: () => area.value.split("\n").map((s) => s.trim()).filter(Boolean) };
+    grid.append(f);
+  }
   tf("🌐 代理地址", "proxy", "text", "本地代理格式: http://127.0.0.1:xxx");
   tf("📁 自定义路径", "custom_path", "text", "支持 <类型> <日期> <种子> <随机字符> <编号>");
   tf("🔢 端口号", "port", "number", "理论范围 1 - 65535");

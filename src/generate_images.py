@@ -19,6 +19,7 @@ from utils.generator import Generator
 from utils.helpers import (
     StopGeneration,
     check_stop,
+    reset_stop,
     find_and_replace_wildcards_from_dict,
     format_str,
     generate_hash_string,
@@ -40,7 +41,6 @@ from utils.image_tools import (
     process_white_regions,
     resize_image,
 )
-from utils.jobs import single_job
 from utils.logger import logger
 from utils.models import *  # noqa: F401,F403
 from utils.variable import (
@@ -295,9 +295,11 @@ def _model_function_map(model: str, kind: str):
 # ---------------------------------------------------------------- 主流程
 
 
-@single_job("图片生成")
 def generate(request: dict) -> tuple[list[str], str]:
-    """按请求生成一张或多张图片, 返回 (图片路径列表, 结果信息)。"""
+    """按请求生成一张或多张图片, 返回 (图片路径列表, 结果信息)。
+
+    由生图队列 (utils.gen_queue) 调度: 排队 / 并发 / 冷却均由队列管理。
+    """
     model = request["model"]
     positive_input = request.get("positive_prompt", "")
     negative_input = request.get("negative_prompt", "")
@@ -326,8 +328,7 @@ def generate(request: dict) -> tuple[list[str], str]:
     references = request.get("references", [])
 
     os.makedirs("./outputs", exist_ok=True)
-    with open("./outputs/temp_break.json", "w") as f:
-        json.dump({"break": False}, f)
+    reset_stop()  # 重置本任务的停止信号 (队列多通道并行时各任务独立)
 
     _type = "text2image"
     image_list: list[str] = []
@@ -523,9 +524,10 @@ def generate(request: dict) -> tuple[list[str], str]:
         except Exception as e:
             logger.error(f"发送邮件提醒失败: {e}")
 
-    from utils.generator import ANLAS, REMAINS
+    from utils.generator import get_last_anlas
 
-    message = f"处理完成! 剩余点数: {ANLAS}; 剩余用量: {REMAINS}%"
+    _anlas, _remains = get_last_anlas()
+    message = f"处理完成! 剩余点数: {_anlas}; 剩余用量: {_remains}%"
     if skipped:
         message += f" (已跳过 {skipped} 张失败图片)"
     return image_list, message

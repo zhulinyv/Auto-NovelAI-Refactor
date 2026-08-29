@@ -2310,3 +2310,144 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
 .wc-pl-group-name:hover .wc-pl-chip-del { display: inline; }
 .wc-pl-group.drop-before { box-shadow: 0 -3px 0 0 var(--primary); }
 .wc-pl-group.pl-dragging { opacity: 0.45; }
+
+/* ------- 鐢熷浘闃熷垪: 鏃ュ織鏍忓窘鏍?+ 娴姩绐楀彛 ------- */
+
+#queue-toggle { position: relative; }
+.queue-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  margin-left: 4px;
+  border-radius: 8px;
+  font-size: 10.5px;
+  font-weight: 700;
+  background: var(--primary);
+  color: #fff;
+  vertical-align: 1px;
+}
+.queue-badge.has-running { background: var(--warning); animation: pulse 1.4s infinite; }
+.queue-badge.hidden { display: none; }
+
+.queue-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 5150;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.queue-modal {
+  width: min(560px, calc(100vw - 40px));
+  max-height: min(72vh, 640px);
+  display: flex;
+  flex-direction: column;
+  animation: pop-in 0.2s ease;
+}
+.queue-modal-title { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.queue-modal-body { overflow-y: auto; padding: 4px 2px 8px; }
+.queue-modal-foot {
+  flex-shrink: 0;
+  padding: 8px 2px 0;
+  border-top: 1px dashed var(--border);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.queue-section-title {
+  font-size: 12px;
+  font-weight: 700;
+  opacity: 0.85;
+  margin: 10px 2px 6px;
+}
+.queue-section-title:first-child { margin-top: 2px; }
+
+.queue-lanes { display: flex; flex-direction: column; gap: 6px; }
+.queue-lane {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 12.5px;
+}
+.queue-lane.lane-running { border-color: color-mix(in srgb, var(--primary) 55%, var(--border)); }
+.queue-lane.lane-cooling { border-color: color-mix(in srgb, var(--warning) 45%, var(--border)); }
+.queue-lane-icon { flex-shrink: 0; }
+.queue-lane-name { font-weight: 700; flex-shrink: 0; }
+.queue-lane-token {
+  flex-shrink: 0;
+  font-family: monospace;
+  font-size: 11px;
+  opacity: 0.75;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.queue-lane-status { margin-left: auto; text-align: right; opacity: 0.9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.queue-task {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 6px;
+}
+.queue-task.running { border-color: color-mix(in srgb, var(--primary) 55%, var(--border)); background: color-mix(in srgb, var(--primary) 8%, transparent); }
+.queue-task.history { opacity: 0.72; }
+.queue-task.history.st-failed { border-color: color-mix(in srgb, #e5484d 45%, var(--border)); }
+.queue-task.history.st-cancelled { opacity: 0.45; }
+.queue-task-pos {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--hover);
+  font-size: 11.5px;
+  font-weight: 700;
+}
+.queue-task-main { min-width: 0; flex: 1; }
+.queue-task-label {
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.queue-task-meta { font-size: 11.5px; opacity: 0.7; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queue-task-btns { display: flex; gap: 4px; flex-shrink: 0; }
+
+.qbtn {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-solid, transparent);
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text);
+  transition: background 0.12s, border-color 0.12s;
+}
+.qbtn:hover:not(:disabled) { background: var(--hover); border-color: var(--primary); }
+.qbtn:disabled { opacity: 0.35; cursor: not-allowed; }
+.qbtn-danger:hover:not(:disabled) { border-color: #e5484d; color: #e5484d; }
+.qbtn-top { font-size: 12px; }
+
+.queue-empty { padding: 18px 8px; text-align: center; font-size: 13px; opacity: 0.65; }
+.queue-clear-row { display: flex; justify-content: flex-end; margin-top: 4px; }
+

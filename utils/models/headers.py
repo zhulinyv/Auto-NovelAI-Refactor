@@ -1,9 +1,9 @@
-from utils.environment import env
 from utils.logger import logger
+from utils.tokens import current_token
 
 
 def build_headers():
-    token = env.token
+    token = current_token()
     if not token:
         logger.error("未配置 Token!")
 

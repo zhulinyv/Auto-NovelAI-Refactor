@@ -214,19 +214,56 @@ def find_and_replace_wildcards_from_dict(data: dict) -> dict:
 
 
 # ---------------------------------------------------------------- 任务控制
+# 停止信号为"每任务独立文件" (./outputs/temp_break_<任务id>.json):
+# 生图队列多通道并行时, 停止某个任务不会误伤其它通道上正在运行的任务。
 
 
-def stop_generate() -> None:
+def reset_stop() -> None:
+    """任务开始时重置当前任务的停止信号 (替代旧的全局 temp_break.json 写入)。"""
+    from utils.jobs import write_break_flag
+
+    write_break_flag(False)
+
+
+def stop_generate(job_id: str | None = None) -> None:
+    """请求停止生成。
+
+    - 指定 job_id: 只停止该任务
+    - 未指定: 停止生图队列全部运行中任务 + 所有后台任务 (全局停止, 兼容旧行为)
+    """
     logger.warning("正在停止生成...")
+    if job_id:
+        from utils.jobs import write_break_flag
+
+        write_break_flag(True, job_id)
+        return
+    try:
+        from utils.gen_queue import gen_queue
+
+        gen_queue.stop_all_running()
+    except Exception:
+        pass
+    try:
+        from utils.jobs import jobs as _jobs, write_break_flag
+
+        for jid in _jobs.running_job_ids():
+            write_break_flag(True, jid)
+    except Exception:
+        pass
     os.makedirs("./outputs", exist_ok=True)
     with open("./outputs/temp_break.json", "w") as f:
         json.dump({"break": True}, f)
 
 
 def check_stop() -> bool:
+    """检测当前任务的停止信号 (自动按线程定位任务; 任务线程外读取全局文件)。"""
     try:
-        return bool(read_json("./outputs/temp_break.json").get("break"))
+        from utils.jobs import break_file_path
+
+        return bool(read_json(break_file_path()).get("break"))
     except FileNotFoundError:
+        return False
+    except Exception:
         return False
 
 

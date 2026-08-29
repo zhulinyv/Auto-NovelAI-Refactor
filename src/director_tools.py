@@ -5,14 +5,12 @@ import os
 import random
 from pathlib import Path
 
-import ujson as json
 from PIL import Image
 
 from utils.config import env
 from utils.generator import Generator
-from utils.helpers import check_stop, format_str, playsound, sleep_for_cool
+from utils.helpers import check_stop, format_str, playsound, reset_stop, sleep_for_cool
 from utils.image_tools import image_to_base64
-from utils.jobs import single_job
 from utils.logger import logger
 from utils.models import director
 
@@ -22,8 +20,7 @@ generator = Generator("https://image.novelai.net/ai/augment-image")
 def _input_images(input_path: str | None, input_image: str | None) -> list[str]:
     """收集待处理图片: 先单张图片, 再目录内全部图片 (同时输入时两者都处理)。"""
     os.makedirs("./outputs", exist_ok=True)
-    with open("./outputs/temp_break.json", "w") as f:
-        json.dump({"break": False}, f)
+    reset_stop()  # 重置本任务的停止信号
     images = []
     if input_image:
         images.append(input_image)
@@ -51,9 +48,8 @@ def _process(image_path: str, build_fn, image_type: str) -> str | None:
     return generator.save(image_data, image_type, random.randint(1000000000, 9999999999))
 
 
-@single_job("导演工具")
 def run_director(kind: str, input_path: str | None, input_image: str | None, options: dict | None = None) -> list[str]:
-    """执行指定类型的导演工具处理。"""
+    """执行指定类型的导演工具处理 (由生图队列调度, augment-image 同样占用通道)。"""
     options = options or {}
     image_list: list[str] = []
     input_images = _input_images(input_path, input_image)

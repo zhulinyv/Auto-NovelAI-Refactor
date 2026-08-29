@@ -15,6 +15,7 @@ from fastapi import APIRouter, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 from src.generate_images import generate  # noqa: F401  (确保模型导入)
+from utils.gen_queue import gen_queue
 from utils.jobs import jobs
 from utils.config import BASE_DIR, env
 from utils.helpers import format_str, read_json
@@ -80,6 +81,8 @@ async def get_state():
         # plugin_rows 已拆分到 /api/plugins/rows: 含逐插件 git 更新检查,
         # 放在这里会阻塞前端启动时的状态请求数秒
         "busy": jobs.is_busy,
+        # 生图队列快照: 前端启动即可显示队列徽标与状态
+        "queue": gen_queue.snapshot(),
     }
 
 
@@ -130,9 +133,10 @@ async def browse_folders():
     folders = [""]
     if base.exists():
         for p in sorted(base.rglob("*")):
-            if p.is_dir() and not p.name.startswith((".", "__")):
+            if p.is_dir() and not p.name.startswith((".", "_")):   # "_"/"." 开头为内部/测试目录
                 rel = p.relative_to(base).as_posix()
-                if rel.split("/")[0] in _BROWSE_EXCLUDED_DIRS:
+                top = rel.split("/")[0]
+                if top in _BROWSE_EXCLUDED_DIRS or top.startswith(("_", ".")):
                     continue
                 folders.append(rel)
     return {"base": "outputs", "folders": folders}
@@ -153,7 +157,8 @@ async def browse_images(dir: str = "", recursive: bool = False):
                     continue
                 if "temp_" in p.name.lower():  # 排除临时文件
                     continue
-                if p.relative_to(base).as_posix().split("/")[0] in _BROWSE_EXCLUDED_DIRS:
+                top = p.relative_to(base).as_posix().split("/")[0]
+                if top in _BROWSE_EXCLUDED_DIRS or top.startswith(("_", ".")):
                     continue
                 st = p.stat()
                 images.append({

@@ -7,7 +7,6 @@ import os
 from fastapi import APIRouter, HTTPException
 
 from utils.helpers import read_json
-from utils.jobs import jobs
 from utils.logger import logger
 from utils.plugins import get_manifest, run_action
 from utils.services import plugins_store
@@ -68,16 +67,15 @@ async def plugin_set_values(plugin_name: str, panel_id: str, payload: dict):
 
 @router.post("/plugin/{plugin_name}/{panel_id}/{action_id}")
 async def plugin_action(plugin_name: str, panel_id: str, action_id: str, payload: dict):
-    if jobs.is_busy:
-        raise HTTPException(status_code=409, detail="已有任务正在运行, 请先停止或等待当前任务完成")
+    """执行插件动作: NovelAI 类动作进入生图队列 (queued=True), 其余本地多线程执行。"""
     try:
-        job_id = run_action(plugin_name, panel_id, action_id, payload.get("values", {}))
+        job_id, queued = run_action(plugin_name, panel_id, action_id, payload.get("values", {}))
     except KeyError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         logger.error(f"插件动作执行失败: {e}")
         raise HTTPException(status_code=500, detail=f"插件动作执行失败: {e}")
-    return {"job_id": job_id}
+    return {"job_id": job_id, "queued": queued}
 
 
 @router.post("/plugins/install")

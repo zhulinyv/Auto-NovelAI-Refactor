@@ -6,6 +6,7 @@ import { initBackground, initBackgroundUI } from "./background.js";
 import { initLogConsole } from "./components.js";
 import { initEmoji } from "./emoji.js";
 import { initHitokoto } from "./hitokoto.js";
+import { initQueueModal } from "./queueModal.js";
 import { fetchState } from "./api.js";
 import { $, $$, el, bus, toast, initFancySelects } from "./ui.js";
 
@@ -56,16 +57,24 @@ async function boot() {
       case "log":
         log.addLine(ev.level, ev.message, ev.exception);
         break;
+      case "queue:update":
+        lastQueue = ev.queue || null;
+        updateJobStatus();
+        bus.emit("queue:update", lastQueue);
+        break;
       case "job:start":
-        setJobStatus(`⏳ ${ev.name}`, true);
+        // 生图队列任务的状态由 queue:update 快照计算, 其余任务按旧逻辑显示
+        if (!isQueueTask(ev.id)) { otherJobs.set(ev.id, ev.name); updateJobStatus(); }
         bus.emit("job:start", ev);
         break;
       case "job:done":
-        setJobStatus("✅ 空闲", false);
+        otherJobs.delete(ev.id);
+        updateJobStatus();
         bus.emit("job:done", ev);
         break;
       case "job:failed":
-        setJobStatus("❌ 失败", false);
+        otherJobs.delete(ev.id);
+        updateJobStatus();
         bus.emit("job:failed", ev);
         // 插件任务失败由 plugins.js 统一弹通知, 避免重复; 其余任务在此统一提示
         if (!ev.name?.startsWith("plugin:")) toast(ev.error || "任务失败", "error", 6000);
@@ -86,6 +95,7 @@ async function boot() {
     return;
   }
   initBackgroundUI();
+  initQueueModal(appState.queue || null);
 
   // ---- 侧边导航: 静态视图 + 每个插件一个入口 ----
   const navHolder = document.getElementById("plugin-nav-items");
@@ -135,9 +145,36 @@ function makeStore(name) {
   };
 }
 
-function setJobStatus(text, busy) {
+// ---------------- 任务状态栏 (按生图队列快照 + 本地任务计算) ----------------
+
+let lastQueue = null;                 // 最近一次生图队列快照
+const otherJobs = new Map();          // 非队列后台任务 (超分等): id -> name
+
+function isQueueTask(jobId) {
+  return !!lastQueue?.tasks?.some((t) => t.id === jobId);
+}
+
+function updateJobStatus() {
   const node = document.getElementById("job-status");
-  node.textContent = text;
+  if (!node) return;
+  // 队列快照晚于 job:start 到达时, 运行中队列任务可能被误记为本地任务, 在此剔除
+  for (const id of [...otherJobs.keys()]) {
+    if (isQueueTask(id)) otherJobs.delete(id);
+  }
+  const parts = [];
+  const q = lastQueue;
+  if (q) {
+    const tasks = q.tasks || [];
+    const running = tasks.filter((t) => t.status === "running").length;
+    const pending = tasks.filter((t) => t.status === "pending").length;
+    const cooling = (q.workers || []).some((w) => w.status === "cooling");
+    if (running) parts.push(`⏳ 生图 ${running}/${q.worker_count ?? "?"}`);
+    if (pending) parts.push(`📋 排队 ${pending}`);
+    if (!running && cooling) parts.push("❄️ 冷却中");
+  }
+  if (otherJobs.size) parts.push(`🛠️ 本地任务 ${otherJobs.size}`);
+  const busy = parts.length > 0;
+  node.textContent = busy ? parts.join(" · ") : "✅ 空闲";
   node.classList.toggle("busy", busy);
 }
 

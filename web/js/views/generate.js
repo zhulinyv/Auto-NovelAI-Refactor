@@ -883,7 +883,12 @@ async function onGenerate() {
   infoEl.textContent = "🚀 正在提交生成任务...";
   try {
     const res = await post("/api/generate", request);
-    toast(`生成任务已启动: ${res.job_id}`, "success");
+    if (res.position && res.position > 1) {
+      infoEl.textContent = "🚦 已加入生图队列, 当前第 " + res.position + " 位, 等待前面的任务完成...";
+      toast(`已加入生图队列 (第 ${res.position} 位): ${res.job_id}`, "info", 5000);
+    } else {
+      toast(`生成任务已启动: ${res.job_id}`, "success");
+    }
   } catch (e) {
     infoEl.textContent = "❌ " + e.message;
     toast(e.message, "error", 6000);
@@ -907,6 +912,7 @@ function onJobDone(ev) {
   if (ev.images?.length) {
     lastGeneratedImages = ev.images;
     gallery(genGalleryEl, ev.images, {
+      zoomOnClick: true,   // 单击图片即放大展示 (双击不再需要)
       onSelect: (path) => {
         if (ev.images.length === 1) {
           // 单张结果: 直接选中并显示发送按钮

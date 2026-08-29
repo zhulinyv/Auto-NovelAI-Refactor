@@ -6,20 +6,16 @@ import platform
 import subprocess
 from pathlib import Path
 
-import ujson as json
-
 from utils.config import env
-from utils.helpers import check_stop, download, extract, playsound
+from utils.helpers import check_stop, download, extract, playsound, reset_stop
 from utils.image_tools import revert_image_info
-from utils.jobs import single_job
 from utils.logger import logger
 
 
 def _input_images(input_path: str | None, input_image: str | None) -> list[str]:
     """收集待处理图片: 先单张图片, 再目录内全部图片 (同时输入时两者都处理)。"""
     os.makedirs("./outputs", exist_ok=True)
-    with open("./outputs/temp_break.json", "w") as f:
-        json.dump({"break": False}, f)
+    reset_stop()  # 重置本任务的停止信号
     images = []
     if input_image:
         images.append(input_image)
@@ -54,9 +50,8 @@ def run_cmd(code: str):
         return None
 
 
-@single_job("超分降噪")
 def run_upscale(kind: str, input_path: str | None, input_image: str | None, options: dict | None = None) -> list[str]:
-    """执行指定类型的超分处理。"""
+    """执行指定类型的超分处理 (本地任务, 不进生图队列, 多线程并行)。"""
     if not _ensure_windows():
         return []
     options = options or {}
