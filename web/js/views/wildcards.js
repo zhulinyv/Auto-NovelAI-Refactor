@@ -7,7 +7,7 @@
 //         选中后可拖入上方提示词, 或点弹窗的 "➕ 添加选中"。
 //   封面约定: 卡片同目录下的 <名称>.png/jpg/webp 即为其封面
 // ============================================================
-import { $, $$, el, clear, toast, wireAutocomplete } from "../ui.js";
+import { $, $$, el, clear, toast, confirmDialog, wireAutocomplete } from "../ui.js";
 import { get, post, del, imageUrl } from "../api.js";
 import { getCurrentOutputImage } from "./generate.js";
 import { builtinPromptGroups } from "../data/builtinPrompts.js";
@@ -93,13 +93,18 @@ export async function renderPanel(container, ctx, opts = {}) {
   const plList = el("div", { class: "wc-pl-list" });
   const plSearch = el("input", { type: "text", class: "wc-search", placeholder: "🔍 搜索提示词..." });
   plSearch.addEventListener("input", () => { plKeyword = plSearch.value; renderPromptLib(); renderBuiltinPrompts(); });
-  const plInput = el("input", { type: "text", placeholder: "输入关键词, 保存后可随时加入提示词" });
+  const plInput = el("input", { type: "text", style: "flex:1;min-width:0;", placeholder: "输入关键词或一段提示词, 保存后可随时加入提示词" });
   plInput.addEventListener("keydown", (e) => { if (e.key === "Enter") savePromptLib(); });
+  // 分类: 从已有分类中选择, 也可直接输入新分类
+  const plCatInput = el("input", { type: "text", list: "pl-cat-list", style: "width:150px;flex-shrink:0;", placeholder: "📁 分类 (可新建)" });
+  const plCatList = el("datalist", { id: "pl-cat-list" });
   // 内置提示词多选计数 (添加/清除使用弹窗右上角的共用按钮)
   const plSelText = el("div", { class: "wc-pl-selbar muted hidden", text: "" });
   const builtinBox = el("div", { class: "wc-pl-builtin" });
   const promptLibBox = el("div", { class: "hidden" }, [
     el("div", { style: "display:flex;gap:6px;margin-bottom:10px;" }, [
+      plCatInput,
+      plCatList,
       plInput,
       el("button", { class: "btn btn-sm btn-primary", text: "💾 保存", onclick: savePromptLib }),
     ]),
@@ -217,14 +222,22 @@ export async function renderPanel(container, ctx, opts = {}) {
       const res = await get("/api/prompt-library");
       plItems = res.items || [];
       renderPromptLib();
-      await translatePromptLib(plItems);
+      syncCatList();
+      await translatePromptLib(plItems.map((it) => it.text));
     } catch (e) {
       toast("读取提示词库失败: " + e.message, "error");
     }
   }
 
-  async function translatePromptLib(items) {
-    const missing = items.filter((t) => !plZh.has(plKey(t)));
+  /** 分类下拉候选: 已有的用户分类 */
+  function syncCatList() {
+    clear(plCatList);
+    [...new Set(plItems.map((it) => it.category || "默认"))].forEach((c) =>
+      plCatList.append(el("option", { value: c })));
+  }
+
+  async function translatePromptLib(texts) {
+    const missing = texts.filter((t) => !plZh.has(plKey(t)));
     if (!missing.length) return;
     try {
       const r = await post("/api/suggest/translate", { tags: missing });
@@ -236,31 +249,61 @@ export async function renderPanel(container, ctx, opts = {}) {
   function renderPromptLib() {
     clear(plList);
     const kw = plKeyword.trim().toLowerCase();
-    const list = plItems.filter((t) => !kw || t.toLowerCase().includes(kw));
+    const list = plItems.filter((it) =>
+      !kw || it.text.toLowerCase().includes(kw) || (it.category || "").toLowerCase().includes(kw));
     if (!list.length) {
       plList.append(el("div", { class: "gallery-empty", text: "暂无收藏 — 输入关键词后保存到库中" }));
       return;
     }
-    list.forEach((text) => {
-      const zh = plZh.get(plKey(text)) || "";
-      const row = el("div", { class: "wc-pl-item", title: text + (zh ? " · " + zh : "") }, [
-        el("div", { class: "wc-pl-text" }, [
-          el("span", { class: "wc-pl-en", text }),
-          zh ? el("span", { class: "wc-pl-zh", text: zh }) : null,
-        ]),
-        el("button", { class: "btn btn-sm", text: "➕", title: "添加到提示词", onclick: (e) => { e.stopPropagation(); addToPromptText(text); } }),
-        el("button", { class: "btn btn-sm btn-clear-file", text: "🗑", title: "从库中删除", onclick: async (e) => {
-          e.stopPropagation();
-          try {
-            const res = await post("/api/prompt-library/delete", { text });
-            plItems = res.items || [];
-            renderPromptLib();
-            toast("已从提示词库删除 🗑️", "success");
-          } catch (err) { toast(err.message, "error"); }
-        } }),
-      ]);
-      row.addEventListener("click", () => addToPromptText(text));
-      plList.append(row);
+    // 按分类分组 (保持最近保存顺序), 每组标题可删除整个分类
+    const groups = new Map();
+    list.forEach((it) => {
+      const cat = it.category || "默认";
+      if (!groups.has(cat)) groups.set(cat, []);
+      groups.get(cat).push(it);
+    });
+    groups.forEach((items, cat) => {
+      plList.append(el("div", { class: "wc-pl-cat-head" }, [
+        el("span", { class: "wc-pl-cat-name", text: `📁 ${cat} (${items.length})` }),
+        el("span", { class: "spacer" }),
+        el("button", {
+          class: "btn btn-sm btn-clear-file", text: "🗑", title: "删除该分类及其中所有收藏 (不可恢复)",
+          onclick: async () => {
+            const ok = await confirmDialog(`确定删除分类「${cat}」? 其中 ${items.length} 条收藏将一并删除, 不可恢复。`, { danger: true });
+            if (!ok) return;
+            try {
+              const res = await post("/api/prompt-library/delete-category", { category: cat });
+              plItems = res.items || [];
+              renderPromptLib();
+              syncCatList();
+              toast(`分类「${cat}」已删除 🗑️`, "success");
+            } catch (err) { toast(err.message, "error"); }
+          },
+        }),
+      ]));
+      items.forEach((it) => {
+        const text = it.text;
+        const zh = plZh.get(plKey(text)) || "";
+        const row = el("div", { class: "wc-pl-item", title: text + (zh ? " · " + zh : "") }, [
+          el("div", { class: "wc-pl-text" }, [
+            el("span", { class: "wc-pl-en", text }),
+            zh ? el("span", { class: "wc-pl-zh", text: zh }) : null,
+          ]),
+          el("button", { class: "btn btn-sm", text: "➕", title: "添加到提示词", onclick: (e) => { e.stopPropagation(); addToPromptText(text); } }),
+          el("button", { class: "btn btn-sm btn-clear-file", text: "🗑", title: "从库中删除", onclick: async (e) => {
+            e.stopPropagation();
+            try {
+              const res = await post("/api/prompt-library/delete", { text });
+              plItems = res.items || [];
+              renderPromptLib();
+              syncCatList();
+              toast("已从提示词库删除 🗑️", "success");
+            } catch (err) { toast(err.message, "error"); }
+          } }),
+        ]);
+        row.addEventListener("click", () => addToPromptText(text));
+        plList.append(row);
+      });
     });
   }
 
@@ -275,13 +318,15 @@ export async function renderPanel(container, ctx, opts = {}) {
   async function savePromptLib() {
     const text = plInput.value.trim();
     if (!text) { toast("请输入要收藏的关键词", "warning"); return; }
+    const category = plCatInput.value.trim() || "默认";
     try {
-      const res = await post("/api/prompt-library/add", { text });
+      const res = await post("/api/prompt-library/add", { text, category });
       plItems = res.items || [];
       plInput.value = "";
       renderPromptLib();
-      await translatePromptLib(plItems);
-      toast("已保存到提示词库 📚", "success");
+      syncCatList();
+      await translatePromptLib(plItems.map((it) => it.text));
+      toast(`已保存到提示词库「${category}」📚`, "success");
     } catch (e) { toast(e.message, "error"); }
   }
 
@@ -293,19 +338,36 @@ export async function renderPanel(container, ctx, opts = {}) {
     allTypes = res.types || [];
     clear(typeList);
     allTypes.forEach((t) => {
-      typeList.append(el("button", {
-        class: "tab-btn" + (t === state.type ? " active" : ""),
-        text: "📁 " + t,
-        onclick: async () => {
-          state.type = t;
-          state.name = null;
-          state.lastIdx = -1;
-          selection.clear();
-          await loadTypes();
-          await loadCards();
-          syncSelection();
+      const tab = el("button", { class: "tab-btn" + (t === state.type ? " active" : ""), title: t });
+      tab.append(el("span", { text: "📁 " + t }));
+      // 悬停显示删除分类按钮 (文件夹连同卡片移到回收站)
+      tab.append(el("span", {
+        class: "wc-type-del", text: "✕", title: `删除分类 <${t}> (卡片移到回收站)`,
+        onclick: async (e) => {
+          e.stopPropagation();
+          const ok = await confirmDialog(`确定删除分类「${t}」? 该分类下的所有卡片和封面将移到回收站。`, { danger: true });
+          if (!ok) return;
+          try {
+            await post("/api/wildcards/delete-type", { type: t });
+            toast(`分类 <${t}> 已删除 (移到回收站) 🗑️`, "success");
+            if (state.type === t) { state.type = null; renderEditPlaceholder(); }
+            selection.clear();
+            await loadTypes();
+            await loadCards();
+            syncSelection();
+          } catch (err) { toast(err.message, "error"); }
         },
       }));
+      tab.addEventListener("click", async () => {
+        state.type = t;
+        state.name = null;
+        state.lastIdx = -1;
+        selection.clear();
+        await loadTypes();
+        await loadCards();
+        syncSelection();
+      });
+      typeList.append(tab);
     });
   }
 

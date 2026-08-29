@@ -682,6 +682,19 @@ async def delete_wildcard(wildcard_type: str, wildcard_name: str):
     return {"message": f"已将 <{wildcard_type}:{wildcard_name}> 移动到回收站!"}
 
 
+@router.post("/wildcards/delete-type")
+async def wildcards_delete_type(payload: dict):
+    """删除整个 wildcards 分类 (文件夹连同卡片/封面移到回收站)。"""
+    wtype = str(payload.get("type") or "").strip()
+    if not wtype or "/" in wtype or "\\" in wtype or wtype in (".", ".."):
+        raise HTTPException(status_code=400, detail="分类名不合法")
+    try:
+        wildcards.delete_type(wtype)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return {"ok": True, "message": f"分类 <{wtype}> 已移到回收站"}
+
+
 @router.post("/wildcards/add-to-prompt")
 async def add_wildcard_to_prompt(payload: dict):
     prompt = payload.get("prompt", "")
@@ -795,12 +808,28 @@ _PROMPT_LIB_FILE = BASE_DIR / "outputs" / "prompt_library.json"
 
 
 def _read_prompt_lib():
-    """读取提示词库 (用户收藏的关键词/短语, 按最近保存倒序)。"""
+    """读取提示词库 (用户收藏: {text, category}, 按最近保存倒序; 兼容迁移旧版纯文本格式)。"""
     try:
         data = json.loads(_PROMPT_LIB_FILE.read_text(encoding="utf-8"))
-        return data if isinstance(data, list) else []
+        if not isinstance(data, list):
+            return []
+        items = []
+        for x in data:
+            if isinstance(x, dict) and str(x.get("text") or "").strip():
+                items.append({
+                    "text": str(x["text"]).strip(),
+                    "category": str(x.get("category") or "默认").strip() or "默认",
+                })
+            elif isinstance(x, str) and x.strip():
+                items.append({"text": x.strip(), "category": "默认"})  # 旧版数据迁移
+        return items
     except Exception:
         return []
+
+
+def _write_prompt_lib(items):
+    _PROMPT_LIB_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _PROMPT_LIB_FILE.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 @router.get("/prompt-library")
@@ -810,17 +839,15 @@ async def prompt_library_get():
 
 @router.post("/prompt-library/add")
 async def prompt_library_add(payload: dict):
-    """保存关键词到提示词库 (已存在则移到最前, 最多保留 500 条)。"""
+    """保存关键词到提示词库 (可带分类, 已存在则更新分类并移到最前, 最多保留 500 条)。"""
     text = str(payload.get("text") or "").strip()
+    category = str(payload.get("category") or "默认").strip() or "默认"
     if not text:
         raise HTTPException(status_code=400, detail="内容不能为空")
-    items = _read_prompt_lib()
-    if text in items:
-        items.remove(text)
-    items.insert(0, text)
+    items = [x for x in _read_prompt_lib() if x["text"] != text]
+    items.insert(0, {"text": text, "category": category})
     items = items[:500]
-    _PROMPT_LIB_FILE.parent.mkdir(parents=True, exist_ok=True)
-    _PROMPT_LIB_FILE.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
+    _write_prompt_lib(items)
     return {"items": items}
 
 
@@ -828,9 +855,19 @@ async def prompt_library_add(payload: dict):
 async def prompt_library_delete(payload: dict):
     """从提示词库删除指定关键词。"""
     text = str(payload.get("text") or "").strip()
-    items = [x for x in _read_prompt_lib() if x != text]
-    _PROMPT_LIB_FILE.parent.mkdir(parents=True, exist_ok=True)
-    _PROMPT_LIB_FILE.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
+    items = [x for x in _read_prompt_lib() if x["text"] != text]
+    _write_prompt_lib(items)
+    return {"items": items}
+
+
+@router.post("/prompt-library/delete-category")
+async def prompt_library_delete_category(payload: dict):
+    """删除提示词库中的整个分类 (连同该分类下的所有收藏, 不可恢复)。"""
+    category = str(payload.get("category") or "").strip()
+    if not category:
+        raise HTTPException(status_code=400, detail="分类不能为空")
+    items = [x for x in _read_prompt_lib() if x["category"] != category]
+    _write_prompt_lib(items)
     return {"items": items}
 
 

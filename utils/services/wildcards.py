@@ -121,5 +121,16 @@ def delete(wildcard_type: str, wildcard_name: str) -> None:
         logger.error(f"wildcard 不存在: <{wildcard_type}:{wildcard_name}>")
 
 
+def delete_type(wildcard_type: str) -> None:
+    """删除整个分类文件夹 (卡片与封面一并移到回收站)。"""
+    path = WILDCARDS_DIR / wildcard_type
+    if path.exists():
+        send2trash.send2trash(str(path))
+        logger.info(f"已将分类 <{wildcard_type}> 移动到回收站")
+    else:
+        logger.error(f"wildcard 分类不存在: <{wildcard_type}>")
+        raise FileNotFoundError(f"分类不存在: <{wildcard_type}>")
+
+
 def add_wildcard_to_prompt(prompt: str, wildcard_type: str, wildcard_name: str) -> str:
     return format_str(f"{prompt}, <{wildcard_type}:{wildcard_name}>")
