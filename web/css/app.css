@@ -406,6 +406,7 @@ input.slider-num {
   box-shadow: var(--shadow);
   display: flex;
   flex-direction: column;
+  overflow: hidden; /* 拖动条高亮裁进圆角内 (与侧边栏一致) */
   transition: height 0.25s;
 }
 .log-panel.collapsed { height: 52px !important; }
