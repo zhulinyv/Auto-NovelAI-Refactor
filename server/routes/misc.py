@@ -120,7 +120,7 @@ async def open_save_dir(payload: dict):
 _BROWSE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif"}
 
 
-_BROWSE_EXCLUDED_DIRS = {"backgrounds", "uploads"}  # API 壁纸缓存 / 上传目录, 不在图片浏览中展示
+_BROWSE_EXCLUDED_DIRS = {"backgrounds", "uploads", "selector_trash"}  # API 壁纸缓存 / 上传目录 / 图片筛选回收站, 不在图片浏览中展示
 
 
 @router.get("/browse/folders")

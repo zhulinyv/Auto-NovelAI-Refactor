@@ -1910,9 +1910,14 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
   flex-direction: column;
   justify-content: center;
   gap: 12px;
+  margin: 18px 18px 18px 0;
   padding: 24px 20px;
-  border-left: 1px solid var(--border);
-  background: var(--panel-solid);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  backdrop-filter: blur(var(--panel-blur));
+  -webkit-backdrop-filter: blur(var(--panel-blur));
+  box-shadow: var(--shadow);
 }
 .img-viewer-side .btn { width: 100%; }
 .img-viewer-tip { font-size: 12px; color: var(--text-2); line-height: 1.7; margin-bottom: 6px; }
