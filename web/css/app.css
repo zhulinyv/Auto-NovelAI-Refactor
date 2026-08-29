@@ -1582,11 +1582,38 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
   animation: wc-fade 0.18s ease;
 }
 .wc-modal-box {
+  /* 窗口内部强制暗色配色: 黑底上文字/控件保持可读 (深色浅色主题一致) */
+  --bg: #0b0c10;
+  --panel: rgba(26, 28, 38, 0.72);
+  --panel-solid: #161821;
+  --surface-2: rgba(255, 255, 255, 0.06);
+  --surface-3: rgba(255, 255, 255, 0.12);
+  --text: #e7e9ee;
+  --text-2: #9aa0ae;
+  --primary: #a78bfa;
+  --primary-2: #c4b5fd;
+  --secondary: #818cf8;
+  --accent: #f472b6;
+  --success: #4ade80;
+  --warning: #fbbf24;
+  --danger: #f87171;
+  --border: rgba(255, 255, 255, 0.1);
+  --hover: rgba(255, 255, 255, 0.06);
+  --input: rgba(255, 255, 255, 0.08);
+  --shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 10px 40px rgba(0, 0, 0, 0.5);
+  --tag-general: #d4d4d8;
+  --tag-artist: #d8b4fe;
+  --tag-copyright: #93c5fd;
+  --tag-character: #6ee7b7;
+  --tag-meta: #fca5a5;
+  color-scheme: dark;
   width: min(1560px, 97vw);
   height: min(1040px, 95vh);
   display: flex;
   flex-direction: column;
-  background: var(--panel-solid);  /* 无遮罩时窗口本体用不透明底色, 避免透出页面内容 */
+  background: rgba(0, 0, 0, 0.78);  /* 仅窗口有黑底 (半透明黑玻璃, 透出后面内容) */
+  color: var(--text);  /* 窗口自身及其继承文字强制亮色, 黑底上可读 */
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow-lg);
