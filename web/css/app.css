@@ -2181,3 +2181,26 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
 
 .ack-title { font-size: 13px; font-weight: 700; color: var(--text-2); margin: 14px 0 8px; }
 .ack-title:first-of-type { margin-top: 2px; }
+
+/* ------- 赞助页: 翻页区域与内容铺满可用空间 ------- */
+.pager-viewport { height: calc(100vh - 300px); min-height: 400px; }
+.pager-card { height: 100%; display: flex; flex-direction: column; }
+.pager-card > .card-title, .pager-card > p { flex-shrink: 0; }
+
+/* 页1: 收款码卡片纵向撑满, 二维码尽量大 */
+.pager-card .sponsor-grid { flex: 1; min-height: 0; margin-top: 10px; gap: 24px; }
+.pager-card .sponsor-item { justify-content: center; gap: 14px; padding: 20px 16px; }
+.pager-card .sponsor-qr { flex: 1; min-height: 0; width: auto; max-width: 100%; margin: 0 auto; aspect-ratio: 1; }
+.pager-card .sponsor-label { font-size: 15px; }
+
+/* 页2: 两组卡片平分纵向空间, 卡片内容垂直居中 */
+.ack-group { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.ack-group .ack-title { flex-shrink: 0; margin: 0 0 10px; }
+.ack-group .ack-grid {
+  flex: 1; min-height: 0;
+  grid-auto-rows: 1fr; gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+}
+.ack-item { justify-content: center; gap: 7px; padding: 14px 18px; }
+.ack-name { font-size: 14px; }
+.ack-desc { font-size: 12.5px; }

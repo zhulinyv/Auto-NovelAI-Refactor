@@ -49,11 +49,15 @@ export async function render(container, ctx) {
     ]);
   const ackCard = el("div", { class: "card pager-card" }, [
     el("div", { class: "card-title", text: "🙏 鸣谢" }),
-    el("p", { class: "muted", style: "margin:4px 0 6px;line-height:1.8;", text: "本项目站立在众多优秀开源项目与在线服务的肩膀之上, 向以下项目的作者与贡献者致以诚挚的感谢! 点击卡片可访问对应主页。" }),
-    el("div", { class: "ack-title", text: "开源项目" }),
-    el("div", { class: "ack-grid" }, ackProjects.map(ackCardItem)),
-    el("div", { class: "ack-title", text: "在线服务与数据来源" }),
-    el("div", { class: "ack-grid" }, ackServices.map(ackCardItem)),
+    el("p", { class: "muted", style: "margin:4px 0 10px;line-height:1.8;", text: "本项目站立在众多优秀开源项目与在线服务的肩膀之上, 向以下项目的作者与贡献者致以诚挚的感谢! 点击卡片可访问对应主页。" }),
+    el("div", { class: "ack-group" }, [
+      el("div", { class: "ack-title", text: "开源项目" }),
+      el("div", { class: "ack-grid" }, ackProjects.map(ackCardItem)),
+    ]),
+    el("div", { class: "ack-group" }, [
+      el("div", { class: "ack-title", text: "在线服务与数据来源" }),
+      el("div", { class: "ack-grid" }, ackServices.map(ackCardItem)),
+    ]),
   ]);
 
   // PPT 式翻页: 当前区域仅显示一页, 上/下翻页切换
