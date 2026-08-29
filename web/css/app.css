@@ -2058,3 +2058,32 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
 .bg-api-src .opt-item { flex: 1; justify-content: center; text-align: center; border: none; background: transparent; border-radius: 7px; padding: 6px 4px; font-size: 12.5px; }
 .bg-api-src .opt-item:hover { border-color: transparent; background: var(--hover); }
 .bg-api-src .opt-item.selected { border-color: transparent; background: color-mix(in srgb, var(--primary) 15%, transparent); color: var(--primary); }
+
+/* ------- 赞助/鸣谢 PPT 式翻页 ------- */
+.sponsor-pager { display: flex; flex-direction: column; gap: 12px; }
+.pager-viewport { position: relative; height: 620px; border-radius: var(--radius); overflow: hidden; }
+.pager-card { margin: 0 !important; height: 100%; overflow-y: auto; }
+.pager-page { position: absolute; inset: 0; display: none; }
+.pager-page.active { display: block; }
+.pager-page.slide-in-up { animation: pager-in-up 0.32s ease both; }
+.pager-page.slide-in-down { animation: pager-in-down 0.32s ease both; }
+@keyframes pager-in-up { from { opacity: 0; transform: translateY(26px); } to { opacity: 1; transform: none; } }
+@keyframes pager-in-down { from { opacity: 0; transform: translateY(-26px); } to { opacity: 1; transform: none; } }
+.pager-nav { display: flex; align-items: center; justify-content: center; gap: 12px; }
+.pager-nav .btn { min-width: 96px; }
+.pager-nav .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.pager-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border); transition: all 0.2s ease; }
+.pager-dot.active { background: var(--primary); transform: scale(1.25); }
+.pager-indicator { font-size: 12.5px; color: var(--text-soft, var(--text)); opacity: 0.75; min-width: 34px; text-align: center; }
+
+/* ------- 鸣谢项目卡片 ------- */
+.ack-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.ack-item {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--panel-solid); text-decoration: none; transition: all 0.15s ease;
+}
+.ack-item:hover { border-color: var(--primary); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.12); }
+.ack-name { font-size: 13px; font-weight: 600; color: var(--text); }
+.ack-item:hover .ack-name { color: var(--primary); }
+.ack-desc { font-size: 12px; color: var(--text-soft, var(--text)); opacity: 0.7; line-height: 1.5; }
