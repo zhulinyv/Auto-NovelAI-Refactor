@@ -168,6 +168,59 @@ async def browse_images(dir: str = "", recursive: bool = False):
     return {"message": f"已打开目录: {target}", "path": str(target)}
 
 
+# ---------------------------------------------------------------- 图片收藏 (我的收藏)
+# 仅保存图片路径引用, 不移动/复制文件; 持久化到 outputs/favorites.json
+_FAVORITES_FILE = BASE_DIR / "outputs" / "favorites.json"
+_FAVORITES_MAX = 1000
+
+
+def _read_favorites() -> list:
+    """读取收藏列表 (过滤掉已不存在的文件)。"""
+    try:
+        data = json.loads(_FAVORITES_FILE.read_text(encoding="utf-8"))
+        items = data.get("items", []) if isinstance(data, dict) else []
+        out = []
+        for it in items:
+            if isinstance(it, dict) and it.get("path") and Path(it["path"]).exists():
+                out.append(it)
+        return out
+    except Exception:
+        return []
+
+
+def _write_favorites(items: list) -> None:
+    _FAVORITES_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _FAVORITES_FILE.write_text(json.dumps({"items": items}, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+@router.get("/favorites")
+async def favorites_get():
+    """我的收藏列表 (仅路径引用, 按收藏时间倒序)。"""
+    return {"items": _read_favorites()}
+
+
+@router.post("/favorites/add")
+async def favorites_add(payload: dict):
+    """把一张图片加入收藏 (不移动/复制文件)。"""
+    path = str(payload.get("path") or "").strip()
+    if not path:
+        raise HTTPException(status_code=400, detail="图片路径不能为空")
+    name = str(payload.get("name") or "").strip() or Path(path).name
+    items = [x for x in _read_favorites() if x["path"] != path]
+    items.insert(0, {"path": path, "name": name, "added_at": time.time()})
+    _write_favorites(items[:_FAVORITES_MAX])
+    return {"items": items}
+
+
+@router.post("/favorites/remove")
+async def favorites_remove(payload: dict):
+    """把一张图片移出收藏 (不删除文件)。"""
+    path = str(payload.get("path") or "").strip()
+    items = [x for x in _read_favorites() if x["path"] != path]
+    _write_favorites(items)
+    return {"items": items}
+
+
 # ---------------------------------------------------------------- 上传
 
 

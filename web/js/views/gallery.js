@@ -22,9 +22,76 @@ const state = {
   recursive: true, // 递归展示默认开启
   folderSig: "",
   imgSig: "",
+  favMode: false,        // true = 右侧展示"我的收藏"
+  favItems: [],          // 收藏列表 [{path, name, added_at}]
 };
 // 文件夹树展开状态 (已展开的文件夹路径集合; 未展开的有子级文件夹只显示一行)
 const expandedDirs = new Set();
+
+// ---------------- 我的收藏 (仅保存路径引用, 不移动/复制文件) ----------------
+
+let favPaths = new Set();   // path -> 是否已收藏
+
+async function loadFavorites() {
+  try {
+    const res = await get("/api/favorites");
+    state.favItems = res.items || [];
+    favPaths = new Set(state.favItems.map((it) => it.path));
+    updateFavUI();
+  } catch (e) {
+    toast("读取收藏失败: " + e.message, "error");
+  }
+}
+
+/** 刷新左侧收藏按钮的计数与选中态, 以及收藏模式的文件夹高亮 */
+function updateFavUI() {
+  const btn = document.getElementById("browse-fav-btn");
+  const count = document.getElementById("browse-fav-count");
+  if (btn) btn.classList.toggle("active", state.favMode);
+  if (count) count.textContent = String(state.favItems.length);
+  if (state.favMode) {
+    // 收藏模式: 清除文件夹高亮 (退出收藏模式时重新渲染文件夹树恢复)
+    document.querySelectorAll(".browse-folder").forEach((r) => r.classList.remove("active"));
+  }
+  if (state.favMode && btn) btn.classList.add("active");
+}
+
+/** 切换收藏状态, 返回操作后的最新状态 (true=已收藏) */
+async function toggleFav(path, name) {
+  const was = favPaths.has(path);
+  try {
+    const res = was
+      ? await post("/api/favorites/remove", { path })
+      : await post("/api/favorites/add", { path, name });
+    state.favItems = res.items || [];
+    if (was) favPaths.delete(path); else favPaths.add(path);
+    updateFavUI();
+    if (state.favMode) renderGrid();   // 收藏模式下去除/加入实时刷新网格
+    return !was;
+  } catch (e) {
+    toast((was ? "取消收藏失败: " : "收藏失败: ") + e.message, "error");
+    return was;
+  }
+}
+
+/** 网格内每个图片右上角的星星按钮 */
+function makeFavStar(path, name) {
+  const on = favPaths.has(path);
+  const btn = el("button", {
+    class: "browse-fav-star" + (on ? " on" : ""),
+    type: "button",
+    title: on ? "取消收藏" : "添加到我的收藏 (不移动文件)",
+  });
+  btn.textContent = on ? "★" : "☆";
+  btn.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    const now = await toggleFav(path, name);
+    btn.classList.toggle("on", now);
+    btn.textContent = now ? "★" : "☆";
+    btn.title = now ? "取消收藏" : "添加到我的收藏 (不移动文件)";
+  });
+  return btn;
+}
 
 // ---------------- 查看动作 (查看器按钮直接调用) ----------------
 
@@ -86,6 +153,19 @@ function openViewer(path, name) {
     return b;
   };
 
+
+  // 收藏按钮: 不关闭查看器, 点击切换收藏状态 (不移动/复制文件)
+  const favBtn = el("button", {
+    class: "btn" + (favPaths.has(path) ? " btn-fav-on" : ""),
+    type: "button",
+    title: "收藏不移动/复制文件, 仅保存路径引用",
+  });
+  favBtn.textContent = favPaths.has(path) ? "★ 已收藏 (点击取消)" : "☆ 添加到我的收藏";
+  favBtn.addEventListener("click", async () => {
+    const now = await toggleFav(path, name);
+    favBtn.textContent = now ? "★ 已收藏 (点击取消)" : "☆ 添加到我的收藏";
+    favBtn.classList.toggle("btn-fav-on", now);
+  });
   viewerEl.append(
     el("div", { class: "img-viewer-head" }, [
       el("span", { class: "img-viewer-name", text: name || "" }),
@@ -98,6 +178,7 @@ function openViewer(path, name) {
         mkBtn("🎯 使用该图片参数", "use-params"),
         mkBtn("🖼️ 发送到图片生成", "to-img2img"),
         mkBtn("🔮 发送到法术解析", "to-pnginfo"),
+        favBtn,
       ]),
     ]),
   );
@@ -126,26 +207,29 @@ function renderGrid() {
   const count = document.getElementById("browse-count");
   if (!grid) return;
   clear(grid);
-  const list = sortedImages();
-  if (count) count.textContent = `共 ${list.length} 张图片`;
+  // 收藏模式: 按收藏时间倒序展示 (最近收藏在前), 不参与目录排序
+  const favMode = state.favMode;
+  const list = favMode ? state.favItems : sortedImages();
+  if (count) count.textContent = favMode ? `共 ${list.length} 张收藏` : `共 ${list.length} 张图片`;
   if (!list.length) {
-    grid.append(el("div", { class: "browse-empty", text: "该目录下没有图片" }));
+    grid.append(el("div", { class: "browse-empty", text: favMode ? "还没有收藏的图片 — 点击图片右上角 ☆ 即可收藏" : "该目录下没有图片" }));
     return;
   }
   list.forEach((img) => {
-    // 递归模式下, 子文件夹中的图片在名字前加 📂 标识
+    // 递归模式下, 子文件夹中的图片在名字前加 📂 标识 (收藏模式不需要)
     const dirDepth = state.dir ? state.dir.split("/").length + 1 : 1;
-    const sub = state.recursive && img.path.split("/").length > dirDepth;
-    const item = el("div", { class: "browse-item", title: `${img.name}\n双击全屏查看` });
+    const sub = !favMode && state.recursive && img.path.split("/").length > dirDepth;
+    const item = el("div", { class: "browse-item", title: `${img.name}\n单击全屏查看` });
     item.append(
       el("img", { src: imageUrl(img.path), alt: img.name, loading: "lazy" }),
       el("div", { class: "b-name", text: sub ? "📂 " + img.name : img.name }),
     );
+    // 右上角星星按钮: 点击收藏/取消 (不移动文件), 不触发打开查看器
+    item.append(makeFavStar(img.path, img.name));
     item.addEventListener("click", () => openViewer(img.path, img.name));
     grid.append(item);
   });
 }
-
 // ---------------- 文件夹树 (可展开 / 收起) ----------------
 
 /** 把相对路径列表组装成树: { path, children: Map } */
@@ -191,6 +275,7 @@ function folderRow(path, label, depth, hasChildren) {
   );
   row.addEventListener("click", async () => {
     state.dir = path;
+    state.favMode = false;   // 选择目录时退出"我的收藏"模式
     // 选中目录时自动展开, 方便继续往里浏览
     if (hasChildren) expandedDirs.add(path);
     renderFolders();
@@ -229,6 +314,11 @@ async function loadFolders() {
 async function loadImages() {
   const grid = document.getElementById("browse-grid");
   if (grid) { clear(grid); grid.append(el("div", { class: "browse-empty", text: "🌸 正在加载..." })); }
+  // 收藏模式: 直接渲染收藏列表, 不请求目录
+  if (state.favMode) {
+    renderGrid();
+    return;
+  }
   try {
     const res = await get(`/api/browse/images?dir=${encodeURIComponent(state.dir)}&recursive=${state.recursive}`);
     state.images = res.images || [];
@@ -239,7 +329,6 @@ async function loadImages() {
   }
   renderGrid();
 }
-
 // ---------------- 自动刷新: 浏览期间轮询目录变化 ----------------
 
 const imagesSig = (images) => images.map((i) => `${i.path}:${i.mtime}:${i.size}`).join("|");
@@ -253,6 +342,7 @@ function browseVisible() {
 
 async function pollOnce() {
   if (!browseVisible()) return;
+  if (state.favMode) return;   // 收藏模式不轮询目录变化
   try {
     const [fRes, iRes] = await Promise.all([
       get("/api/browse/folders"),
@@ -311,6 +401,19 @@ export async function render(container, ctx) {
     el("div", { class: "browse-folders", id: "browse-folders" }, [
       el("div", { class: "muted", style: "padding:10px;", text: "正在读取..." }),
     ]),
+    // 我的收藏: 仅保存路径引用, 不移动/复制文件
+    el("div", { class: "browse-fav-section" }, [
+      el("button", {
+        class: "browse-fav-btn" + (state.favMode ? " active" : ""),
+        id: "browse-fav-btn",
+        type: "button",
+        title: "查看所有收藏的图片 (收藏仅保存路径, 不移动/复制文件)",
+      }, [
+        el("span", { text: "⭐" }),
+        el("span", { text: "我的收藏" }),
+        el("span", { class: "browse-fav-count", id: "browse-fav-count", text: "0" }),
+      ]),
+    ]),
     el("button", {
       class: "browse-left-expand",
       type: "button",
@@ -367,7 +470,17 @@ export async function render(container, ctx) {
   layout.append(leftCard, rightCard);
   container.append(layout);
 
-  await loadFolders();
+  // 我的收藏按钮: 切换收藏/目录模式
+  const favBtnEl = document.getElementById("browse-fav-btn");
+  if (favBtnEl) {
+    favBtnEl.addEventListener("click", () => {
+      state.favMode = !state.favMode;
+      if (!state.favMode) renderFolders();   // 退出收藏模式: 恢复当前文件夹高亮
+      updateFavUI();
+      loadImages();
+    });
+  }
+  await Promise.all([loadFolders(), loadFavorites()]);   // 目录与收藏并行加载
   await loadImages();
 }
 
