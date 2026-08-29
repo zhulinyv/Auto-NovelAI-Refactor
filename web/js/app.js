@@ -17,6 +17,7 @@ import * as selectorView from "./views/selector.js";
 import * as browseView from "./views/gallery.js";
 import * as pluginsView from "./views/plugins.js";
 import * as settingsView from "./views/settings.js";
+import * as sponsorView from "./views/sponsor.js";
 import "./wildcardsModal.js"; // Wildcards 全屏弹窗: 全局点击委托 + 按钮处理
 
 const VIEWS = {
@@ -28,6 +29,7 @@ const VIEWS = {
   browse: browseView,
   plugins: pluginsView,
   settings: settingsView,
+  sponsor: sponsorView,
 };
 
 export let appState = null;
