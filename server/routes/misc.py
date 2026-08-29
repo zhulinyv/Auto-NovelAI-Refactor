@@ -188,7 +188,7 @@ async def upload_files(files: list[UploadFile]):
 
 
 @router.post("/pick-folder")
-async def pick_folder():
+def pick_folder():
     """弹出系统原生目录选择框, 返回真实绝对路径 (后端直接读取该目录)。"""
     import threading
     result = {}
@@ -216,7 +216,7 @@ async def pick_folder():
 
 
 @router.post("/pick-file")
-async def pick_file(ft: str = ""):
+def pick_file(ft: str = ""):
     """弹出系统原生文件选择框, 返回真实绝对路径 (后端直接读取该文件)。
     ft=workbook 时过滤为 Excel 工作簿类型。"""
     import threading
@@ -353,7 +353,7 @@ def _save_api_wallpaper(content: bytes, min_w: int = 1024) -> str:
 
 
 @router.post("/bg/random")
-async def bg_random_wallpaper(payload: dict = None):
+def bg_random_wallpaper(payload: dict = None):
     """从在线壁纸 API 获取一张精美图片并保存, 返回路径与来源。
 
     payload.source = "bing" (默认): Bing 每日精选壁纸 (近 8 天随机一天,
@@ -517,28 +517,49 @@ async def serve_image(path: str):
 
 
 @router.get("/hitokoto")
-async def hitokoto():
+def hitokoto():
     """一言 (随机句子, 来源 hitokoto.cn): 标题栏展示, 前端每 30 分钟刷新一次。
 
     服务端转发避免浏览器跨域; 主源失败时尝试国际镜像, 全部失败返回空文本 (前端静默)。
+    同步 def: FastAPI 会在线程池执行, 不再阻塞事件循环 (修复启动时 /api/state 排队等待)。
     """
+    import concurrent.futures
+
     import requests as _requests
 
     errors = []
-    for url in ("https://v1.hitokoto.cn/", "https://international.v1.hitokoto.cn/"):
-        try:
-            resp = _requests.get(url, timeout=8)
-            resp.raise_for_status()
-            data = resp.json()
-            text = (data.get("hitokoto") or "").strip()
-            if text:
+
+    def _fetch(url: str) -> dict:
+        """直连优先 (与在线壁纸一致), 失败自动改走系统代理重试。"""
+        last = None
+        for trust_env in (False, True):
+            try:
+                sess = _requests.Session()
+                sess.trust_env = trust_env
+                resp = sess.get(url, timeout=8)
+                resp.raise_for_status()
+                data = resp.json()
+                text = (data.get("hitokoto") or "").strip()
+                if not text:
+                    raise RuntimeError("接口返回空句子")
                 return {
                     "text": text,
                     "from": (data.get("from") or "").strip(),
                     "from_who": (data.get("from_who") or "").strip(),
                 }
-        except Exception as e:
-            errors.append(f"{e}")
+            except Exception as e:
+                last = e
+        raise last
+
+    # 两个源并行请求, 取先成功的一个 (v1.hitokoto.cn 在国内有时很慢, 国际镜像兜底)
+    urls = ("https://v1.hitokoto.cn/", "https://international.v1.hitokoto.cn/")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
+        futures = [ex.submit(_fetch, url) for url in urls]
+        for fut in concurrent.futures.as_completed(futures):
+            try:
+                return fut.result()
+            except Exception as e:
+                errors.append(f"{e}")
     logger.warning(f"一言获取失败: {'; '.join(errors)}")
     return {"text": "", "from": "", "from_who": ""}
 

@@ -42,9 +42,6 @@ async function boot() {
   initTheme();
   initEmoji();
   initFancySelects();
-  initHitokoto();
-  await initBackground();
-  initBackgroundUI();
   const log = initLogConsole();
 
   // ---- SSE 事件流 ----
@@ -81,12 +78,14 @@ async function boot() {
 
   // ---- 加载应用状态 ----
   try {
-    appState = await fetchState();
+    const [state] = await Promise.all([fetchState(), initBackground()]);  // 背景状态与应用状态并行加载
+    appState = state;
     document.getElementById("version-badge").textContent = "v" + appState.version;
   } catch (e) {
     toast("无法连接后端服务: " + e.message, "error");
     return;
   }
+  initBackgroundUI();
 
   // ---- 侧边导航: 静态视图 + 每个插件一个入口 ----
   const navHolder = document.getElementById("plugin-nav-items");
@@ -104,6 +103,9 @@ async function boot() {
 
   initSidebarResize();
   showView("generate");
+
+  // ---- 非关键请求放到首屏渲染之后: 一言 (拉取慢/失败都不影响首屏) ----
+  initHitokoto();
 }
 
 /** 视图首次访问时渲染 (加快启动); 已渲染过的直接复用 */
