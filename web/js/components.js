@@ -109,7 +109,7 @@ export function initLogConsole() {
 
   // ---- 系统状态行: 系统版本 + CPU/内存/GPU 占用 ----
   // 刷新间隔 10 秒: 采样 (尤其 nvidia-smi 子进程) 有开销, 不宜过短
-  const sysStats = el("span", { class: "sys-stats", id: "sys-stats", title: "系统资源占用 (每 1 秒刷新)" });
+  const sysStats = el("span", { class: "sys-stats", id: "sys-stats", title: "系统资源占用" });
   document.querySelector(".log-header span")?.after(sysStats);
   const STATS_MS = 1 * 1000;
   const fmtGb = (mb) => (mb >= 1024 ? (mb / 1024).toFixed(1) + "G" : Math.round(mb) + "M");
@@ -121,7 +121,7 @@ export function initLogConsole() {
       if (d.gpu) parts.push(`🎮 GPU ${Math.round(d.gpu.util)}% (${fmtGb(d.gpu.mem_used)}/${fmtGb(d.gpu.mem_total)})`);
       sysStats.textContent = parts.join(" │ ");
       sysStats.title = (d.gpu ? `GPU: ${d.gpu.name}\n` : "") +
-        `CPU ${d.cpu_cores} 线程 · 内存 ${d.mem_total_gb}G · ${d.arch}\n每 ${STATS_MS / 1000} 秒自动刷新`;
+        `CPU ${d.cpu_cores} 线程 · 内存 ${d.mem_total_gb}G · ${d.arch}`;
     } catch { /* 读取失败静默, 保留上一次内容 */ }
   }
   refreshStats();
@@ -208,7 +208,7 @@ export function initLogConsole() {
       if (l.exception) txt += "\n    " + l.exception.replace(/\n/g, "\n    ");
       return txt;
     });
-    const head = `Auto-NovelAI-WebUI 运行日志\n共 ${logBuffer.length} 条 | 导出时间: ${new Date().toLocaleString()}\n${"=".repeat(60)}\n\n`;
+    const head = `Auto-NovelAI-Refactor 运行日志\n共 ${logBuffer.length} 条 | 导出时间: ${new Date().toLocaleString()}\n${"=".repeat(60)}\n\n`;
     const blob = new Blob([head + lines.join("\n")], { type: "text/plain;charset=utf-8" });
     const a = el("a", { href: URL.createObjectURL(blob), download: `ANR-logs-${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}.txt` });
     document.body.append(a);

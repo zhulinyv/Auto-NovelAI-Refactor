@@ -46,6 +46,12 @@
   background: var(--surface-2);
   border: 1px solid var(--border);
   transition: transform 0.2s, background 0.2s;
+  /* 图标在圆形底面内精确居中; emoji 墨迹因字体基线天然偏下, padding-bottom 补偿 1px */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  padding: 0 0 1px;
 }
 .icon-btn:hover { transform: scale(1.1); background: var(--hover); }
 

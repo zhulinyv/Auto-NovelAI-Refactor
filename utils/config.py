@@ -25,6 +25,7 @@ DEFAULTS: dict[str, Any] = {
     "start_sound": True,
     "finish_sound": True,
     "check_update": True,
+    "hide_terminal": False,
     "disable_all_plugins": False,
     "skip_inquire_anlas": False,
     "format_input": True,
@@ -38,7 +39,7 @@ _LIST_KEYS = {"tokens"}
 
 _BOOL_KEYS = {
     "share", "start_sound", "finish_sound", "retry_429",
-    "check_update", "disable_all_plugins", "skip_inquire_anlas",
+    "check_update", "hide_terminal", "disable_all_plugins", "skip_inquire_anlas",
     "format_input", "remove_nsfw",
 }
 _INT_KEYS = {"cool_time", "port", "smtp_num"}

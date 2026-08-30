@@ -318,6 +318,35 @@ export function confirmDialog(message, { danger = false } = {}) {
   });
 }
 
+/** 选择框: 在一组选项中选一个 (Esc/点击遮罩 = null)。choices: [{ label, value, danger?, primary? }] */
+export function choiceDialog(title, message, choices) {
+  return new Promise((resolve) => {
+    const overlay = el("div", {
+      style: "position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:5200;display:flex;align-items:center;justify-content:center;",
+    });
+    const onKey = (e) => { if (e.key === "Escape") done(null); };
+    const done = (v) => {
+      document.removeEventListener("keydown", onKey);
+      overlay.remove();
+      resolve(v);
+    };
+    const box = el("div", { class: "card", style: "width:340px;animation:pop-in 0.2s ease;" }, [
+      el("div", { class: "card-title", text: title }),
+      el("p", { style: "margin-bottom:16px;font-size:13.5px;", text: message }),
+      el("div", { style: "display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;" },
+        choices.map((c) => el("button", {
+          class: c.danger ? "btn btn-sm btn-danger" : c.primary ? "btn btn-sm btn-primary" : "btn btn-sm",
+          text: c.label,
+          onclick: () => done(c.value ?? c.label),
+        }))),
+    ]);
+    overlay.append(box);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) done(null); });
+    document.addEventListener("keydown", onKey);
+    document.body.append(overlay);
+  });
+}
+
 // ---------------- 事件总线 ----------------
 
 class Bus {

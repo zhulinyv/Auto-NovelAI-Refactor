@@ -18,7 +18,7 @@ from src.generate_images import generate  # noqa: F401  (确保模型导入)
 from utils.gen_queue import gen_queue
 from utils.jobs import jobs
 from utils.config import BASE_DIR, env
-from utils.helpers import format_str, read_json
+from utils.helpers import format_str, read_json, shutdown_app
 from utils.logger import logger
 from utils.plugins import get_manifest
 from utils.services import pnginfo as pnginfo_service
@@ -45,6 +45,13 @@ def _resolve_allowed(path: str) -> Path | None:
         return None
     p = Path(path).resolve()
     return p if p.exists() else None
+
+
+@router.post("/shutdown")
+async def shutdown_server():
+    """退出程序: 结束后端进程树 (由 run.bat 启动时连同终端一起结束), 供顶栏关闭按钮调用。"""
+    shutdown_app()
+    return {"message": "已请求退出, 页面即将关闭"}
 
 
 # ---------------------------------------------------------------- 状态

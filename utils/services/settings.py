@@ -69,8 +69,18 @@ def save_settings(data: dict) -> str:
 
     _normalize_tokens(normalized)
 
+    old_hide_terminal = env.hide_terminal
     env.update(normalized)
     _apply_runtime(normalized)
+
+    # 终端隐藏开关实时生效 (仅 Windows)
+    if bool(normalized.get("hide_terminal")) != bool(old_hide_terminal):
+        try:
+            from utils.helpers import apply_console_visibility
+
+            apply_console_visibility()
+        except Exception:
+            pass
 
     # 插件开关实时生效
     try:

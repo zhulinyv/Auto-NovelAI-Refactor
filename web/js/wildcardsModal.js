@@ -4,6 +4,8 @@
 //     - 提示词按逗号拆分为可点击的标签块, 悬停可 删除/编辑/增减权重
 //     - 双击空白处或点 ✏️ 切回文本输入 (手动输入保留, 自动补全可用)
 //     - 卡片库中多选的卡片可拖拽进编辑器, 或点 "➕ 添加选中" 批量加入
+//     - NAI 新版权重块 1.5::内容:: 整体算一个标签 (块内逗号不拆分)
+//     - ⚖️ 权重模式可切换: 新版权重 (1.5::标签::) / 通用权重 ((标签:1.5)), 影响 ▲▼ 加权与新增权重的写法
 //     - 所有编辑实时同步回原输入框
 //   下方: Wildcards 面板全部功能 (views/wildcards.js)
 // 触发按钮由 ui.js 的 wildcardsButton() 创建 (.wc-open-btn),
@@ -28,29 +30,54 @@ function syncToSource(source, value) {
 
 // ---------------- 提示词 ⇄ 标签块 解析 ----------------
 
-/** 按逗号拆分为标签 (括号/方括号/花括号/尖括号内的逗号不拆分) */
+/** 按逗号拆分为标签 (括号/方括号/花括号/尖括号内的逗号不拆分; NAI 权重块 数字::内容:: 内的逗号不拆分, 支持嵌套) */
 function splitTags(value) {
   const out = [];
   let buf = "";
-  let depth = 0;
-  for (const ch of value ?? "") {
+  let depth = 0;    // () [] {} <> 括号深度
+  let wDepth = 0;   // NAI 权重块 数字:: ... :: 嵌套深度
+  const s = String(value ?? "");
+  const openRe = /^\d*\.?\d+::/;   // "数字::" 视为权重块开始
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    // 权重块开始: 数字:: (含 1.5:: / .5:: 等), 块内逗号不拆分
+    if ((ch >= "0" && ch <= "9") || ch === ".") {
+      const m = openRe.exec(s.slice(i));
+      if (m) { wDepth++; buf += m[0]; i += m[0].length - 1; continue; }
+    }
+    // 权重块结束: 不带数字前缀的 ::
+    if (wDepth > 0 && ch === ":" && s[i + 1] === ":") { wDepth--; buf += "::"; i++; continue; }
     if (ch === "(" || ch === "[" || ch === "{" || ch === "<") depth++;
     else if (ch === ")" || ch === "]" || ch === "}" || ch === ">") depth = Math.max(0, depth - 1);
-    if (ch === "," && depth === 0) { out.push(buf); buf = ""; }
+    if (ch === "," && depth === 0 && wDepth === 0) { out.push(buf); buf = ""; }
     else buf += ch;
   }
   out.push(buf);
   return out.map((s) => s.trim()).filter(Boolean);
 }
 
-/** 解析 (内容:权重) 形式的标签, 无权重时 weight = 1 */
+/** 解析标签权重: 支持 (内容:权重) 通用形式与 NAI 新版 数字::内容:: 形式 (未闭合的 数字::内容 也兼容), 无权重时 weight = 1 */
 function parseWeight(raw) {
-  const m = /^\((.+):(\d*\.?\d+)\)$/.exec(raw);
-  if (m) return { content: m[1], weight: parseFloat(m[2]) };
-  return { content: raw, weight: 1 };
+  let m = /^\((.+):(\d*\.?\d+)\)$/.exec(raw);
+  if (m) return { content: m[1], weight: parseFloat(m[2]), style: "paren" };
+  m = /^(\d*\.?\d+)::([\s\S]*)::$/.exec(raw);   // NAI 新版闭合: 1.5::内容:: (内容可含逗号)
+  if (m) return { content: m[2], weight: parseFloat(m[1]), style: "nai" };
+  m = /^(\d*\.?\d+)::([\s\S]+)$/.exec(raw);     // NAI 新版未闭合: 1.5::内容
+  if (m) return { content: m[2], weight: parseFloat(m[1]), style: "nai" };
+  return { content: raw, weight: 1, style: "plain" };
 }
 
-const fmtTag = (content, weight) => (weight === 1 ? content : `(${content}:${weight})`);
+/** 按权重模式格式化: nai = 新版权重 (1.5::内容::) / paren = 通用权重 ((内容:1.5)); 权重为 1 时不加 */
+const fmtTag = (content, weight, mode = "paren") =>
+  weight === 1 ? content : mode === "nai" ? `${weight}::${content}::` : `(${content}:${weight})`;
+
+// 权重模式: "paren" = 通用权重 (默认, 兼容原行为) / "nai" = 新版权重; 选择持久化到 localStorage
+const WEIGHT_MODE_KEY = "anr-wc-weight-mode";
+let weightMode = "paren";
+try {
+  const savedMode = localStorage.getItem(WEIGHT_MODE_KEY);
+  if (savedMode === "nai" || savedMode === "paren") weightMode = savedMode;
+} catch { /* localStorage 不可用时使用默认值 */ }
 
 /**
  * 打开 Wildcards 全屏弹窗。
@@ -90,6 +117,19 @@ export function openWildcardsModal(source, { title = "提示词" } = {}) {
     disabled: true,
     title: "把下方库中选中的项批量加入提示词 (卡片库: Ctrl+点击多选 / Shift+点击范围选, 也可直接拖入; 提示词库: 点击标签多选)",
   });
+  const weightModeBtn = el("button", {
+    class: "btn btn-sm",
+    type: "button",
+    title: "切换权重模式 — 影响 ▲▼ 加减权重与新增权重的写法\n新版权重: 1.5::标签:: (NovelAI 新语法)\n通用权重: (标签:1.5) (通用语法)",
+  });
+  const refreshWeightModeBtn = () => { weightModeBtn.textContent = weightMode === "nai" ? "⚖️ 新版权重" : "⚖️ 通用权重"; };
+  weightModeBtn.addEventListener("click", () => {
+    weightMode = weightMode === "nai" ? "paren" : "nai";
+    try { localStorage.setItem(WEIGHT_MODE_KEY, weightMode); } catch { /* 存不进去也不影响本次会话 */ }
+    refreshWeightModeBtn();
+    toast(weightMode === "nai" ? "权重模式: 新版权重 — 加权重将使用 1.5::标签::" : "权重模式: 通用权重 — 加权重将使用 (标签:1.5)", "info");
+  });
+  refreshWeightModeBtn();
   const clearSelBtn = el("button", {
     class: "btn btn-sm",
     type: "button",
@@ -110,6 +150,7 @@ export function openWildcardsModal(source, { title = "提示词" } = {}) {
       el("span", { class: "wc-modal-prompt-label", text: "📝 " + title }),
       el("span", { class: "muted wc-prompt-hint", text: "编辑实时同步回原输入框, 可直接生成" }),
       el("span", { class: "spacer" }),
+      weightModeBtn,
       addSelBtn,
       clearSelBtn,
       translateBtn,
@@ -180,7 +221,7 @@ export function openWildcardsModal(source, { title = "提示词" } = {}) {
     const commit = () => {
       if (done) return;
       done = true;
-      const parts = input.value.split(",").map((v) => v.trim()).filter(Boolean);
+      const parts = splitTags(input.value);
       if (parts.length) {
         applyTags([...splitTags(ta.value), ...parts]);
         const add = chipsView.querySelector(".p-chip-add");
@@ -222,7 +263,7 @@ export function openWildcardsModal(source, { title = "提示词" } = {}) {
     if (!tags[i]) return;
     const { content, weight } = parseWeight(tags[i]);
     const next = Math.min(10, Math.max(0.1, Math.round((weight + delta) * 10) / 10));
-    tags[i] = fmtTag(content, next);
+    tags[i] = fmtTag(content, next, weightMode);
     applyTags(tags);
   }
 
@@ -234,7 +275,7 @@ export function openWildcardsModal(source, { title = "提示词" } = {}) {
 
   function startEdit(i) {
     const tags = splitTags(ta.value);
-    const { content, weight } = parseWeight(tags[i] ?? "");
+    const { content, weight, style } = parseWeight(tags[i] ?? "");
     const chip = chipsView.children[i];
     if (!chip) return;
     let done = false;
@@ -246,7 +287,7 @@ export function openWildcardsModal(source, { title = "提示词" } = {}) {
       const v = input.value.trim();
       const t = splitTags(ta.value);
       if (!v) t.splice(i, 1);
-      else t[i] = fmtTag(v, weight);
+      else t[i] = fmtTag(v, weight, style);
       applyTags(t);
     };
     const cancel = () => {
@@ -291,13 +332,19 @@ export function openWildcardsModal(source, { title = "提示词" } = {}) {
       chip.classList.remove("chip-dragging");
       $$(".p-chip.drop-before", chipsView).forEach((c) => c.classList.remove("drop-before"));
     });
-    chip.append(el("div", { class: "p-chip-ops" }, [
+    const ops = el("div", { class: "p-chip-ops" }, [
       el("span", { class: "p-op", title: "降低权重 (−0.1)", text: "▼", onclick: () => setWeight(i, -0.1) }),
       el("span", { class: "p-op", title: "增加权重 (+0.1)", text: "▲", onclick: () => setWeight(i, +0.1) }),
       el("span", { class: "p-op", title: "编辑", text: "✎", onclick: () => startEdit(i) }),
       el("span", { class: "p-op p-op-danger", title: "删除", text: "×", onclick: () => removeTag(i) }),
-    ]));
-    chip.addEventListener("dblclick", () => startEdit(i));
+    ]);
+    // 加权按钮连点会被浏览器判为 dblclick; 操作按钮区域不触发编辑
+    ops.addEventListener("dblclick", (e) => e.stopPropagation());
+    chip.append(ops);
+    chip.addEventListener("dblclick", (e) => {
+      if (e.target instanceof Element && e.target.closest(".p-chip-ops")) return;
+      startEdit(i);
+    });
     return chip;
   }
 

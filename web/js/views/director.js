@@ -24,7 +24,7 @@ export async function render(container, ctx) {
   S = ctx;
   clear(container);
   container.append(
-    el("h2", {}, ["🎬 导演工具", el("span", { class: "sub", text: "利用 NovelAI API 处理图片" })]),
+    el("h2", {}, ["🎬 导演工具", el("span", { class: "sub", text: "NovelAI API 导演工具(支持批量)" })]),
   );
 
   const pathField = el("div", { class: "field" }, [

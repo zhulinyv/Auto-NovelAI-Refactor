@@ -385,7 +385,7 @@ export async function render(container, ctx) {
   startPolling();
 
   container.append(
-    el("h2", {}, ["📚 图片浏览", el("span", { class: "sub", text: "浏览 outputs 输出目录 · 单击图片全屏查看 (每 5 秒自动检测目录变化)" })]),
+    el("h2", {}, ["📚 图片浏览", el("span", { class: "sub", text: "浏览 ./outputs 输出目录" })]),
   );
 
   // 左 1/4: 文件夹选择 (可收起/展开)

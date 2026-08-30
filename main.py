@@ -1,4 +1,5 @@
-"""Auto-NovelAI-WebUI 入口: 启动 FastAPI 服务并打开浏览器。"""
+"""Auto-NovelAI-Refactor 入口: 启动 FastAPI 服务并打开浏览器。"""
+
 from __future__ import annotations
 
 import os
@@ -18,7 +19,11 @@ os.chdir(BASE_DIR)
 sys.path.insert(0, str(BASE_DIR))
 
 from utils.config import env  # noqa: E402
-from utils.helpers import check_update, playsound  # noqa: E402
+from utils.helpers import (  # noqa: E402
+    apply_console_visibility,
+    check_update,
+    playsound,
+)
 from utils.logger import logger, loguru_to_rich  # noqa: E402
 from utils.plugins import load_plugins  # noqa: E402
 from utils.variable import VERSION  # noqa: E402
@@ -26,6 +31,10 @@ from utils.variable import VERSION  # noqa: E402
 if env.proxy:
     os.environ["http_proxy"] = env.proxy
     os.environ["https_proxy"] = env.proxy
+
+# 按配置隐藏终端黑窗口 (仅 Windows): 隐藏后请通过 WebUI 右上角的关闭按钮退出
+if env.hide_terminal:
+    apply_console_visibility()
 
 # 确保必要目录存在
 for d in ("./outputs", "./plugins", "./wildcards"):
@@ -45,7 +54,6 @@ logger.success(
 ╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝    Repository: https://github.com/zhulinyv/Auto-NovelAI-Refactor</c>"""
     )
 )
-logger.info(f"版本: {status}")
 
 # 启动提示音: 进入加载阶段即后台播放, 与插件加载并行以节省时间
 if env.start_sound:
@@ -55,8 +63,9 @@ logger.info("正在加载插件...")
 load_plugins()
 logger.info("插件加载完成")
 
-from server.app import create_app  # noqa: E402
 import uvicorn  # noqa: E402
+
+from server.app import create_app  # noqa: E402
 
 app = create_app()
 

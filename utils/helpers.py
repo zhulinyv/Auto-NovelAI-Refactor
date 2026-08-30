@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import platform
 import random
 import re
 import secrets
@@ -11,24 +12,28 @@ import smtplib
 import string
 import subprocess
 import sys
+import threading
 import time
 import uuid
 import zipfile
-from datetime import date
 from email.mime.text import MIMEText
 from pathlib import Path
 
 import numpy as np
 import requests
-import send2trash
 import ujson as json
 from PIL import Image
-
-from rich.progress import BarColumn, DownloadColumn, Progress, TextColumn, TransferSpeedColumn
+from rich.progress import (
+    BarColumn,
+    DownloadColumn,
+    Progress,
+    TextColumn,
+    TransferSpeedColumn,
+)
 
 from utils.config import env
 from utils.logger import console, logger, loguru_to_rich
-from utils.variable import BASE_PATH, get_proxies
+from utils.variable import get_proxies
 
 try:
     from git import Repo
@@ -244,7 +249,8 @@ def stop_generate(job_id: str | None = None) -> None:
     except Exception:
         pass
     try:
-        from utils.jobs import jobs as _jobs, write_break_flag
+        from utils.jobs import jobs as _jobs
+        from utils.jobs import write_break_flag
 
         for jid in _jobs.running_job_ids():
             write_break_flag(True, jid)
@@ -292,6 +298,55 @@ def restart() -> None:
     os.environ["ANR_SKIP_BROWSER"] = "1"
     p = sys.executable
     os.execl(p, p, *sys.argv)
+
+
+def apply_console_visibility() -> None:
+    """按当前配置隐藏 / 显示终端窗口 (仅 Windows; 无控制台或非 Windows 时忽略)。"""
+    if platform.system() != "Windows":
+        return
+    try:
+        import ctypes
+
+        hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+        if hwnd:
+            # SW_HIDE=0 / SW_SHOW=5
+            ctypes.windll.user32.ShowWindow(hwnd, 0 if env.hide_terminal else 5)
+    except Exception:
+        pass
+
+
+def shutdown_app() -> None:
+    """退出程序: 结束后端进程树; 由 run.bat 启动时连同控制台宿主 (cmd) 一起结束。"""
+
+    def _kill():
+        if platform.system() == "Windows":
+            target = os.getpid()
+            try:
+                import psutil
+
+                parent = psutil.Process(os.getpid()).parent()
+                # 由 run.bat 启动时父进程是 cmd.exe: 连同终端一起结束, 避免残留黑窗口
+                if parent and (parent.name() or "").lower() == "cmd.exe":
+                    target = parent.pid
+            except Exception:
+                pass
+            try:
+                subprocess.Popen(
+                    ["taskkill", "/F", "/T", "/PID", str(target)],
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                # 兜底: taskkill 未生效时也要确保退出
+                threading.Timer(2.0, lambda: os._exit(0)).start()
+            except Exception:
+                os._exit(0)
+        else:
+            os._exit(0)
+
+    logger.warning("收到退出请求, 进程即将结束...")
+    # 延迟执行: 先让 HTTP 响应返回前端再结束进程
+    threading.Timer(0.5, _kill).start()
 
 
 def check_update(repo_path: str):
@@ -403,7 +458,7 @@ def send_mail() -> None:
         logger.warning("未配置邮箱账号或授权码, 已跳过邮件提醒")
         return
     mail_host = "smtp.qq.com"
-    message = MIMEText("Auto-NovelAI-WebUI 生成结束", "plain", "utf-8")
+    message = MIMEText("Auto-NovelAI-Refactor 生成结束", "plain", "utf-8")
     message["From"] = env.smtp_mail
     message["To"] = env.smtp_mail
     message["Subject"] = "ANR 完成提醒"

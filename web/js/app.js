@@ -7,8 +7,8 @@ import { initLogConsole } from "./components.js";
 import { initEmoji } from "./emoji.js";
 import { initHitokoto } from "./hitokoto.js";
 import { initQueueModal } from "./queueModal.js";
-import { fetchState } from "./api.js";
-import { $, $$, el, bus, toast, initFancySelects } from "./ui.js";
+import { fetchState, post } from "./api.js";
+import { $, $$, el, bus, toast, confirmDialog, choiceDialog, initFancySelects } from "./ui.js";
 
 import * as generateView from "./views/generate.js";
 import * as directorView from "./views/director.js";
@@ -96,6 +96,43 @@ async function boot() {
   }
   initBackgroundUI();
   initQueueModal(appState.queue || null);
+  // 初始任务状态同步: 状态栏 + 标签页标题
+  lastQueue = appState.queue || null;
+  updateJobStatus();
+
+  // ---- 电源按钮: 先选择 关闭/重启, 确认后执行 ----
+  document.getElementById("app-close")?.addEventListener("click", async () => {
+    const act = await choiceDialog("⏻ 电源菜单", "请选择要执行的操作:", [
+      { label: "⏻ 关闭程序", value: "shutdown", danger: true },
+      { label: "🔄 重启服务", value: "restart", primary: true },
+    ]);
+    if (act === "shutdown") {
+      const ok = await confirmDialog("确定要退出 Auto-NovelAI-Refactor 吗?\n后端与终端进程将被结束, 浏览器页面将关闭。", { danger: true });
+      if (!ok) return;
+      toast("正在退出, 再见~ 👋", "warning");
+      try { await post("/api/shutdown"); } catch { /* 后端正在退出, 忽略 */ }
+      setTimeout(() => {
+        window.close();
+        // 部分浏览器不允许脚本关闭非脚本打开的页面: 兜底显示告别页
+        document.body.innerHTML =
+          '<div style="display:flex;align-items:center;justify-content:center;height:100vh;font-size:18px;opacity:.75;">👋 已退出 Auto-NovelAI-Refactor, 可以关闭此页面了</div>';
+      }, 900);
+    } else if (act === "restart") {
+      const ok = await confirmDialog("确定要重启服务吗?\n连接将短暂断开, 后端恢复后页面会自动刷新。", { danger: true });
+      if (!ok) return;
+      toast("🔄 正在重启 WebUI... 连接将短暂断开", "warning");
+      try { await post("/api/settings/restart"); } catch { /* 连接断开即重启成功 */ }
+      // 轮询后端恢复 (最多 12 秒), 恢复后刷新页面
+      for (let i = 0; i < 30; i++) {
+        await new Promise((r) => setTimeout(r, 400));
+        try {
+          const res = await fetch("/api/state");
+          if (res.ok) { location.reload(); return; }
+        } catch { /* 后端重启中 */ }
+      }
+      toast("后端未响应, 请检查服务状态", "error");
+    }
+  });
 
   // ---- 侧边导航: 静态视图 + 每个插件一个入口 ----
   const navHolder = document.getElementById("plugin-nav-items");
@@ -154,6 +191,26 @@ function isQueueTask(jobId) {
   return !!lastQueue?.tasks?.some((t) => t.id === jobId);
 }
 
+// ---------------- 浏览器标签页标题 ----------------
+
+const BASE_TITLE = "Auto-NovelAI-Refactor 💗";
+const KAOMOJI = [
+  "(≧▽≦)", "(´▽`ʃ♡ƪ)", "ヽ(´▽`)/", "(＾▽＾)", "(￣▽￣)ノ",
+  "(๑•̀ㅂ•́)و✧", "(｡•ᴗ•｡)♡", "(´,,•ω•,,)♡", "ヾ(≧▽≦*)o", "(◕‿◕)",
+  "٩(◕‿◕)۶", "(≧∇≦)ﾉ", "( ˶ᵔ ᵕ ᵔ˶ )", "(˶˃ ᵕ ˂˶)", "(っ˘ω˘ς)",
+  "(ง •̀_•́)ง", "(¬‿¬)", "(=^･ω･^=)", "(ˆ⌣ˆ)", "ヾ(´︶`♡)ﾉ",
+  "(●'◡'●)", "(◍•ᴗ•◍)", "(❁´◡`❁)", "(✿◠‿◠)", "( ˘ ³˘)♡",
+];
+const idleTitle = () => `${BASE_TITLE} ${KAOMOJI[Math.floor(Math.random() * KAOMOJI.length)]}`;
+
+/** 任务进行时显示 "任务运行中...", 空闲时随机换一个颜文字; 仅在状态切换时更新 (快照每秒推送, 避免空闲标题乱跳) */
+let lastTitleBusy = null;
+function updateTitle(busy) {
+  if (busy === lastTitleBusy) return;
+  lastTitleBusy = busy;
+  document.title = busy ? `${BASE_TITLE} 任务运行中...` : idleTitle();
+}
+
 function updateJobStatus() {
   const node = document.getElementById("job-status");
   if (!node) return;
@@ -176,6 +233,7 @@ function updateJobStatus() {
   const busy = parts.length > 0;
   node.textContent = busy ? parts.join(" · ") : "✅ 空闲";
   node.classList.toggle("busy", busy);
+  updateTitle(busy);
 }
 
 export function showView(name) {

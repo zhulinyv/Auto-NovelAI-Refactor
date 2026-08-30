@@ -71,10 +71,11 @@ export async function render(container, ctx) {
   cf("🎉 完成提示音", "finish_sound");
   cf("🔄 启动时检查更新", "check_update");
   cf("📝 格式化输入", "format_input", "删除多余空格和逗号或添加缺少的空格和逗号");
-  cf("⚡ 跳过剩余点数计算", "skip_inquire_anlas");
+  cf("⚡ 跳过剩余点数/用量计算", "skip_inquire_anlas");
   cf("🚫 删除 nsfw 标签", "remove_nsfw");
   cf("🔄 429 自动重试", "retry_429", "遇到 429 限流时无上限自动重试; 未开启时出错最多自动重试 3 次 (每次等待 5 秒, 仍失败则跳过该张继续生成)");
   cf("🧩 禁用全部插件", "disable_all_plugins");
+  cf("🖥️ 隐藏终端启动", "hide_terminal", "通过 run.bat 启动时自动隐藏并关闭终端窗口, 退出请用右上角电源按钮");
   sf("⏱️ 冷却时间 (秒)", "cool_time", 1, 600, 1, "会上下浮动 1 秒");
   sf("📧 SMTP 触发数量", "smtp_num", 0, 9999, 1, "超过该数量时生成结束发送邮件, 0 为关闭");
   tf("📧 QQ 邮箱", "smtp_mail", "text", "发送/接收邮件的 QQ 邮箱");
@@ -85,10 +86,9 @@ export async function render(container, ctx) {
   const saveBtn = el("button", { class: "btn btn-primary btn-sm", text: "💾 保存" });
   const restartBtn = el("button", { class: "btn btn-sm", text: "🔄 重启" });
   const updateBtn = el("button", { class: "btn btn-sm", text: "⬆️ 更新" });
-  const outBox = el("div", { class: "info-box", style: "margin-top:12px;" });
   actions.append(saveBtn, restartBtn, updateBtn);
   card.append(el("div", { class: "card-title", text: "⚙️ 基本配置" }), actions, grid);
-  container.append(card, outBox);
+  container.append(card);
 
 
   function collect() {
@@ -105,10 +105,8 @@ export async function render(container, ctx) {
     saveBtn.disabled = true;
     try {
       const res = await post("/api/settings", collect());
-      outBox.textContent = "✅ " + res.message;
       toast(res.message, "success");
     } catch (e) {
-      outBox.textContent = "❌ " + e.message;
       toast(e.message, "error");
     } finally {
       saveBtn.disabled = false;
@@ -138,10 +136,9 @@ export async function render(container, ctx) {
     updateBtn.disabled = true;
     try {
       const res = await post("/api/settings/update-repo");
-      outBox.textContent = res.message;
       toast(res.message, "info");
     } catch (e) {
-      outBox.textContent = "❌ " + e.message;
+      toast(e.message, "error");
     } finally {
       updateBtn.disabled = false;
     }
