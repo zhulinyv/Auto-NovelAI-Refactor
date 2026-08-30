@@ -1,0 +1,260 @@
+/* ============================================================
+   主题变量: 亮色 / 暗色 (PromptCard-Studio 风格: 毛玻璃 + 现代配色)
+   ============================================================ */
+:root {
+  --bg: #eef0f5;
+  --panel: rgba(255, 255, 255, 0.82);
+  --panel-solid: #ffffff;
+  --surface-2: rgba(0, 0, 0, 0.04);
+  --surface-3: rgba(0, 0, 0, 0.08);
+  --text: #1d2029;
+  --text-2: #4b5563;  /* 浅色模式次级文字加深: 标题小字/提示/插件名等更清晰 (对比度 ~7:1) */
+  --primary: #8b5cf6;
+  --primary-2: #a78bfa;
+  --secondary: #6366f1;
+  --accent: #ec4899;
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  --border: rgba(0, 0, 0, 0.1);
+  --hover: rgba(0, 0, 0, 0.05);
+  --input: rgba(0, 0, 0, 0.08);
+  --shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 10px 40px rgba(0, 0, 0, 0.12);
+  --radius: 14px;
+  --radius-sm: 9px;
+  --panel-blur: 12px;
+  --bg-blur: 4px;
+  --font: system-ui, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --mono: "Cascadia Code", Consolas, "Courier New", monospace;
+  /* Danbooru 标签分类配色 (提示词补全): general / artist / copyright / character / meta */
+  --tag-general: #52525b;
+  --tag-artist: #9333ea;
+  --tag-copyright: #2563eb;
+  --tag-character: #059669;
+  --tag-meta: #dc2626;
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  --bg: #0b0c10;
+  --panel: rgba(26, 28, 38, 0.72);
+  --panel-solid: #161821;
+  --surface-2: rgba(255, 255, 255, 0.06);
+  --surface-3: rgba(255, 255, 255, 0.12);
+  --text: #e7e9ee;
+  --text-2: #9aa0ae;
+  --primary: #a78bfa;
+  --primary-2: #c4b5fd;
+  --secondary: #818cf8;
+  --accent: #f472b6;
+  --success: #4ade80;
+  --warning: #fbbf24;
+  --danger: #f87171;
+  --border: rgba(255, 255, 255, 0.1);
+  --hover: rgba(255, 255, 255, 0.06);
+  --input: rgba(255, 255, 255, 0.08);
+  --shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 10px 40px rgba(0, 0, 0, 0.5);
+  --panel-blur: 12px;
+  --bg-blur: 4px;
+  /* Danbooru 标签分类配色 (暗色主题用亮色变体) */
+  --tag-general: #d4d4d8;
+  --tag-artist: #d8b4fe;
+  --tag-copyright: #93c5fd;
+  --tag-character: #6ee7b7;
+  --tag-meta: #fca5a5;
+  color-scheme: dark;
+}
+
+/* ============================================================
+   基础重置
+   ============================================================ */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.6;
+  overflow: hidden;
+  transition: background 0.3s ease, color 0.3s ease;
+}
+
+button {
+  font-family: var(--font);
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: inherit;
+}
+
+input, select, textarea {
+  font-family: var(--font);
+  font-size: 14px;
+  color: var(--text);
+  background: color-mix(in srgb, var(--panel-solid) 88%, var(--border));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 11px;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+}
+input:focus, select:focus, textarea:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 25%, transparent);
+  background-color: var(--panel-solid);
+}
+select option { background-color: var(--panel-solid); color: var(--text); }
+/* ------- 统一美化下拉框 (去系统外观 + 自绘箭头) ------- */
+select {
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5L6 6.5L11 1.5' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 13px center;
+  padding-right: 36px;
+  transition: border-color 0.2s, box-shadow 0.2s, background-color 0.2s;
+}
+[data-theme="dark"] select {
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5L6 6.5L11 1.5' fill='none' stroke='%239aa0ae' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+select:hover { border-color: color-mix(in srgb, var(--primary) 60%, var(--border)); background-color: var(--panel-solid); }
+/* 统一单行控件高度, 避免按钮/输入框忽大忽小 */
+input[type="text"], input[type="number"], input[type="password"], input[type="email"], select { min-height: 33px; }
+select { cursor: pointer; }
+
+/* ------- 自定义复选框/单选 (无伪元素, 用背景图, 稳健) ------- */
+input[type="checkbox"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  min-width: 18px;
+  border: 2px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-solid);
+  cursor: pointer;
+  display: inline-block;
+  vertical-align: middle;
+  transition: border-color 0.15s, background 0.15s;
+}
+input[type="checkbox"]:hover { border-color: var(--primary-2); }
+input[type="checkbox"]:checked {
+  background-color: var(--primary);
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path fill='%23fff' d='M3.5 8.5l3 3 6-7'/></svg>");
+  background-size: 12px;
+  background-position: center;
+  background-repeat: no-repeat;
+  border-color: var(--primary);
+}
+input[type="checkbox"]:focus-visible { outline: 2px solid var(--primary-2); outline-offset: 2px; }
+
+input[type="radio"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  min-width: 18px;
+  border: 2px solid var(--border);
+  border-radius: 50%;
+  background: var(--panel-solid);
+  cursor: pointer;
+  display: inline-block;
+  vertical-align: middle;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+input[type="radio"]:hover { border-color: var(--primary-2); }
+input[type="radio"]:checked {
+  border-color: var(--primary);
+  background: var(--primary);
+  box-shadow: inset 0 0 0 3px var(--panel-solid);
+}
+input[type="radio"]:focus-visible { outline: 2px solid var(--primary-2); outline-offset: 2px; }
+input[type="color"] { padding: 2px; width: 44px; height: 32px; cursor: pointer; }
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  accent-color: var(--primary);
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+}
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-3);
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px; height: 16px;
+  margin-top: -5px;
+  border-radius: 50%;
+  background: var(--primary);
+  border: 2px solid var(--panel-solid);
+  box-shadow: 0 1px 5px rgba(0,0,0,0.35);
+  cursor: pointer;
+}
+input[type="range"]::-moz-range-track { height: 6px; border-radius: 999px; background: var(--surface-3); }
+input[type="range"]::-moz-range-thumb {
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: var(--primary);
+  border: 2px solid var(--panel-solid);
+  cursor: pointer;
+}
+textarea { resize: vertical; min-height: 60px; }
+
+::selection { background: color-mix(in srgb, var(--primary) 35%, transparent); }
+
+/* ------- 跨平台统一 emoji (Twemoji SVG) ------- */
+img.twemoji {
+  height: 1em;
+  width: 1em;
+  margin: 0 0.05em 0 0.1em;
+  vertical-align: -0.12em;
+  display: inline;
+  border: 0;
+  background: none;
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: var(--primary-2); }
+
+/* ============================================================
+   环境光斑 (PromptCard 风格)
+   ============================================================ */
+.ambient-blob {
+  position: fixed;
+  border-radius: 9999px;
+  filter: blur(70px);
+  opacity: 0.45;
+  pointer-events: none;
+  z-index: 0;
+  /* 动画已移除: 持续重合成 70px 模糊层导致 GPU 常驻高负载 */
+}
+.ambient-blob-1 { width: 420px; height: 420px; top: -120px; left: -100px; background: var(--primary); }
+.ambient-blob-2 { width: 380px; height: 380px; bottom: -140px; right: -80px; background: var(--secondary); }
+.ambient-blob-3 { width: 300px; height: 300px; top: 40%; left: 55%; background: var(--accent); opacity: 0.25; }
+
+
+
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes pop-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes wiggle {
+  0%, 100% { transform: rotate(0); }
+  25% { transform: rotate(-6deg); }
+  75% { transform: rotate(6deg); }
+}

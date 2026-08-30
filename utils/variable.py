@@ -1,8 +1,12 @@
+"""常量与预设数据: 模型列表、分辨率、采样器、提示词预设等。"""
+from __future__ import annotations
+
 import os
+from pathlib import Path
 
-from utils.environment import env
+from utils.config import BASE_DIR, env
 
-VERSION = "1.7.2.preview3"
+VERSION = "2.0.0"
 
 MODELS = [
     "nai-diffusion-5-full",
@@ -42,16 +46,15 @@ SAMPLER = [
 NOISE_SCHEDULE = ["native", "karras", "exponential", "polyexponential"]
 
 UC_PRESET = ["Heavy", "Light", "Furry Focus", "Human Focus", "None"]
-
 QP_PRESET = ["Standard", "Light", "None"]
 
-WILDCARD_TYPE = os.listdir("./wildcards")
+WILDCARD_TYPE = os.listdir(BASE_DIR / "wildcards")
 
 CHARACTER_POSITION = [f"{chr(letter)}{number}" for letter in range(ord("A"), ord("F")) for number in range(1, 6)]
 
 CR_MODE = ["character&style", "character", "style"]
 
-BASE_PATH = os.getcwd()
+BASE_PATH = str(BASE_DIR)
 
 _SKIP_CFG_ABOVE_SIGMA = {
     "nai-diffusion-5-full": None,
@@ -64,14 +67,20 @@ _SKIP_CFG_ABOVE_SIGMA = {
     "nai-diffusion-furry-3": 11.84515480302779,
 }
 
+def get_proxies():
+    """根据当前配置实时返回代理字典 (设置修改后立即生效)。"""
+    if env.proxy:
+        return {"http": env.proxy, "https": env.proxy}
+    return None
 
-if env.proxy:
-    proxies = {
-        "http": env.proxy,
-        "https": env.proxy,
-    }
-else:
-    proxies = None
+
+def refresh_proxies() -> None:
+    """更新全局 proxies (供旧代码兼容)。"""
+    global proxies
+    proxies = get_proxies()
+
+
+proxies = get_proxies()
 
 
 def return_skip_cfg_above_sigma(model):
@@ -80,18 +89,16 @@ def return_skip_cfg_above_sigma(model):
 
 def return_uc_preset_id(model):
     if model in ["nai-diffusion-5-full", "nai-diffusion-5-curated", "nai-diffusion-4-5-full"]:
-        uc_preset_data = {
+        return {
             "Heavy": "heavy",
             "Light": "light",
             "Furry Focus": "furryFocus",
             "Human Focus": "humanFocus",
             "None": "none",
         }
-    elif model in ["nai-diffusion-3", "nai-diffusion-4-5-curated"]:
-        uc_preset_data = {"Heavy": "heavy", "Light": "light", "Human Focus": "humanFocus", "None": "none"}
-    elif model in ["nai-diffusion-furry-3", "nai-diffusion-4-curated-preview", "nai-diffusion-4-full"]:
-        uc_preset_data = {"Heavy": "heavy", "Light": "light", "None": "none"}
-    return uc_preset_data
+    if model in ["nai-diffusion-3", "nai-diffusion-4-5-curated"]:
+        return {"Heavy": "heavy", "Light": "light", "Human Focus": "humanFocus", "None": "none"}
+    return {"Heavy": "heavy", "Light": "light", "None": "none"}
 
 
 def return_undesired_contentc_preset(model, undesired_contentc_preset):
@@ -153,51 +160,19 @@ def return_undesired_contentc_preset(model, undesired_contentc_preset):
 
 def return_quality_preset_id(model):
     if model in ["nai-diffusion-5-full", "nai-diffusion-5-curated"]:
-        quality_preset_data = {
-            "Standard": "standard",
-            "Light": "light",
-            "None": "none",
-        }
-    else:
-        quality_preset_data = {"Standard": "standard", "None": "none"}
-    return quality_preset_data
+        return {"Standard": "standard", "Light": "light", "None": "none"}
+    return {"Standard": "standard", "None": "none"}
 
 
 def return_quality_tags(model, quality_tags_preset):
     presets = {
-        "nai-diffusion-5-full": {
-            "Standard": "very aesthetic, masterpiece, no text",
-            "Light": "very aesthetic, amazing quality, no text",
-            "None": "",
-        },
-        "nai-diffusion-5-curated": {
-            "Standard": "very aesthetic, masterpiece, no text",
-            "Light": "very aesthetic, amazing quality, no text",
-            "None": "",
-        },
-        "nai-diffusion-4-5-full": {
-            "Standard": "very aesthetic, masterpiece, no text",
-            "None": "",
-        },
-        "nai-diffusion-4-5-curated": {
-            "Standard": "very aesthetic, masterpiece, no text, -0.8::feet::, rating:general",
-            "None": "",
-        },
-        "nai-diffusion-4-full": {
-            "Standard": "no text, best quality, very aesthetic, absurdres",
-            "None": "",
-        },
-        "nai-diffusion-4-curated-preview": {
-            "Standard": "rating:general, best quality, very aesthetic, absurdres",
-            "None": "",
-        },
-        "nai-diffusion-3": {
-            "Standard": "best quality, amazing quality, very aesthetic, absurdres",
-            "None": "",
-        },
-        "nai-diffusion-furry-3": {
-            "Standard": "{best quality}, {amazing quality}",
-            "None": "lowres",
-        },
+        "nai-diffusion-5-full": {"Standard": "very aesthetic, masterpiece, no text", "Light": "very aesthetic, amazing quality, no text", "None": ""},
+        "nai-diffusion-5-curated": {"Standard": "very aesthetic, masterpiece, no text", "Light": "very aesthetic, amazing quality, no text", "None": ""},
+        "nai-diffusion-4-5-full": {"Standard": "very aesthetic, masterpiece, no text", "None": ""},
+        "nai-diffusion-4-5-curated": {"Standard": "very aesthetic, masterpiece, no text, -0.8::feet::, rating:general", "None": ""},
+        "nai-diffusion-4-full": {"Standard": "no text, best quality, very aesthetic, absurdres", "None": ""},
+        "nai-diffusion-4-curated-preview": {"Standard": "rating:general, best quality, very aesthetic, absurdres", "None": ""},
+        "nai-diffusion-3": {"Standard": "best quality, amazing quality, very aesthetic, absurdres", "None": ""},
+        "nai-diffusion-furry-3": {"Standard": "{best quality}, {amazing quality}", "None": "lowres"},
     }
     return presets.get(model, {}).get(quality_tags_preset, "")

@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Auto-NovelAI-Refactor 💗</title>
+  <link rel="icon" href="/favicon.ico" />
+  <link rel="stylesheet" href="/css/base.css" />
+  <link rel="stylesheet" href="/css/app.css" />
+</head>
+<body>
+  <div class="ambient-blob ambient-blob-1" aria-hidden="true"></div>
+  <div class="ambient-blob ambient-blob-2" aria-hidden="true"></div>
+  <div class="ambient-blob ambient-blob-3" aria-hidden="true"></div>
+
+  <div id="app" class="app">
+    <!-- 顶栏 -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <img src="/assets/logo.ico" class="app-logo" alt="ANR Logo" />
+        <a class="app-title" href="https://github.com/zhulinyv/Auto-NovelAI-Refactor" target="_blank" rel="noopener">Auto-NovelAI-Refactor</a>
+        <span class="version-badge" id="version-badge">v2.0.0</span>
+        <span class="hitokoto" id="hitokoto" title="一言"></span>
+      </div>
+      <div class="topbar-right">
+        <span id="conn-status" class="conn-dot" title="连接状态"></span>
+        <button id="bg-toggle" class="icon-btn" title="自定义背景" aria-label="自定义背景">🖼️</button>
+        <button id="appearance-toggle" class="icon-btn" title="外观设置 (颜色/模糊)" aria-label="外观设置">🎨</button>
+        <button id="theme-toggle" class="icon-btn" title="切换深浅色主题" aria-label="切换主题">🌙</button>
+        <button id="app-close" class="icon-btn" title="退出程序: 结束后端进程并关闭页面" aria-label="退出程序"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><path d="M12 2v10"/></svg></button>
+      </div>
+    </header>
+
+    <div class="layout">
+      <!-- 侧边导航 -->
+      <nav class="sidebar" id="sidebar">
+        <div class="sidebar-resizer" id="sidebar-resizer" title="拖拽调整宽度"></div>
+        <div id="sidebar-nav">
+          <a class="nav-item" data-view="generate"><span class="nav-icon">🖼️</span>图片生成</a>
+          <a class="nav-item" data-view="director"><span class="nav-icon">🎬</span>导演工具</a>
+          <a class="nav-item" data-view="upscale"><span class="nav-icon">✨</span>超分降噪</a>
+          <a class="nav-item" data-view="pnginfo"><span class="nav-icon">🔮</span>法术解析</a>
+          <a class="nav-item" data-view="selector"><span class="nav-icon">🗂️</span>图片筛选</a>
+          <a class="nav-item" data-view="browse"><span class="nav-icon">📚</span>图片浏览</a>
+          <div class="nav-divider"></div>
+          <div id="plugin-nav-items"></div>
+          <div class="nav-divider"></div>
+          <a class="nav-item" data-view="plugins"><span class="nav-icon">🛒</span>插件商店</a>
+          <a class="nav-item" data-view="settings"><span class="nav-icon">⚙️</span>配置设置</a>
+          <a class="nav-item" data-view="sponsor"><span class="nav-icon">🙏</span>支持鸣谢</a>
+        </div>
+        <button id="sidebar-collapse" class="sidebar-collapse-btn" title="折叠/展开侧边栏" aria-label="折叠侧边栏">◀ 收起</button>
+      </nav>
+
+      <!-- 主内容 -->
+      <main class="main" id="main">
+        <div class="view" id="view-generate"></div>
+        <div class="view" id="view-director" style="display:none"></div>
+        <div class="view" id="view-upscale" style="display:none"></div>
+        <div class="view" id="view-pnginfo" style="display:none"></div>
+        <div class="view" id="view-selector" style="display:none"></div>
+        <div class="view" id="view-browse" style="display:none"></div>
+        <div class="view" id="view-plugins" style="display:none"></div>
+        <div class="view" id="view-plugin-page" style="display:none"></div>
+        <div class="view" id="view-settings" style="display:none"></div>
+        <div class="view" id="view-sponsor" style="display:none"></div>
+      </main>
+    </div>
+
+    <!-- 日志面板 -->
+    <div class="log-panel" id="log-panel">
+      <div class="log-resizer" id="log-resizer" title="拖拽调整高度"></div>
+      <div class="log-header">
+        <span>📜 运行日志</span>
+        <div class="log-actions">
+          <span id="job-status" class="job-status">空闲</span>
+          <button id="queue-toggle" class="mini-btn" title="查看生图队列 (排队 / 取消 / 调整顺序)">🚦 队列<span id="queue-badge" class="queue-badge hidden">0</span></button>
+          <button id="log-export" class="mini-btn">导出</button>
+          <button id="log-clear" class="mini-btn">清空</button>
+          <button id="log-toggle" class="mini-btn">收起</button>
+        </div>
+      </div>
+      <div class="log-body" id="log-body"></div>
+    </div>
+
+  </div>
+
+
+  <!-- Toast 容器: 挂在 body 下, 不受 #app (z-index:1) 层叠上下文限制, 永远显示在所有弹窗最上层 -->
+  <div id="toasts" class="toasts"></div>
+  <script src="/js/vendor/twemoji.min.js"></script>
+  <script type="module" src="/js/app.js"></script>
+</body>
+</html>

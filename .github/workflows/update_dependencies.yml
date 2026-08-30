@@ -1,36 +1,32 @@
 name: Update Dependencies
 
 on:
-  push:
-    paths:
-      - 'poetry.lock'
-      - 'pyproject.toml'
-  workflow_dispatch:
+  schedule:
+    # 每周一 00:00 (UTC) 自动检查依赖更新
+    - cron: '0 0 * * 1'
+  workflow_dispatch: # 也支持手动触发
 
 jobs:
-  UpdateDependencies:
+  update-requirements:
+    name: Update requirements.txt
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout source
-        uses: actions/checkout@master
+        uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: 3.13.9
+          python-version: '3.13'
 
-      - name: Set up Poetry
-        uses: Gr1N/setup-poetry@v9
+      - name: Bump versions in requirements.txt
+        run: python .github/scripts/update_requirements.py
 
-      - name: Install poetry export plugin
-        run: |
-          poetry self add poetry-plugin-export
-
-      - name: Lock and export
-        run: |
-          poetry lock
-          poetry export -f requirements.txt --output requirements.txt --without-hashes
+      - name: Verify updated requirements install
+        run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt
 
       - name: Commit changes
         uses: EndBug/add-and-commit@v9
@@ -39,5 +35,4 @@ jobs:
           author_email: github-actions[bot]@users.noreply.github.com
           message: ':arrow_up: 自动更新依赖文件'
           add: |
-            'poetry.lock'
-            'requirements.txt'
+            requirements.txt

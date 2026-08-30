@@ -1,15 +1,15 @@
-from utils.environment import env
 from utils.logger import logger
+from utils.tokens import current_token
 
 
 def build_headers():
-    token = env.token
+    token = current_token()
     if not token:
         logger.error("未配置 Token!")
 
     return {
         "Accept": "*/*",
-        "Accept-Encoding": "gzip, deflate, br",
+        "Accept-Encoding": "gzip, deflate",
         "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
         "Authorization": f"Bearer {token}" if token else "",
         "Content-type": "application/json",
