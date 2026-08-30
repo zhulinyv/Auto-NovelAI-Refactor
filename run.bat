@@ -20,7 +20,7 @@ if /i "%HIDE%"=="true" if /i not "%~1"=="hidden" (
         echo [ANR] 警告: 隐藏启动失败, 改为普通窗口启动...
     ) else (
         ping -n 2 127.0.0.1 >nul
-        rem 用 exit (不带 /b) 直接结束宿主 cmd, 终端窗口随之关闭
+        rem 用 exit（不带 /b）直接结束宿主 cmd, 终端窗口随之关闭
         exit
     )
 )
@@ -46,7 +46,7 @@ for /f "delims=" %%P in ('where python 2^>nul') do (
 )
 if not defined SYSTEM_PY (
     echo [ANR] 错误: 目录中没有 venv / Python 文件夹, 也未找到系统安装的 Python 3.10+。
-    echo [ANR] 请先安装 Python (勾选 Add to PATH) 后重试。
+    echo [ANR] 请先安装 Python（勾选 Add to PATH）后重试。
     pause
     exit /b 1
 )
