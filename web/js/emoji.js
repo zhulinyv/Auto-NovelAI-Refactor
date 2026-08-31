@@ -20,12 +20,10 @@ function parseNode(node) {
       ext: ".svg",
       size: "72x72",
       className: "twemoji",
-      attributes: (raw, img) => {
-        img.className = "twemoji";
-        img.loading = "lazy";
-        img.decoding = "async";
-        img.alt = raw;
-      },
+      attributes: (raw, iconId) => ({
+        loading: "lazy",
+        decoding: "async",
+      }),
     });
     // 离线 / 资源缺失时: 还原为原生 emoji, 避免出现裂图
     if (node.querySelectorAll) {
