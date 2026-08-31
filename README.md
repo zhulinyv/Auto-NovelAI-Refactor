@@ -116,15 +116,18 @@
 ```python
 from utils.plugins import Action, Field, Panel, Plugin
 
+
 def register(plugin: Plugin):
     plugin.title = "我的插件"
-    plugin.panels.append(Panel(
-        id="my_panel",
-        title="我的面板",
-        icon="🌸",
-        fields=[Field(id="text", label="输入", type="textarea", autocomplete=True)],
-        actions=[Action(id="run", label="执行", inputs=["text"], handler=my_handler)],
-    ))
+    plugin.panels.append(
+        Panel(
+            id="my_panel",
+            title="我的面板",
+            icon="🌸",
+            fields=[Field(id="text", label="输入", type="textarea", autocomplete=True)],
+            actions=[Action(id="run", label="执行", inputs=["text"], handler=my_handler)],
+        )
+    )
 ```
 
 - **字段类型**: `text / textarea / number / slider / checkbox / checkbox_group / radio / select / path / image / filearea / color / info / toggle / chart` 等, 支持 `show_if` 条件显示、`row_group` 并排、`sync` 联动、提示词自动补全 (`autocomplete`)、左右分栏 (`column`) 等

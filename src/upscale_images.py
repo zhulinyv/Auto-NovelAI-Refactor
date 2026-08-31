@@ -98,7 +98,7 @@ def run_upscale(kind: str, input_path: str | None, input_image: str | None, opti
                 output_dir, f"{name}_realcugan_ncnn_vulkan_noise_{noise}_scale_{scale}{extension}"
             )
             exe = os.path.abspath("./assets/realcugan-ncnn-vulkan/realcugan-ncnn-vulkan.exe")
-            code = f'"{exe}" -i "{os.path.abspath(image)}" ' f'-o "{output_path}" -n {noise} -s {scale} -m {model}'
+            code = f'"{exe}" -i "{os.path.abspath(image)}" -o "{output_path}" -n {noise} -s {scale} -m {model}'
         elif env_name == "anime4k":
             zoom = int(options.get("zoom", 2))
             hdn = int(options.get("hdn", 3))
