@@ -4,6 +4,7 @@
 - 生图队列的每个通道 (worker) 执行任务前通过 set_thread_token() 绑定自己的 Token,
   请求头构建 (build_headers) 与剩余点数查询自动使用当前线程绑定的 Token
 """
+
 from __future__ import annotations
 
 import threading

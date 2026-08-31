@@ -4,6 +4,7 @@
 - 首次启动时自动从旧的 .env 迁移已有配置 (如 Token)
 - `env` 是全局单例对象, 属性可直接修改并实时生效
 """
+
 from __future__ import annotations
 
 import json
@@ -38,9 +39,16 @@ DEFAULTS: dict[str, Any] = {
 _LIST_KEYS = {"tokens"}
 
 _BOOL_KEYS = {
-    "share", "start_sound", "finish_sound", "retry_429",
-    "check_update", "hide_terminal", "disable_all_plugins", "skip_inquire_anlas",
-    "format_input", "remove_nsfw",
+    "share",
+    "start_sound",
+    "finish_sound",
+    "retry_429",
+    "check_update",
+    "hide_terminal",
+    "disable_all_plugins",
+    "skip_inquire_anlas",
+    "format_input",
+    "remove_nsfw",
 }
 _INT_KEYS = {"cool_time", "port", "smtp_num"}
 

@@ -65,6 +65,7 @@ def _request(method: str, url: str, **kw) -> requests.Response:
 
 # ---------------------------------------------------------------- 直连实现
 
+
 def _google_direct(text: str) -> str:
     """Google GTX 免签接口 (大陆可直连, 速度最快, 默认首选)。"""
     resp = _request(
@@ -169,6 +170,7 @@ def _get_tss():
 
                     _os.environ.setdefault("translators_default_region", "CN")
                     import translators.server as tss
+
                     try:
                         tss.server_region = "CN"
                     except Exception:

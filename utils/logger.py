@@ -3,6 +3,7 @@
 - 终端: rich 彩色输出, 异常只显示 rich 面板 (不再重复输出普通文本 traceback)
 - 前端: 通过事件总线推送结构化日志 (级别 / 消息 / 时间 / 异常详情)
 """
+
 from __future__ import annotations
 
 import re

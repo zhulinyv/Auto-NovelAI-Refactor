@@ -1,4 +1,5 @@
 """图片筛选服务: 浏览目录中的图片并移动 / 复制 / 删除 / 撤销。"""
+
 from __future__ import annotations
 
 import os
@@ -8,7 +9,14 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from utils.helpers import clear_selector_trash, copy_current_img, del_current_img, move_current_img, show_first_img, show_next_img
+from utils.helpers import (
+    clear_selector_trash,
+    copy_current_img,
+    del_current_img,
+    move_current_img,
+    show_first_img,
+    show_next_img,
+)
 from utils.logger import logger
 
 # 操作历史: 支持无限制撤销 (每条记录含操作前的队列快照, 用于撤销后索引不向前跳)
@@ -104,7 +112,7 @@ def undo():
         return None, None
     # 撤销后显示恢复的图片
     try:
-        with Image.open(src) as img:
+        with Image.open(src):
             return [str(src)], src
     except Exception as e:
         logger.error(f"撤销后无法读取图片: {e}")

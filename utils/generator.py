@@ -3,6 +3,7 @@
 多 Token 支持请求头通过 utils.tokens 按线程自动选择 Token;
 剩余点数信息保存在线程本地, 并发生成时各任务互不串扰。
 """
+
 from __future__ import annotations
 
 import io
@@ -76,8 +77,7 @@ def _response_error_message(rep) -> str:
 def _safe_output_path(image_type: str, seed: int, default_path=None) -> Path:
     custom_path = default_path or env.custom_path or "<类型>/<日期>/<种子>_<随机字符>"
     base_path = (
-        f"./outputs/{custom_path}"
-        .replace("<类型>", image_type)
+        f"./outputs/{custom_path}".replace("<类型>", image_type)
         .replace("<日期>", str(date.today()))
         .replace("<种子>", str(seed))
         .replace("<随机字符>", generate_random_str(6))

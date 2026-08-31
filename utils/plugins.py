@@ -17,6 +17,7 @@
 - 字符串: 作为提示信息
 - 生成器: 每个产出作为实时事件推送给前端 (如随机画风的连续预览)
 """
+
 from __future__ import annotations
 
 import importlib.util
@@ -43,7 +44,9 @@ class Field:
 
     id: str
     label: str
-    type: str = "text"  # text|textarea|number|slider|checkbox|checkbox_group|radio|select|path|image|filearea|color|info
+    type: str = (
+        "text"  # text|textarea|number|slider|checkbox|checkbox_group|radio|select|path|image|filearea|color|info
+    )
     default: Any = None
     options: list | None = None
     min: float | None = None
@@ -55,9 +58,9 @@ class Field:
     show_if: dict | None = None  # {"field": "method", "equals": "像素"} 或 {"contains": "YOLO"}
     rows: int = 2
     folder: bool = True  # type="path" 时是否显示"文件夹"按钮
-    file: bool = True    # type="path" 时是否显示"文件"按钮
+    file: bool = True  # type="path" 时是否显示"文件"按钮
     autocomplete: bool = False  # type="textarea"/"text" 时是否启用提示词自动补全
-    accept: str = ""     # type="filearea" 时限制文件类型 (如 ".xlsx, .xls")
+    accept: str = ""  # type="filearea" 时限制文件类型 (如 ".xlsx, .xls")
     no_drag: bool = False  # type="filearea" 时仅允许点击选择文件, 禁用拖拽
     direct_path: bool = False  # type="filearea" 时用原生对话框取真实路径, 不上传
     hidden: bool = False  # 默认隐藏 (前端可通过彩蛋键位解锁显示, 如 naiv4vibebundle 的 Konami 码)
@@ -84,7 +87,9 @@ class Action:
     show_output: bool = True  # 是否创建输出信息框 (False 时仅显示 toast)
     set_field: str = ""  # 完成后将 content 设置到该字段 (如恢复文件内容到 textarea)
     stop: bool = True  # 是否在该面板显示"停止"按钮 (耗时动作保留, 快捷动作可关闭)
-    uses_novelai: bool = True  # 是否调用 NovelAI API: True 时进入生图队列 (排队/冷却/多 Token 并发), False 时走本地多线程立即执行
+    uses_novelai: bool = (
+        True  # 是否调用 NovelAI API: True 时进入生图队列 (排队/冷却/多 Token 并发), False 时走本地多线程立即执行
+    )
 
 
 @dataclass
@@ -218,9 +223,15 @@ def get_manifest() -> list[dict]:
                     "fields": [f.__dict__ for f in panel.fields],
                     "actions": [
                         {
-                            "id": a.id, "label": a.label, "inputs": a.inputs, "output": a.output,
-                            "description": a.description, "show_output": a.show_output, "set_field": a.set_field,
-                            "stop": a.stop, "uses_novelai": a.uses_novelai,
+                            "id": a.id,
+                            "label": a.label,
+                            "inputs": a.inputs,
+                            "output": a.output,
+                            "description": a.description,
+                            "show_output": a.show_output,
+                            "set_field": a.set_field,
+                            "stop": a.stop,
+                            "uses_novelai": a.uses_novelai,
                         }
                         for a in panel.actions
                     ],

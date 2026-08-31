@@ -1,8 +1,8 @@
 """常量与预设数据: 模型列表、分辨率、采样器、提示词预设等。"""
+
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
 from utils.config import BASE_DIR, env
 
@@ -66,6 +66,7 @@ _SKIP_CFG_ABOVE_SIGMA = {
     "nai-diffusion-3": 9.36441710371274,
     "nai-diffusion-furry-3": 11.84515480302779,
 }
+
 
 def get_proxies():
     """根据当前配置实时返回代理字典 (设置修改后立即生效)。"""
@@ -166,12 +167,26 @@ def return_quality_preset_id(model):
 
 def return_quality_tags(model, quality_tags_preset):
     presets = {
-        "nai-diffusion-5-full": {"Standard": "very aesthetic, masterpiece, no text", "Light": "very aesthetic, amazing quality, no text", "None": ""},
-        "nai-diffusion-5-curated": {"Standard": "very aesthetic, masterpiece, no text", "Light": "very aesthetic, amazing quality, no text", "None": ""},
+        "nai-diffusion-5-full": {
+            "Standard": "very aesthetic, masterpiece, no text",
+            "Light": "very aesthetic, amazing quality, no text",
+            "None": "",
+        },
+        "nai-diffusion-5-curated": {
+            "Standard": "very aesthetic, masterpiece, no text",
+            "Light": "very aesthetic, amazing quality, no text",
+            "None": "",
+        },
         "nai-diffusion-4-5-full": {"Standard": "very aesthetic, masterpiece, no text", "None": ""},
-        "nai-diffusion-4-5-curated": {"Standard": "very aesthetic, masterpiece, no text, -0.8::feet::, rating:general", "None": ""},
+        "nai-diffusion-4-5-curated": {
+            "Standard": "very aesthetic, masterpiece, no text, -0.8::feet::, rating:general",
+            "None": "",
+        },
         "nai-diffusion-4-full": {"Standard": "no text, best quality, very aesthetic, absurdres", "None": ""},
-        "nai-diffusion-4-curated-preview": {"Standard": "rating:general, best quality, very aesthetic, absurdres", "None": ""},
+        "nai-diffusion-4-curated-preview": {
+            "Standard": "rating:general, best quality, very aesthetic, absurdres",
+            "None": "",
+        },
         "nai-diffusion-3": {"Standard": "best quality, amazing quality, very aesthetic, absurdres", "None": ""},
         "nai-diffusion-furry-3": {"Standard": "{best quality}, {amazing quality}", "None": "lowres"},
     }

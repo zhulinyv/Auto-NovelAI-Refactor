@@ -1,4 +1,5 @@
 """生图队列 API: 查看快照 / 取消 / 停止 / 调整顺序 / 清空排队。"""
+
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException

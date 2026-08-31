@@ -1,4 +1,5 @@
 """状态 / 上传 / 图片访问 / wildcards / 提示词补全 API。"""
+
 from __future__ import annotations
 
 import json
@@ -15,15 +16,13 @@ from fastapi import APIRouter, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 from src.generate_images import generate  # noqa: F401  (确保模型导入)
+from utils.config import BASE_DIR
 from utils.gen_queue import gen_queue
+from utils.helpers import read_json, shutdown_app
 from utils.jobs import jobs
-from utils.config import BASE_DIR, env
-from utils.helpers import format_str, read_json, shutdown_app
 from utils.logger import logger
 from utils.plugins import get_manifest
-from utils.services import pnginfo as pnginfo_service
-from utils.services import selector, settings, wildcards, tagger
-from utils.services.wildcards import WILDCARDS_DIR
+from utils.services import settings, tagger, wildcards
 from utils.variable import (
     CHARACTER_POSITION,
     CR_MODE,
@@ -38,6 +37,7 @@ from utils.variable import (
 )
 
 router = APIRouter(prefix="/api", tags=["misc"])
+
 
 def _resolve_allowed(path: str) -> Path | None:
     """把前端传入的路径解析为绝对路径 (不再限制目录, 默认支持全部磁盘访问)。"""
@@ -55,6 +55,7 @@ async def shutdown_server():
 
 
 # ---------------------------------------------------------------- 状态
+
 
 @router.get("/state")
 async def get_state():
@@ -95,6 +96,7 @@ async def get_state():
 
 # ---------------------------------------------------------------- 上次参数 (实时读取 last.json)
 
+
 @router.get("/last")
 async def get_last():
     """读取 last.json 中的上次生成参数 (每次实时读取, 用于"加载上次"功能)。"""
@@ -107,6 +109,7 @@ async def get_last():
 
 
 # ---------------------------------------------------------------- 打开图片保存目录
+
 
 @router.post("/open-dir")
 async def open_save_dir(payload: dict):
@@ -122,6 +125,7 @@ async def open_save_dir(payload: dict):
         os.startfile(str(target))
     except AttributeError:
         import subprocess
+
         subprocess.Popen(["xdg-open", str(target)])
 
 
@@ -130,7 +134,11 @@ async def open_save_dir(payload: dict):
 _BROWSE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif"}
 
 
-_BROWSE_EXCLUDED_DIRS = {"backgrounds", "uploads", "selector_trash"}  # API 壁纸缓存 / 上传目录 / 图片筛选回收站, 不在图片浏览中展示
+_BROWSE_EXCLUDED_DIRS = {
+    "backgrounds",
+    "uploads",
+    "selector_trash",
+}  # API 壁纸缓存 / 上传目录 / 图片筛选回收站, 不在图片浏览中展示
 
 
 @router.get("/browse/folders")
@@ -140,7 +148,7 @@ async def browse_folders():
     folders = [""]
     if base.exists():
         for p in sorted(base.rglob("*")):
-            if p.is_dir() and not p.name.startswith((".", "_")):   # "_"/"." 开头为内部/测试目录
+            if p.is_dir() and not p.name.startswith((".", "_")):  # "_"/"." 开头为内部/测试目录
                 rel = p.relative_to(base).as_posix()
                 top = rel.split("/")[0]
                 if top in _BROWSE_EXCLUDED_DIRS or top.startswith(("_", ".")):
@@ -168,12 +176,14 @@ async def browse_images(dir: str = "", recursive: bool = False):
                 if top in _BROWSE_EXCLUDED_DIRS or top.startswith(("_", ".")):
                     continue
                 st = p.stat()
-                images.append({
-                    "name": p.name,
-                    "path": p.as_posix(),
-                    "mtime": st.st_mtime,
-                    "size": st.st_size,
-                })
+                images.append(
+                    {
+                        "name": p.name,
+                        "path": p.as_posix(),
+                        "mtime": st.st_mtime,
+                        "size": st.st_size,
+                    }
+                )
             except OSError:
                 continue
     return {"dir": dir, "images": images}
@@ -256,12 +266,14 @@ async def upload_files(files: list[UploadFile]):
 def pick_folder():
     """弹出系统原生目录选择框, 返回真实绝对路径 (后端直接读取该目录)。"""
     import threading
+
     result = {}
 
     def _pick():
         try:
             import tkinter as tk
             from tkinter import filedialog
+
             root = tk.Tk()
             root.withdraw()
             root.attributes("-topmost", True)
@@ -285,6 +297,7 @@ def pick_file(ft: str = ""):
     """弹出系统原生文件选择框, 返回真实绝对路径 (后端直接读取该文件)。
     ft=workbook 时过滤为 Excel 工作簿类型。"""
     import threading
+
     result = {}
     if ft == "workbook":
         filetypes = [("Excel 工作簿", "*.xlsx *.xls"), ("所有文件", "*.*")]
@@ -295,6 +308,7 @@ def pick_file(ft: str = ""):
         try:
             import tkinter as tk
             from tkinter import filedialog
+
             root = tk.Tk()
             root.withdraw()
             root.attributes("-topmost", True)
@@ -350,6 +364,7 @@ async def bg_list(payload: dict):
     if not files:
         raise HTTPException(status_code=404, detail="文件夹中没有图片")
     return {"files": files[:500]}
+
 
 # ---------------------------------------------------------------- 自定义背景状态持久化
 
@@ -435,6 +450,7 @@ def bg_random_wallpaper(payload: dict = None):
 
     # 0) Lolicon 随机动漫壁纸 (API v2: 仅横图 gt1, 非 R18; regular 规格省流量, pid 供前端展示)
     if source == "acg":
+
         def _fetch(method, url, **kw):
             """直连优先 (实测比走系统代理快), 失败自动改走系统代理重试。"""
             last = None
@@ -644,9 +660,14 @@ def _gpu_stats():
         return _GPU_CACHE["data"]
     try:
         out = subprocess.run(
-            ["nvidia-smi", "--query-gpu=name,utilization.gpu,memory.used,memory.total",
-             "--format=csv,noheader,nounits"],
-            capture_output=True, text=True, timeout=4,
+            [
+                "nvidia-smi",
+                "--query-gpu=name,utilization.gpu,memory.used,memory.total",
+                "--format=csv,noheader,nounits",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=4,
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
         )
         line = out.stdout.strip().splitlines()[0]
@@ -796,6 +817,7 @@ async def add_wildcard_to_prompt(payload: dict):
 #   category: 0=general 1=artist 3=copyright 4=character 5=meta (与 Danbooru 一致)
 # 匹配优先级: 标签前缀 > 标签包含 > 别名 > 中文翻译, 同级按热度 (count) 排序
 
+
 def _load_tags(csv_filename: str = "./assets/danbooru_tags_full_zh.csv"):
     import csv as _csv
 
@@ -828,10 +850,7 @@ def _get_tag_cache() -> dict:
     global _TAGS_CACHE
     if _TAGS_CACHE is None:
         _TAGS_CACHE = {
-            "rows": [
-                (tag.lower(), tag, cat, count, aliases, zh)
-                for tag, cat, count, aliases, zh in _load_tags()
-            ]
+            "rows": [(tag.lower(), tag, cat, count, aliases, zh) for tag, cat, count, aliases, zh in _load_tags()]
         }
     return _TAGS_CACHE
 
@@ -904,10 +923,12 @@ def _read_prompt_lib():
         items = []
         for x in data:
             if isinstance(x, dict) and str(x.get("text") or "").strip():
-                items.append({
-                    "text": str(x["text"]).strip(),
-                    "category": str(x.get("category") or "默认").strip() or "默认",
-                })
+                items.append(
+                    {
+                        "text": str(x["text"]).strip(),
+                        "category": str(x.get("category") or "默认").strip() or "默认",
+                    }
+                )
             elif isinstance(x, str) and x.strip():
                 items.append({"text": x.strip(), "category": "默认"})  # 旧版数据迁移
         return items
@@ -1058,7 +1079,7 @@ def translate_online(payload: dict):
         if not tag or key in translations:
             continue
         if _CJK_RE.search(tag):
-            translations[tag] = ""   # 已是中文/日文等, 无需翻译
+            translations[tag] = ""  # 已是中文/日文等, 无需翻译
             continue
         zh = cache.get(key) or zh_map.get(key, "")
         if not zh:

@@ -1,4 +1,5 @@
 """FastAPI 应用: 组装路由、静态资源与 SSE 事件流。"""
+
 from __future__ import annotations
 
 import asyncio
@@ -15,11 +16,11 @@ from utils.events import broker
 from utils.logger import logger
 from utils.services import plugins_store
 
-from .routes import generate, misc, plugins, settings, tools
-
 # 注意: 不能把路由模块导入为裸名 "queue", 否则会遮蔽标准库 queue,
 # 导致 /api/events 的 except queue.Empty 抛 AttributeError, SSE 事件流整体失效
+from .routes import generate, misc, plugins
 from .routes import queue as queue_routes
+from .routes import settings, tools
 
 
 def create_app() -> FastAPI:
@@ -34,12 +35,14 @@ def create_app() -> FastAPI:
             logger.warning(f"插件商店数据预热失败: {e}")
         try:
             from .routes import misc
+
             misc._get_tag_cache()
         except Exception as e:
             logger.warning(f"标签词典预热失败: {e}")
         # 在线翻译多源引擎: 后台预导入 translators 库 (首次在线翻译不再卡几秒)
         try:
             from utils.translate import _get_tss
+
             _get_tss()
         except Exception as e:
             logger.debug(f"在线翻译库预热失败: {e}")

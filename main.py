@@ -19,11 +19,7 @@ os.chdir(BASE_DIR)
 sys.path.insert(0, str(BASE_DIR))
 
 from utils.config import env  # noqa: E402
-from utils.helpers import (  # noqa: E402
-    apply_console_visibility,
-    check_update,
-    playsound,
-)
+from utils.helpers import apply_console_visibility, check_update, playsound  # noqa: E402
 from utils.logger import logger, loguru_to_rich  # noqa: E402
 from utils.plugins import load_plugins  # noqa: E402
 from utils.variable import VERSION  # noqa: E402

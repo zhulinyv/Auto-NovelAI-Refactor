@@ -8,6 +8,7 @@
 - 通道状态与队列快照通过 queue:update 事件实时推送给前端 (SSE)
 - 非 NovelAI 任务 (超分/本地处理等) 不进队列, 由 JobManager 以多线程方式并行执行
 """
+
 from __future__ import annotations
 
 import threading
@@ -16,17 +17,9 @@ import uuid
 from collections import deque
 from typing import Any, Callable
 
-import ujson as json
-
 from utils.config import env
 from utils.events import broker
-from utils.jobs import (
-    cleanup_break_file,
-    normalize_result,
-    pop_current_job,
-    set_current_job,
-    write_break_flag,
-)
+from utils.jobs import cleanup_break_file, normalize_result, pop_current_job, set_current_job, write_break_flag
 from utils.logger import logger
 from utils.tokens import get_tokens, mask_token, pop_thread_token, set_thread_token
 
@@ -39,8 +32,18 @@ class _Task:
     """队列任务。"""
 
     __slots__ = (
-        "id", "name", "label", "fn", "args", "kwargs", "status",
-        "created_at", "started_at", "finished_at", "worker", "error",
+        "id",
+        "name",
+        "label",
+        "fn",
+        "args",
+        "kwargs",
+        "status",
+        "created_at",
+        "started_at",
+        "finished_at",
+        "worker",
+        "error",
     )
 
     def __init__(self, name: str, fn: Callable, args: tuple, kwargs: dict, label: str | None):
@@ -149,8 +152,8 @@ class GenerationQueue:
 
     def __init__(self):
         self._lock = threading.RLock()
-        self._tasks: dict[str, _Task] = {}          # pending + running
-        self._order: list[str] = []                  # pending 顺序 (FIFO, 可调整)
+        self._tasks: dict[str, _Task] = {}  # pending + running
+        self._order: list[str] = []  # pending 顺序 (FIFO, 可调整)
         self._running: dict[str, _Task] = {}
         self._history: deque[_Task] = deque(maxlen=30)
         self._workers: dict[int, _Worker] = {}
@@ -351,7 +354,11 @@ class GenerationQueue:
                         "cooldown_left": round(w.cool_left, 1) if w.status == "cooling" else 0,
                     }
                 )
-            tasks = [self._task_info(self._tasks[tid], now) for tid in list(self._running) + list(self._order) if tid in self._tasks]
+            tasks = [
+                self._task_info(self._tasks[tid], now)
+                for tid in list(self._running) + list(self._order)
+                if tid in self._tasks
+            ]
             history = [self._task_info(t, now) for t in reversed(self._history)]
         return {
             "workers": workers,

@@ -1,4 +1,5 @@
 """超分降噪: realcugan-ncnn-vulkan / Anime4K / waifu2x-caffe (仅 Windows)。"""
+
 from __future__ import annotations
 
 import os
@@ -6,7 +7,6 @@ import platform
 import subprocess
 from pathlib import Path
 
-from utils.config import env
 from utils.helpers import check_stop, download, extract, playsound, reset_stop
 from utils.image_tools import revert_image_info
 from utils.logger import logger
@@ -94,12 +94,11 @@ def run_upscale(kind: str, input_path: str | None, input_image: str | None, opti
             noise = int(options.get("noise", 3))
             scale = int(options.get("scale", 2))
             model = options.get("model", "models-se")
-            output_path = os.path.join(output_dir, f"{name}_realcugan_ncnn_vulkan_noise_{noise}_scale_{scale}{extension}")
-            exe = os.path.abspath("./assets/realcugan-ncnn-vulkan/realcugan-ncnn-vulkan.exe")
-            code = (
-                f'"{exe}" -i "{os.path.abspath(image)}" '
-                f'-o "{output_path}" -n {noise} -s {scale} -m {model}'
+            output_path = os.path.join(
+                output_dir, f"{name}_realcugan_ncnn_vulkan_noise_{noise}_scale_{scale}{extension}"
             )
+            exe = os.path.abspath("./assets/realcugan-ncnn-vulkan/realcugan-ncnn-vulkan.exe")
+            code = f'"{exe}" -i "{os.path.abspath(image)}" ' f'-o "{output_path}" -n {noise} -s {scale} -m {model}'
         elif env_name == "anime4k":
             zoom = int(options.get("zoom", 2))
             hdn = int(options.get("hdn", 3))

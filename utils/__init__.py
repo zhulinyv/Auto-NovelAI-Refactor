@@ -2,6 +2,9 @@
 
 保持 `from utils import ...` 的导入方式, 兼容旧插件代码。
 """
+
+from utils.config import env, update_env  # noqa: F401
+from utils.errors import ANRError, ConfigError, JobAlreadyRunningError, NovelAIAPIError  # noqa: F401
 from utils.helpers import (  # noqa: F401
     check_stop,
     check_update,
@@ -33,8 +36,6 @@ from utils.helpers import (  # noqa: F401
     stop_generate,
     update_repo,
 )
-from utils.config import env, update_env  # noqa: F401
-from utils.errors import ANRError, ConfigError, JobAlreadyRunningError, NovelAIAPIError  # noqa: F401
 from utils.logger import logger, loguru_to_rich  # noqa: F401
 from utils.variable import (  # noqa: F401
     BASE_PATH,

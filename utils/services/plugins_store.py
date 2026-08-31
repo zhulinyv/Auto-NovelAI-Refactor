@@ -1,4 +1,5 @@
 """插件商店服务: 从插件仓库安装 / 卸载 / 启停插件。"""
+
 from __future__ import annotations
 
 import os
@@ -7,7 +8,6 @@ import subprocess
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 
 import ujson as json
 
@@ -94,7 +94,10 @@ def _check_update_online(plugin_path: str) -> str:
         # GitPython 的 kill_after_timeout 不支持 Windows, 用 subprocess 自带超时
         proc = subprocess.run(
             ["git", "ls-remote", "origin", f"refs/heads/{branch}"],
-            cwd=plugin_path, capture_output=True, text=True, timeout=25,
+            cwd=plugin_path,
+            capture_output=True,
+            text=True,
+            timeout=25,
         )
         out = proc.stdout.strip() if proc.returncode == 0 else ""
         remote = out.split()[0] if out else ""
@@ -184,7 +187,9 @@ def uninstall_plugin(name: str) -> str:
     try:
         shutil.rmtree(path)
     except Exception:
-        subprocess.run(["del", path, "/s", "/q", "/f"], shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(
+            ["del", path, "/s", "/q", "/f"], shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
         subprocess.run(["rmdir", path, "/s", "/q"], shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     logger.success(f"已删除插件: {name}")
     return "删除成功, 重启后生效!"

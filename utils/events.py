@@ -3,6 +3,7 @@
 实现为线程安全的发布/订阅模型: 后台线程通过 publish() 发布事件,
 SSE 端点订阅后持续读取并转发。
 """
+
 from __future__ import annotations
 
 import queue
@@ -29,7 +30,7 @@ class EventBroker:
         with self._lock:
             self._history.append(payload)
             if len(self._history) > self._history_size:
-                self._history = self._history[-self._history_size:]
+                self._history = self._history[-self._history_size :]
             for sub in list(self._subscribers):
                 try:
                     sub.put_nowait(payload)

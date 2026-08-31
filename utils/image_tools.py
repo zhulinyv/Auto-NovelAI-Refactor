@@ -1,4 +1,5 @@
 """图片处理工具: base64、尺寸、元数据读取等。"""
+
 from __future__ import annotations
 
 import base64

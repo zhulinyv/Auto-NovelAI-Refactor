@@ -1,4 +1,5 @@
 """图片反推服务: 调用 HuggingFace 的 wd-tagger。"""
+
 from __future__ import annotations
 
 from utils.logger import logger

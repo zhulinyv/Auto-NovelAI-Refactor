@@ -4,6 +4,7 @@
 - 更新内存中的 env 单例 (token / tokens / proxy / cool_time 等实时生效)
 - 刷新代理、环境变量、生图队列通道数等依赖项
 """
+
 from __future__ import annotations
 
 import os

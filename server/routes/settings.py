@@ -1,10 +1,10 @@
 """配置设置 API。"""
+
 from __future__ import annotations
 
 from fastapi import APIRouter
 
 from utils.helpers import restart, update_repo
-from utils.logger import logger
 from utils.services import settings as settings_service
 
 router = APIRouter(prefix="/api", tags=["settings"])

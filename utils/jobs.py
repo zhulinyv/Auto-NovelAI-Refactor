@@ -5,6 +5,7 @@
 - 当前任务注册表: 线程 -> 任务 id 映射, 供停止信号 (check_stop) 与实时事件定位当前任务;
   JobManager 与生图队列 (utils.gen_queue) 共用该注册表
 """
+
 from __future__ import annotations
 
 import os

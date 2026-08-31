@@ -1,10 +1,12 @@
 """Wildcards 管理服务 (支持图片封面)。"""
+
 from __future__ import annotations
 
 import json
 import os
-import send2trash
 from pathlib import Path
+
+import send2trash
 
 from utils.helpers import format_str, read_txt
 from utils.logger import logger
@@ -76,12 +78,14 @@ def list_cards(wildcard_type: str) -> list[dict]:
             tags = (_dir / f).read_text(encoding="utf-8").strip()
         except Exception:
             tags = ""
-        cards.append({
-            "name": name,
-            "tags": tags[:200],
-            "has_cover": find_cover(wildcard_type, name) is not None,
-            "cover": find_cover(wildcard_type, name),
-        })
+        cards.append(
+            {
+                "name": name,
+                "tags": tags[:200],
+                "has_cover": find_cover(wildcard_type, name) is not None,
+                "cover": find_cover(wildcard_type, name),
+            }
+        )
     return cards
 
 

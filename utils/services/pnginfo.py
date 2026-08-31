@@ -1,7 +1,7 @@
 """法术解析服务: 读取 / 应用 / 抹除图片元数据。"""
+
 from __future__ import annotations
 
-import json
 import os
 from pathlib import Path
 
@@ -9,8 +9,7 @@ import ujson
 from PIL import Image
 from PIL.PngImagePlugin import PngInfo
 
-from utils.config import env
-from utils.helpers import format_str, float_to_position, playsound, read_json
+from utils.helpers import float_to_position, playsound
 from utils.image_tools import get_image_information
 from utils.logger import logger
 from utils.naimeta import inject_data
@@ -95,9 +94,7 @@ def remove_pnginfo(image_path: str | None, batch_path: str | None, choices: list
         _dir = Path(batch_path)
         if not _dir.is_dir():
             raise ValueError("批处理路径无效")
-        file_list.extend(
-            str(_dir / f) for f in os.listdir(_dir) if f.lower().endswith((".png", ".jpg", ".jpeg"))
-        )
+        file_list.extend(str(_dir / f) for f in os.listdir(_dir) if f.lower().endswith((".png", ".jpg", ".jpeg")))
     if not file_list:
         raise ValueError("请提供图片或批处理路径")
     # 去重 (保留顺序: 先单张图片, 再目录)

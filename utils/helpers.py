@@ -1,4 +1,5 @@
 """纯工具函数: 字符串、文件、wildcard、随机等 (不依赖任何 UI)。"""
+
 from __future__ import annotations
 
 import hashlib
@@ -23,13 +24,7 @@ import numpy as np
 import requests
 import ujson as json
 from PIL import Image
-from rich.progress import (
-    BarColumn,
-    DownloadColumn,
-    Progress,
-    TextColumn,
-    TransferSpeedColumn,
-)
+from rich.progress import BarColumn, DownloadColumn, Progress, TextColumn, TransferSpeedColumn
 
 from utils.config import env
 from utils.logger import console, logger, loguru_to_rich
@@ -210,7 +205,9 @@ def find_and_replace_wildcards_from_dict(data: dict) -> dict:
         data["parameters"]["v4_negative_prompt"]["caption"]["base_caption"] = data["parameters"]["negative_prompt"]
         for i in range(len(data["parameters"]["v4_prompt"]["caption"]["char_captions"])):
             char_pos = replace_wildcards(data["parameters"]["v4_prompt"]["caption"]["char_captions"][i]["char_caption"])
-            char_neg = replace_wildcards(data["parameters"]["v4_negative_prompt"]["caption"]["char_captions"][i]["char_caption"])
+            char_neg = replace_wildcards(
+                data["parameters"]["v4_negative_prompt"]["caption"]["char_captions"][i]["char_caption"]
+            )
             data["parameters"]["v4_prompt"]["caption"]["char_captions"][i]["char_caption"] = char_pos
             data["parameters"]["v4_negative_prompt"]["caption"]["char_captions"][i]["char_caption"] = char_neg
             data["parameters"]["characterPrompts"][i]["prompt"] = char_pos
@@ -482,7 +479,11 @@ def send_mail() -> None:
 
 
 def _safe_img_paths(input_path: str) -> list[str]:
-    return [str(Path(input_path) / f) for f in os.listdir(input_path) if f.lower().endswith((".png", ".jpg", ".jpeg", ".webp"))]
+    return [
+        str(Path(input_path) / f)
+        for f in os.listdir(input_path)
+        if f.lower().endswith((".png", ".jpg", ".jpeg", ".webp"))
+    ]
 
 
 def show_first_img(input_path: str):
@@ -493,7 +494,7 @@ def show_first_img(input_path: str):
             return None, None
         img_path = file_list[0]
         np.save("./outputs/temp_selector.npy", np.array(file_list[1:]))
-        with Image.open(img_path) as img:
+        with Image.open(img_path):
             return [str(img_path)], img_path
     except Exception as e:
         logger.error(f"加载图片目录失败: {e}")
@@ -509,7 +510,7 @@ def show_next_img():
             return None, None
         img_path = file_list[0]
         np.save("./outputs/temp_selector.npy", np.array(file_list[1:]))
-        with Image.open(img_path) as img:
+        with Image.open(img_path):
             return [str(img_path)], img_path
     except Exception as e:
         logger.error(f"读取图片列表失败: {e}")

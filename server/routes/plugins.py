@@ -1,4 +1,5 @@
 """插件相关 API: 清单 / 动作 / 商店管理。"""
+
 from __future__ import annotations
 
 import json
@@ -97,16 +98,22 @@ async def toggle(payload: dict):
 async def apply_plugins():
     """应用插件变更并重启后端。"""
     from utils.plugins import load_plugins
+
     try:
         load_plugins()
     except Exception as e:
         logger.error(f"插件加载失败: {e}")
     # 延迟重启, 让响应先返回 (与 run.bat 一致: -X utf8)
-    import threading, os, sys, time
+    import os
+    import sys
+    import threading
+    import time
+
     def _restart():
         time.sleep(0.6)
         # 标记为重启: 重启后不再自动打开浏览器窗口
         os.environ["ANR_SKIP_BROWSER"] = "1"
         os.execv(sys.executable, [sys.executable, "-X", "utf8"] + sys.argv)
+
     threading.Thread(target=_restart, daemon=True).start()
     return {"message": "后端重启中..."}

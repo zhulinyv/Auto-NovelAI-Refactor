@@ -23,11 +23,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install ruff
 
+      # 规则与 pyproject.toml 的 [tool.ruff] 保持一致: line-length=120, select=[E,W,F], ignore=[E501]
       - name: Ruff lint
-        run: ruff check . --output-format=github
+        run: ruff check . --output-format=github --line-length 120 --select E,W,F --ignore E501
 
       - name: Ruff format check
-        run: ruff format --check .
+        run: ruff format --check . --line-length 120
 
   autofix:
     name: Auto-fix code style
@@ -50,10 +51,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install ruff
 
+      # 规则与 pyproject.toml 的 [tool.ruff] 保持一致: line-length=120, select=[E,W,F], ignore=[E501]
       - name: Apply ruff fixes
         run: |
-          ruff check . --fix
-          ruff format .
+          ruff check . --fix --line-length 120 --select E,W,F --ignore E501
+          ruff format . --line-length 120
 
       - name: Commit changes
         uses: EndBug/add-and-commit@v9

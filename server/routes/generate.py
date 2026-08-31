@@ -1,4 +1,5 @@
 """生图相关 API (全部经由生图队列调度)。"""
+
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException

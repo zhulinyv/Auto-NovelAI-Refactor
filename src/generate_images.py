@@ -3,14 +3,14 @@
 由原来的 Gradio 回调 (一长串位置参数) 改为接收结构化字典 `GenerateRequest`,
 内部逻辑与原版保持一致: 模型 JSON 构建、wildcard 替换、图生图/重绘、Enhance 等。
 """
+
 from __future__ import annotations
 
 import os
 import random
-import time
-import ujson as json
 from pathlib import Path
 
+import ujson as json
 from PIL import Image
 
 from utils.config import env
@@ -19,13 +19,13 @@ from utils.generator import Generator
 from utils.helpers import (
     StopGeneration,
     check_stop,
-    reset_stop,
     find_and_replace_wildcards_from_dict,
     format_str,
     generate_hash_string,
     playsound,
     position_to_float,
     read_json,
+    reset_stop,
     return_last_value,
     return_x64,
     send_mail,
@@ -243,50 +243,50 @@ def _model_function_map(model: str, kind: str):
     """按模型与用途返回对应的 JSON 构建函数。"""
     maps = {
         "t2i": {
-            "nai-diffusion-5-full": nai5ft2i,
-            "nai-diffusion-5-curated": nai5ct2i,
-            "nai-diffusion-4-5-full": nai45ft2i,
-            "nai-diffusion-4-5-curated": nai45ct2i,
-            "nai-diffusion-4-full": nai4ft2i,
-            "nai-diffusion-4-curated-preview": nai4cpt2i,
-            "nai-diffusion-3": nai3t2i,
-            "nai-diffusion-furry-3": naif3t2i,
+            "nai-diffusion-5-full": nai5ft2i,  # noqa: F405
+            "nai-diffusion-5-curated": nai5ct2i,  # noqa: F405
+            "nai-diffusion-4-5-full": nai45ft2i,  # noqa: F405
+            "nai-diffusion-4-5-curated": nai45ct2i,  # noqa: F405
+            "nai-diffusion-4-full": nai4ft2i,  # noqa: F405
+            "nai-diffusion-4-curated-preview": nai4cpt2i,  # noqa: F405
+            "nai-diffusion-3": nai3t2i,  # noqa: F405
+            "nai-diffusion-furry-3": naif3t2i,  # noqa: F405
         },
         "vibe": {
-            "nai-diffusion-5-full": nai5fvibe,
-            "nai-diffusion-5-curated": nai5cvibe,
-            "nai-diffusion-4-5-full": nai45fvibe,
-            "nai-diffusion-4-5-curated": nai45cvibe,
-            "nai-diffusion-4-full": nai4fvibe,
-            "nai-diffusion-4-curated-preview": nai4cpvibe,
-            "nai-diffusion-3": nai3vibe,
-            "nai-diffusion-furry-3": naif3vibe,
+            "nai-diffusion-5-full": nai5fvibe,  # noqa: F405
+            "nai-diffusion-5-curated": nai5cvibe,  # noqa: F405
+            "nai-diffusion-4-5-full": nai45fvibe,  # noqa: F405
+            "nai-diffusion-4-5-curated": nai45cvibe,  # noqa: F405
+            "nai-diffusion-4-full": nai4fvibe,  # noqa: F405
+            "nai-diffusion-4-curated-preview": nai4cpvibe,  # noqa: F405
+            "nai-diffusion-3": nai3vibe,  # noqa: F405
+            "nai-diffusion-furry-3": naif3vibe,  # noqa: F405
         },
         "char": {
-            "nai-diffusion-5-full": nai5fchar,
-            "nai-diffusion-5-curated": nai5cchar,
-            "nai-diffusion-4-5-full": nai45fchar,
-            "nai-diffusion-4-5-curated": nai45cchar,
+            "nai-diffusion-5-full": nai5fchar,  # noqa: F405
+            "nai-diffusion-5-curated": nai5cchar,  # noqa: F405
+            "nai-diffusion-4-5-full": nai45fchar,  # noqa: F405
+            "nai-diffusion-4-5-curated": nai45cchar,  # noqa: F405
         },
         "i2i": {
-            "nai-diffusion-5-full": nai5fi2i,
-            "nai-diffusion-5-curated": nai5ci2i,
-            "nai-diffusion-4-5-full": nai45fi2i,
-            "nai-diffusion-4-5-curated": nai45ci2i,
-            "nai-diffusion-4-full": nai4fi2i,
-            "nai-diffusion-4-curated-preview": nai4cpi2i,
-            "nai-diffusion-3": nai3i2i,
-            "nai-diffusion-furry-3": naif3i2i,
+            "nai-diffusion-5-full": nai5fi2i,  # noqa: F405
+            "nai-diffusion-5-curated": nai5ci2i,  # noqa: F405
+            "nai-diffusion-4-5-full": nai45fi2i,  # noqa: F405
+            "nai-diffusion-4-5-curated": nai45ci2i,  # noqa: F405
+            "nai-diffusion-4-full": nai4fi2i,  # noqa: F405
+            "nai-diffusion-4-curated-preview": nai4cpi2i,  # noqa: F405
+            "nai-diffusion-3": nai3i2i,  # noqa: F405
+            "nai-diffusion-furry-3": naif3i2i,  # noqa: F405
         },
         "infill": {
-            "nai-diffusion-5-full": nai5finfill,
-            "nai-diffusion-5-curated": nai5cinfill,
-            "nai-diffusion-4-5-full": nai45finfill,
-            "nai-diffusion-4-5-curated": nai45cinfill,
-            "nai-diffusion-4-full": nai4finfill,
-            "nai-diffusion-4-curated-preview": nai4cpinfill,
-            "nai-diffusion-3": nai3infill,
-            "nai-diffusion-furry-3": naif3infill,
+            "nai-diffusion-5-full": nai5finfill,  # noqa: F405
+            "nai-diffusion-5-curated": nai5cinfill,  # noqa: F405
+            "nai-diffusion-4-5-full": nai45finfill,  # noqa: F405
+            "nai-diffusion-4-5-curated": nai45cinfill,  # noqa: F405
+            "nai-diffusion-4-full": nai4finfill,  # noqa: F405
+            "nai-diffusion-4-curated-preview": nai4cpinfill,  # noqa: F405
+            "nai-diffusion-3": nai3infill,  # noqa: F405
+            "nai-diffusion-furry-3": naif3infill,  # noqa: F405
         },
     }
     return maps.get(kind, {}).get(model)
@@ -360,7 +360,11 @@ def generate(request: dict) -> tuple[list[str], str]:
             raise NovelAIAPIError(f"不支持的模型: {model}")
 
         # 2. 处理 furry 模式
-        _positive_input = ("fur dataset, " + positive_input) if furry_mode and model not in ["nai-diffusion-3", "nai-diffusion-furry-3"] else positive_input
+        _positive_input = (
+            ("fur dataset, " + positive_input)
+            if furry_mode and model not in ["nai-diffusion-3", "nai-diffusion-furry-3"]
+            else positive_input
+        )
 
         # 3. 角色与参考数据
         v4_pos, v4_neg, char_prompts = _build_character_data(characters)
@@ -492,7 +496,9 @@ def generate(request: dict) -> tuple[list[str], str]:
                 json_data["parameters"]["width"] = new_width
                 json_data["parameters"]["height"] = new_height
                 try:
-                    image_data = _generate_with_retry(image_generator, find_and_replace_wildcards_from_dict(json_data), "Enhance")
+                    image_data = _generate_with_retry(
+                        image_generator, find_and_replace_wildcards_from_dict(json_data), "Enhance"
+                    )
                     path = image_generator.save(image_data, "image2image", json_data["parameters"]["seed"])
                 except StopGeneration:
                     raise
