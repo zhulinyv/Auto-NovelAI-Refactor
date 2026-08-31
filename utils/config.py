@@ -19,7 +19,7 @@ DEFAULTS: dict[str, Any] = {
     "tokens": [],
     "proxy": None,
     "custom_path": "<类型>/<日期>/<种子>_<编号>",
-    "cool_time": 3,
+    "cool_time": 9,
     "port": 11451,
     "share": False,
     "retry_429": True,

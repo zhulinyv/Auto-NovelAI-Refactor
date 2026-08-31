@@ -68,7 +68,8 @@ async function saveState() {
       api_source: bgState.apiSource || "bing",
       art: bgState.art || null,
     });
-  } catch { /* 静默失败 */ }
+    return true;
+  } catch { return false; }
 }
 
 async function loadState() {
@@ -103,7 +104,16 @@ async function loadState() {
       }
       const localInt = parseInt(localStorage.getItem(KEY_INTERVAL), 10);
       if (Number.isFinite(localInt) && localInt >= 3) { bgState.interval = localInt; }
-      if (migrated) await saveState();
+      if (migrated) {
+        const ok = await saveState();
+        // 已成功写入后端后清除 localStorage 旧数据: 否则其中的失效路径
+        // 会在每次启动时被重新迁移, 导致反复提示"背景图片已失效"
+        if (ok) {
+          localStorage.removeItem(KEY_SINGLE);
+          localStorage.removeItem(KEY_FOLDER);
+          localStorage.removeItem(KEY_INTERVAL);
+        }
+      }
     }
 
     // 恢复轮播
@@ -130,9 +140,12 @@ export async function initBackground() {
   // 单张图片失效探测 (仅在服务端无数据时用 localStorage 兜底)
   if (bgState.single) {
     const probe = new Image();
-    probe.onerror = () => {
+    probe.onerror = async () => {
       bgState.single = null;
-      saveState();
+      const ok = await saveState();
+      // 后端已写回默认后, 一并清除 localStorage 中可能的旧迁移源,
+      // 避免下次启动再次迁移同一条失效路径 (后端不可达时保留回退数据)
+      if (ok) localStorage.removeItem(KEY_SINGLE);
       applyBackground();
       toast("背景图片已失效, 已恢复默认", "warning");
     };
