@@ -27,24 +27,9 @@
 - 📧 **细节体验** — SMTP 邮件通知 / 429 限流自动重试 / 一键重启与更新 / 自定义输出路径模板 / 侧边栏与日志面板自由拖拽调整 / 隐藏终端启动 / 顶栏一键退出
 - 🔇 **后台运行** — 隐藏终端启动 / WebUI 顶栏按钮一键退出
 
-## 🗺️ 功能一览
+## 🎞️ 实机演示
 
-| 页面 | 说明 |
-|:---:|:---|
-| 🖼️ **图片生成** | 支持全部官方模型 (含 nai-diffusion-5) |
-| 🎬 **导演工具** | 调用 NovelAI API 处理图片: **Remove BG / Line Art / Sketch / Colorize / Emotion / Declutter**, 支持单张或整目录批处理 |
-| ✨ **超分降噪** | realcugan-ncnn-vulkan / Anime4K / waifu2x-caffe 三引擎, 首次使用自动下载 (仅 Windows) |
-| 🔮 **法术解析** | 读取图片生成参数并**一键回填生成页**; 单张 / 批量抹除元数据; wd-tagger **反推提示词** (12 个模型可选, 阈值可调) |
-| 🗂️ **图片筛选** | 快速浏览目录逐张筛选: 移动 / 复制 / 删除 / **无限撤销** |
-| 📚 **图片浏览** | outputs 目录树浏览, 名称 / 时间 / 大小排序 + 递归展示; **我的收藏** (仅保存路径引用, 不移动文件); 自动感知目录变化; 双击全屏查看器可查看参数 / 发送到生成 / 法术解析 |
-| 🧩 **自动打码** | 基于 YOLO / SAM / NudeNet 的批量打码 |
-| 🧩 **图片压缩** | 批量压缩整理图片 |
-| 🧩 **图片混淆** | 基于 LSB 隐写的图片加密 / 解密 |
-| 🧩 **随机画风** | 随机抽取画师并生成预览图, 右侧实时渲染分段 Beta 分布图 |
-| 🧩 **推文生图** | 从 Excel 模板批量生成图片并回填表格 |
-| 🧩 **视频处理** | 视频拆分 / 合并 / 音频合成 / 补帧 |
-| 🛒 **插件商店** | 在线安装 / 卸载 / 启停 / 检查更新插件 |
-| ⚙️ **配置设置** | 全部配置项集中管理, 保存即生效; 一键重启 / 一键更新 |
+<img width="2560" height="1600" alt="image" src="https://github.com/user-attachments/assets/c52f2005-41f5-49b7-adf7-33dabbf921d6" />
 
 
 ## 💿 部署
@@ -145,17 +130,15 @@ def register(plugin: Plugin):
 
 本项目使用 [Semi-Auto-NovelAI-to-Pixiv](https://github.com/zhulinyv/Semi-Auto-NovelAI-to-Pixiv) 的部分源代码
 
-壁纸与一言来自 [Lolicon API](https://docs.api.lolicon.app) | [Hitokoto 一言](https://hitokoto.cn) | [Bing 每日壁纸](https://www.bing.com) | [Picsum](https://picsum.photos)
+本项目使用 [Lolicon API](https://docs.api.lolicon.app) | [Hitokoto 一言](https://hitokoto.cn) | [Bing 每日壁纸](https://www.bing.com) | [Picsum](https://picsum.photos) 提供背景和一言服务
 
 
 ## 🔊 声明
 
 免责声明: **本软件仅提供技术服务，开发者不对用户使用本软件可能引发的任何法律责任或损失承担责任, 用户应对其使用本软件及其结果负全部责任**
 
-本项目基于 [GPL-3.0](LICENSE) 协议开源
-
 <p align="center" >
-  <a href="https://github.com/zhulinyv/Auto-NovelAI-Refactor/blob/ANR-WebUI/CODE_OF_CONDUCT.md"><b>Code of conduct</b></a> | <a href="https://github.com/zhulinyv/Auto-NovelAI-Refactor/blob/ANR-WebUI/SECURITY.md"><b>Security</b></a>
+  <a href="https://github.com/zhulinyv/Auto-NovelAI-Refactor/blob/main/CODE_OF_CONDUCT.md"><b>Code of conduct</b></a> | <a href="https://github.com/zhulinyv/Auto-NovelAI-Refactor/blob/main/LICENSE"><b>LICENSE</b></a> | <a href="https://github.com/zhulinyv/Auto-NovelAI-Refactor/blob/main/SECURITY.md"><b>Security</b></a>
 </p>
 
 <hr>
