@@ -168,9 +168,14 @@ def _get_tss():
             if _TSS is None:
                 try:
                     import os as _os
+                    import warnings as _warnings
 
                     _os.environ.setdefault("translators_default_region", "CN")
-                    import translators.server as tss
+                    # translators 6.x 内嵌正则含无效转义序列 (如 [^\.]), Python 3.12+ 导入时会触发
+                    # SyntaxWarning; 该警告无害 (字符类中 \. 与 . 等价), 导入时屏蔽以免污染日志
+                    with _warnings.catch_warnings():
+                        _warnings.simplefilter("ignore", SyntaxWarning)
+                        import translators.server as tss
 
                     try:
                         tss.server_region = "CN"
