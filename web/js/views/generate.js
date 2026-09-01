@@ -104,6 +104,7 @@ export async function render(container, ctx) {
   updateAiChoiceVisibility();
   bindEvents();
   wireOutputActions();
+  updateAnlasBadge();
 }
 
 // ---------------- 启动加载: 从 last.json 恢复上次参数 ----------------
@@ -612,7 +613,10 @@ function buildParamsTab(body, saved) {
 
 function buildRightPanel() {
   const card = el("div", { class: "card", style: "min-height:400px;display:flex;flex-direction:column;" }, [
-    el("div", { class: "card-title" }, ["🖼️ 输出图片"]),
+    el("div", { class: "card-title" }, [
+      "🖼️ 输出图片",
+      el("span", { class: "badge", id: "anlas-badge", style: "margin-left:auto;cursor:default;", title: "最近一次生成后的剩余点数 / 用量 (每次生成后更新)" }, "点数: --"),
+    ]),
   ]);
   genGalleryEl = el("div", { class: "gallery", style: "flex:1;" });
   // 两个"发送"按钮放在同一行, 右侧留出"打开保存目录"按钮
@@ -628,6 +632,23 @@ function buildRightPanel() {
   infoEl = el("div", { class: "info-box", style: "margin-top:10px;" });
   card.append(genGalleryEl, btnRow, infoEl);
   return card;
+}
+
+/** 刷新右上角"剩余点数/用量"徽标 (最近一次生成后由后端缓存, 生成结束与页面加载时更新) */
+async function updateAnlasBadge() {
+  try {
+    const res = await fetch("/api/anlas");
+    const data = await res.json();
+    const badge = document.getElementById("anlas-badge");
+    if (!badge) return;
+    const a = Number(data.anlas);
+    const r = Number(data.remains);
+    if (Number.isFinite(a) && Number.isFinite(r) && a >= 0) {
+      badge.textContent = `点数: ${a} · 用量: ${r}%`;
+    } else {
+      badge.textContent = "点数: -- · 用量: --";
+    }
+  } catch {}
 }
 
 function wireOutputActions() {
@@ -944,6 +965,7 @@ function onJobDone(ev) {
     infoEl.textContent = "✅ " + ev.message;
     toast(ev.message, "success");
   }
+  updateAnlasBadge();
 }
 
 /** 设置输出区选中图片与发送按钮的显示状态 (path 为 null 表示取消选择) */

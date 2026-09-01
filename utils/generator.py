@@ -31,8 +31,11 @@ REMAINS = -1
 
 
 def _set_last_anlas(anlas, remains) -> None:
+    global ANLAS, REMAINS
     _anlas_ctx.anlas = anlas
     _anlas_ctx.remains = remains
+    ANLAS = anlas
+    REMAINS = remains
 
 
 def get_last_anlas() -> tuple:

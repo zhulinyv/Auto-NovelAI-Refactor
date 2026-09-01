@@ -1113,3 +1113,15 @@ def translate_online(payload: dict):
         _TRANSLATE_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
         _TRANSLATE_CACHE_FILE.write_text(json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8")
     return {"translations": translations}
+
+
+# ---------------------------------------------------------------- 剩余点数 / 用量
+# 生成请求成功后由 utils.generator 更新全局缓存, 前端轮询展示; 返回 -1 表示尚未生成过
+
+
+@router.get("/anlas")
+def get_anlas():
+    """返回最近一次生成后查询到的 (剩余点数, 剩余用量), 未生成过时为 -1。"""
+    from utils.generator import ANLAS, REMAINS
+
+    return {"anlas": ANLAS, "remains": REMAINS}
