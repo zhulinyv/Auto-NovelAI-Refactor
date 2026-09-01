@@ -30,7 +30,6 @@ from utils.helpers import (
     return_x64,
     send_mail,
     sleep_for_cool,
-    sleep_interruptible,
 )
 from utils.image_tools import (
     change_the_mask_color,

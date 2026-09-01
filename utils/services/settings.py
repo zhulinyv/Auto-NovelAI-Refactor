@@ -81,9 +81,10 @@ def save_settings(data: dict) -> dict:
     port_changed = str(normalized.get("port")) != old_port
     hide_terminal_changed = bool(normalized.get("hide_terminal")) != bool(old_hide_terminal)
     # 插件相关配置变化时, 才需要重载插件 (避免普通设置保存也触发插件重载)
-    plugins_changed = bool(normalized.get("share")) != old_share or bool(
-        normalized.get("disable_all_plugins")
-    ) != old_disable_all_plugins
+    plugins_changed = (
+        bool(normalized.get("share")) != old_share
+        or bool(normalized.get("disable_all_plugins")) != old_disable_all_plugins
+    )
 
     # 终端隐藏开关实时生效 (仅 Windows, 不阻塞 HTTP 响应)
     if hide_terminal_changed:
