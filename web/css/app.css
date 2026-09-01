@@ -266,7 +266,7 @@ input.slider-num {
 .btn-sm { padding: 5px 13px; font-size: 13px; }
 .btn[disabled] { opacity: 0.55; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
 /* ------- 按钮加大 (工具栏主操作) ------- */
-.btn-lg { padding: 10px 24px; font-size: 15px; border-radius: 999px; }
+.btn-lg { padding: 10px 24px; font-size: 15px; border-radius: 999px; min-height: 44px; line-height: 1.2; }
 
 
 .mini-btn {
@@ -993,13 +993,19 @@ select.corner-select { min-height: 0; height: 26px; }
 .model-bar .field { flex-direction: row; align-items: center; gap: 10px; margin-bottom: 0; }
 .model-bar .field > label { white-space: nowrap; }
 .model-bar .fs-wrap { width: auto; min-width: 270px; max-width: 360px; }
-.model-bar .slider-row { width: min(430px, 38vw); }
-.model-bar .mode-btn { white-space: nowrap; font-weight: 600; }
+/* 生成数量: 解除固定宽度, 随可用空间伸缩, 小屏时收缩保证开始/停止按钮不换行 */
+.model-bar .mb-quantity { flex: 1 1 auto; min-width: 0; max-width: 560px; }
+.model-bar .mb-quantity .slider-row { flex: 1 1 auto; width: auto; min-width: 110px; max-width: 430px; }
 @media (max-width: 1100px) {
   .model-bar .mb-divider { display: none; }
   .model-bar .mb-flex { display: none; }
 }
 @media (max-width: 900px) { .model-bar select { min-width: 200px; } }
+@media (max-width: 720px) {
+  .model-bar select { min-width: 160px; }
+  .model-bar .mb-quantity { max-width: 420px; }
+  .model-bar .mb-quantity .slider-row { min-width: 90px; }
+}
 
 /* ------- 自绘下拉 (替换原生弹层) ------- */
 .fs-hidden {
@@ -1830,14 +1836,6 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
   transform: translateY(-3px);
 }
 .browse-item img { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; display: block; background: var(--surface-3); }
-.browse-item .b-name {
-  padding: 6px 8px;
-  font-size: 12px;
-  color: var(--text-2);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 .browse-empty { grid-column: 1 / -1; padding: 40px; text-align: center; color: var(--text-2); }
 /* 标签块拖动排序指示 */
 .p-chip[draggable="true"] { cursor: grab; }
@@ -2019,6 +2017,28 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
 .browse-item:hover .browse-fav-star, .browse-fav-star.on { opacity: 1; }
 .browse-fav-star:hover { background: rgba(0, 0, 0, 0.7); transform: scale(1.15); }
 .browse-fav-star.on { color: #fbbf24; background: rgba(0, 0, 0, 0.55); }
+/* 小图右上角删除按钮 (位于收藏星星左侧) */
+.browse-del-btn {
+  position: absolute;
+  top: 6px;
+  right: 40px;
+  z-index: 2;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  line-height: 1;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, transform 0.15s, background 0.15s;
+}
+.browse-item:hover .browse-del-btn { opacity: 1; }
+.browse-del-btn:hover { background: rgba(220, 38, 38, 0.85); transform: scale(1.15); }
 /* 收藏模式下收起左侧时隐藏收藏区域 */
 .browse-layout.left-collapsed .browse-fav-section { display: none; }
 /* 查看器中收藏按钮的已收藏态 */

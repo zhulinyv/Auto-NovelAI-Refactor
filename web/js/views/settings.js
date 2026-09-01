@@ -105,7 +105,18 @@ export async function render(container, ctx) {
     saveBtn.disabled = true;
     try {
       const res = await post("/api/settings", collect());
+      if (res.ok === false) {
+        toast(res.message, "error");
+        return;
+      }
       toast(res.message, "success");
+      // 检测端口 / 隐藏终端变更, 额外提示重启事项
+      if (res.port_changed) {
+        toast("端口修改需重启后重新绑定", "warning", 6000);
+      }
+      if (res.hide_terminal_changed) {
+        toast("隐藏/显示终端启动需关闭程序后重新启动", "warning", 6000);
+      }
     } catch (e) {
       toast(e.message, "error");
     } finally {

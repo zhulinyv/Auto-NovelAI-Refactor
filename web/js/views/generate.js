@@ -29,6 +29,7 @@ let tabBodies = {};
 let refSection = null;
 let enhanceRow = null;
 let furryBtn = null;
+let furryMode = false; // 显式状态, 避免因 Twemoji 替换 DOM 后 textContent 不含 emoji 导致检测失败
 let lastOutputPath = null;
 let selectedOutputPath = null; // 多张结果中当前选中的图片 (再次单击取消)
 let lastGeneratedImages = []; // 最近一次生成的全部图片 (供 wildcards 取最后一张做封面)
@@ -181,6 +182,7 @@ function buildSavedState() {
     quality: qpIdToName(model, p.qualityPresetId) || stored.quality || "Standard",
     uc: ucIdToName(model, p.ucPresetId) || stored.uc || "Heavy",
     quantity: stored.quantity ?? 1,
+    furry_mode: stored.furry_mode ?? false,
     ai_choice: p.use_coords != null ? !p.use_coords : (stored.ai_choice ?? true),
     variety: p.skip_cfg_above_sigma != null ? true : (stored.variety ?? false),
     decrisp: p.dynamic_thresholding ?? stored.decrisp ?? false,
@@ -312,16 +314,24 @@ function buildPromptCard(saved) {
 }
 
 /** 工具条: 左=生图模型+Mode, 右=生成数量+开始/停止 */
+/** 更新 furry 按钮文本 (用显式状态, 不依赖 textContent: Twemoji 会把 emoji 换成 <img>) */
+function updateFurryBtn() {
+  furryBtn.textContent = furryMode ? "🐾 Mode: Furry" : "🌸 Mode: Anime";
+}
+
 function buildModelBar(bar, saved) {
   C.model = field("🧬 生图模型", "select", { options: S.app.models, value: saved.model ?? S.app.model });
+  furryMode = !!saved.furry_mode;
   furryBtn = el("button", { class: "btn btn-sm mode-btn", text: "🌸 Mode: Anime" });
   furryBtn.style.whiteSpace = "nowrap";
   furryBtn.addEventListener("click", () => {
-    const furry = furryBtn.textContent.startsWith("🌸");
-    furryBtn.textContent = furry ? "🐾 Mode: Furry" : "🌸 Mode: Anime";
+    furryMode = !furryMode;
+    updateFurryBtn();
   });
+  updateFurryBtn();
 
   C.quantity = field("🔢 生成数量", "slider", { min: 1, max: 999, step: 1, value: saved.quantity ?? 1 });
+  C.quantity.node.classList.add("mb-quantity");
 
   C.generateBtn = el("button", { class: "btn btn-primary btn-lg", text: "🚀 开始生成" });
   C.stopBtn = el("button", { class: "btn btn-danger btn-lg", text: "⏹" });
@@ -447,7 +457,7 @@ function buildLeftTabs(saved) {
       { id: "prompt", label: "✨ 正面提示词", type: "textarea", rows: 2 },
       { id: "negative_prompt", label: "🌙 负面提示词", type: "textarea", rows: 2 },
       { id: "position", label: "📍 位置", type: "position", options: S.app.positions, default: "A1" },
-      { id: "enabled", label: "✅ 启用", type: "checkbox", default: true },
+      { id: "enabled", label: "启用", type: "checkbox", default: true },
     ],
     onChange: () => updateAiChoiceVisibility(),
   });
@@ -472,7 +482,7 @@ function buildLeftTabs(saved) {
     ],
     fields: [
       { id: "path", label: "🖼️ 参考图", type: "image" },
-      { id: "enabled", label: "✅ 启用", type: "checkbox", default: true },
+      { id: "enabled", label: "启用", type: "checkbox", default: true },
       { id: "strength", label: "Strength", type: "slider", min: 0, max: 1, step: 0.05, default: 1 },
       { id: "fidelity", label: "Fidelity", type: "slider", min: 0, max: 1, step: 0.05, default: 1 },
       { id: "mode", label: "模式", type: "select", options: S.app.cr_modes, default: "character&style" },
@@ -744,7 +754,7 @@ async function applyModelChange(initial = false) {
 
   // furry 按钮: nai3 隐藏并复位
   furryBtn.style.display = nai3 ? "none" : "";
-  if (nai3) furryBtn.textContent = "🌸 Mode: Anime";
+  if (nai3) { furryMode = false; updateFurryBtn(); }
 
   // 隐藏不可用模型的功能选项卡, 并复位其中的内容
   // 角色分区: nai3 不支持
@@ -841,7 +851,7 @@ async function collectRequest() {
     model: C.model.get(),
     positive_prompt: C.positive.get(),
     negative_prompt: C.negative.get(),
-    furry_mode: furryBtn.textContent.startsWith("🐾"),
+    furry_mode: furryMode,
     quality_preset: C.quality.get(),
     uc_preset: C.uc.get(),
     quantity: Number(C.quantity.get()) || 1,
@@ -899,7 +909,7 @@ async function onGenerate() {
     const state = {
       model: C.model.get(), positive_prompt: C.positive.get(), negative_prompt: C.negative.get(),
       width: C.width.get(), height: C.height.get(), steps: C.steps.get(), scale: C.scale.get(),
-      cfg_rescale: C.cfgRescale.get(), seed: C.seed.get(), quantity: C.quantity.get(),
+      cfg_rescale: C.cfgRescale.get(), seed: C.seed.get(), quantity: C.quantity.get(), furry_mode: furryMode,
       enhance: { enabled: C.enhance.get(), amount: C.enhanceAmount.get(), magnitude: C.magnitude.get() },
     };
     S.store.save(state);

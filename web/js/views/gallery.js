@@ -3,10 +3,10 @@
 //   左 1/4: 输出文件夹选择    右 3/4: 图片网格 (默认按文件名正序)
 //   右上角: 排序方式 (名称/修改时间/大小) + 递归展示复选框 + 正序/倒序
 //   悬停突出显示; 双击打开应用内全屏查看器 (图片居中偏左, 右侧按钮:
-//   "使用该图片参数" / "发送到图片生成" / "发送到法术解析")
+//   "使用该图片参数" / "发送到图片生成" / "发送到法术解析" / "删除 (移到回收站)")
 //   浏览期间每 5 秒轮询目录变化, 内容有变自动刷新 (temp_ 文件已排除)
 // ============================================================
-import { $, el, clear, toast } from "../ui.js";
+import { $, el, clear, toast, confirmDialog } from "../ui.js";
 import { get, post, imageUrl } from "../api.js";
 import { showView } from "../app.js";
 import { setGenerateState, sendToImg2img } from "./generate.js";
@@ -80,7 +80,7 @@ function makeFavStar(path, name) {
   const btn = el("button", {
     class: "browse-fav-star" + (on ? " on" : ""),
     type: "button",
-    title: on ? "取消收藏" : "添加到我的收藏 (不移动文件)",
+    title: on ? "取消收藏" : "收藏",
   });
   btn.textContent = on ? "★" : "☆";
   btn.addEventListener("click", async (e) => {
@@ -88,7 +88,32 @@ function makeFavStar(path, name) {
     const now = await toggleFav(path, name);
     btn.classList.toggle("on", now);
     btn.textContent = now ? "★" : "☆";
-    btn.title = now ? "取消收藏" : "添加到我的收藏 (不移动文件)";
+    btn.title = now ? "取消收藏" : "收藏";
+  });
+  return btn;
+}
+
+/** 网格内每个图片右上角的删除按钮 (在星星左侧) */
+function makeBrowseDelBtn(path, name) {
+  const btn = el("button", {
+    class: "browse-del-btn",
+    type: "button",
+    title: "把图片移动到系统回收站",
+  });
+  btn.textContent = "🗑️";
+  btn.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    const ok = await confirmDialog(`确定将图片「${name}」移动到回收站吗？`, { danger: true });
+    if (!ok) return;
+    try {
+      await post("/api/browse/delete", { path });
+      toast("已移动到回收站 🗑️", "success");
+      // 若已收藏则同步移除
+      if (favPaths.has(path)) await toggleFav(path, name);
+      await loadImages();
+    } catch (e) {
+      toast("删除失败: " + e.message, "error");
+    }
   });
   return btn;
 }
@@ -158,14 +183,33 @@ function openViewer(path, name) {
   const favBtn = el("button", {
     class: "btn" + (favPaths.has(path) ? " btn-fav-on" : ""),
     type: "button",
-    title: "收藏不移动/复制文件, 仅保存路径引用",
+    title: "收藏图片",
   });
-  favBtn.textContent = favPaths.has(path) ? "★ 已收藏 (点击取消)" : "☆ 添加到我的收藏";
+  favBtn.textContent = favPaths.has(path) ? "★ 已收藏 (点击取消)" : "☆ 收藏";
   favBtn.addEventListener("click", async () => {
     const now = await toggleFav(path, name);
-    favBtn.textContent = now ? "★ 已收藏 (点击取消)" : "☆ 添加到我的收藏";
+    favBtn.textContent = now ? "★ 已收藏 (点击取消)" : "☆ 收藏";
     favBtn.classList.toggle("btn-fav-on", now);
   });
+
+  // 删除按钮: 确认后把图片移到系统回收站 (send2trash), 成功后刷新网格
+  const delBtn = el("button", { class: "btn btn-danger", type: "button", text: "🗑️ 删除" });
+  delBtn.title = "把图片移动到系统回收站";
+  delBtn.addEventListener("click", async () => {
+    const ok = await confirmDialog(`确定将图片「${name || path}」移动到回收站吗？`, { danger: true });
+    if (!ok) return;
+    closeViewer();
+    try {
+      await post("/api/browse/delete", { path });
+      toast("已移动到回收站 🗑️", "success");
+      // 若已收藏则同步移除
+      if (favPaths.has(path)) await toggleFav(path, name);
+      await loadImages();
+    } catch (e) {
+      toast("删除失败: " + e.message, "error");
+    }
+  });
+
   viewerEl.append(
     el("div", { class: "img-viewer-head" }, [
       el("span", { class: "img-viewer-name", text: name || "" }),
@@ -174,10 +218,11 @@ function openViewer(path, name) {
     el("div", { class: "img-viewer-body" }, [
       el("div", { class: "img-viewer-img-wrap" }, [img]),
       el("div", { class: "img-viewer-side" }, [
-        el("div", { class: "img-viewer-tip", text: "操作在主界面完成: 导入生成参数 / 载入图生图基础图片 / 打开法术解析。点击图片可切换原始大小。" }),
+        el("div", { class: "img-viewer-tip", text: "操作在主界面完成: 导入生成参数 / 载入图生图基础图片 / 打开法术解析 / 删除 (移到回收站)。点击图片可切换原始大小。" }),
         mkBtn("🎯 使用该图片参数", "use-params"),
         mkBtn("🖼️ 发送到图片生成", "to-img2img"),
         mkBtn("🔮 发送到法术解析", "to-pnginfo"),
+        delBtn,
         favBtn,
       ]),
     ]),
@@ -220,15 +265,12 @@ function renderGrid() {
     return;
   }
   list.forEach((img) => {
-    // 递归模式下, 子文件夹中的图片在名字前加 📂 标识 (收藏模式不需要)
-    const dirDepth = state.dir ? state.dir.split("/").length + 1 : 1;
-    const sub = !favMode && state.recursive && img.path.split("/").length > dirDepth;
     const item = el("div", { class: "browse-item", title: `${img.name}\n单击全屏查看` });
     item.append(
       el("img", { src: imageUrl(img.path), alt: img.name, loading: "lazy" }),
-      el("div", { class: "b-name", text: sub ? "📂 " + img.name : img.name }),
     );
-    // 右上角星星按钮: 点击收藏/取消 (不移动文件), 不触发打开查看器
+    // 右上角收藏按钮 (星星) 与删除按钮 (🗑️)
+    item.append(makeBrowseDelBtn(img.path, img.name));
     item.append(makeFavStar(img.path, img.name));
     item.addEventListener("click", () => openViewer(img.path, img.name));
     grid.append(item);

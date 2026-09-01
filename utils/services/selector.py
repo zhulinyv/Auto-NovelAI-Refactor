@@ -10,7 +10,6 @@ import numpy as np
 from PIL import Image
 
 from utils.helpers import (
-    clear_selector_trash,
     copy_current_img,
     del_current_img,
     move_current_img,
@@ -39,7 +38,6 @@ def _record(action, src, dst=None, queue=None):
 
 def load(input_path: str):
     _HISTORY.clear()
-    clear_selector_trash()
     return show_first_img(input_path)
 
 

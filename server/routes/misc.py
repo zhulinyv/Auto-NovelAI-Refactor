@@ -12,6 +12,7 @@ import uuid
 from pathlib import Path
 
 import psutil
+import send2trash
 from fastapi import APIRouter, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
@@ -137,8 +138,7 @@ _BROWSE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif"}
 _BROWSE_EXCLUDED_DIRS = {
     "backgrounds",
     "uploads",
-    "selector_trash",
-}  # API 壁纸缓存 / 上传目录 / 图片筛选回收站, 不在图片浏览中展示
+}  # API 壁纸缓存 / 上传目录, 不在图片浏览中展示
 
 
 @router.get("/browse/folders")
@@ -187,7 +187,28 @@ async def browse_images(dir: str = "", recursive: bool = False):
             except OSError:
                 continue
     return {"dir": dir, "images": images}
-    return {"message": f"已打开目录: {target}", "path": str(target)}
+
+
+@router.post("/browse/delete")
+async def browse_delete(payload: dict):
+    """把图片浏览中的图片移到系统回收站 (send2trash, 不经过 selector_trash 文件夹)。"""
+    path = (payload.get("path") or "").strip()
+    base = (BASE_DIR / "outputs").resolve()
+    if not path:
+        raise HTTPException(status_code=400, detail="缺少图片路径")
+    target = Path(path).resolve()
+    # 防目录穿越: 仅允许删除 outputs 内的图片
+    if not str(target).startswith(str(base)) or not target.is_file():
+        raise HTTPException(status_code=404, detail="图片不存在或无权访问")
+    if target.suffix.lower() not in _BROWSE_EXTS:
+        raise HTTPException(status_code=400, detail="不支持的图片类型")
+    try:
+        send2trash.send2trash(str(target))
+        logger.info(f"已将图片移到系统回收站: {target}")
+        return {"ok": True, "path": target.as_posix()}
+    except Exception as e:
+        logger.error(f"删除图片失败: {e}")
+        raise HTTPException(status_code=500, detail=f"删除失败: {e}")
 
 
 # ---------------------------------------------------------------- 图片收藏 (我的收藏)

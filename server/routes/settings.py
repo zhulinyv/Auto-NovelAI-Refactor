@@ -18,13 +18,12 @@ async def get_settings():
 @router.post("/settings")
 async def save_settings(payload: dict):
     try:
-        message = settings_service.save_settings(payload)
+        return settings_service.save_settings(payload)
     except Exception as e:
         from utils.logger import logger
 
         logger.error(f"保存配置失败: {e}")
-        return {"message": f"保存配置失败: {e}"}
-    return {"message": message}
+        return {"ok": False, "message": f"保存配置失败: {e}"}
 
 
 @router.post("/settings/restart")

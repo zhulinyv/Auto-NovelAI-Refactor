@@ -18,13 +18,12 @@ from utils.services import plugins_store
 
 # 注意: 不能把路由模块导入为裸名 "queue", 否则会遮蔽标准库 queue,
 # 导致 /api/events 的 except queue.Empty 抛 AttributeError, SSE 事件流整体失效
-from .routes import generate, misc, plugins
+from .routes import generate, misc, plugins, settings, tools
 from .routes import queue as queue_routes
-from .routes import settings, tools
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Auto-NovelAI-Refactor", version="2.0.0")
+    app = FastAPI(title="Auto-NovelAI-Refactor", version="2.0.1")
 
     # 后台预热常用缓存: 插件商店数据 (含 git 检查) 与提示词补全标签词典,
     # 避免打开商店页 / 首次输入提示词时的首次加载等待

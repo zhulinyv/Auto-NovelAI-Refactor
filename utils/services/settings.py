@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import os
+import threading
 
 from utils.config import env
 
@@ -55,8 +56,8 @@ def _apply_runtime(data: dict) -> None:
         pass
 
 
-def save_settings(data: dict) -> str:
-    """保存配置: 立即生效 (端口与共享链接需要重启后重新绑定)。"""
+def save_settings(data: dict) -> dict:
+    """保存配置: 立即生效, 返回变更标志供前端提示 (端口 / 隐藏终端等需注意的重启事项)。"""
     # 规范化: 空字符串转 None (可选字段)
     normalized = dict(data)
     for key in ("token", "proxy", "custom_path", "smtp_mail", "smtp_token"):
@@ -71,11 +72,15 @@ def save_settings(data: dict) -> str:
     _normalize_tokens(normalized)
 
     old_hide_terminal = env.hide_terminal
+    old_port = str(env.port)
     env.update(normalized)
-    _apply_runtime(normalized)
 
-    # 终端隐藏开关实时生效 (仅 Windows)
-    if bool(normalized.get("hide_terminal")) != bool(old_hide_terminal):
+    # 检测配置变更
+    port_changed = str(normalized.get("port")) != old_port
+    hide_terminal_changed = bool(normalized.get("hide_terminal")) != bool(old_hide_terminal)
+
+    # 终端隐藏开关实时生效 (仅 Windows, 不阻塞 HTTP 响应)
+    if hide_terminal_changed:
         try:
             from utils.helpers import apply_console_visibility
 
@@ -83,12 +88,23 @@ def save_settings(data: dict) -> str:
         except Exception:
             pass
 
-    # 插件开关实时生效
-    try:
-        from utils.plugins import load_plugins
+    # 其他运行时变化 (代理 / 队列 / 插件) 在后台异步应用, 让 HTTP 响应快速返回
+    threading.Thread(target=_apply_runtime, args=(normalized,), daemon=True).start()
 
-        load_plugins()
-    except Exception:
-        pass
+    # 插件开关也在后台加载
+    def _reload_plugins():
+        try:
+            from utils.plugins import load_plugins
 
-    return "修改已生效! (端口 / 共享链接修改需重启后重新绑定)"
+            load_plugins()
+        except Exception:
+            pass
+
+    threading.Thread(target=_reload_plugins, daemon=True).start()
+
+    return {
+        "ok": True,
+        "message": "修改已生效!",
+        "port_changed": port_changed,
+        "hide_terminal_changed": hide_terminal_changed,
+    }

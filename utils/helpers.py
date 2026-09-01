@@ -15,13 +15,13 @@ import subprocess
 import sys
 import threading
 import time
-import uuid
 import zipfile
 from email.mime.text import MIMEText
 from pathlib import Path
 
 import numpy as np
 import requests
+import send2trash
 import ujson as json
 from PIL import Image
 from rich.progress import BarColumn, DownloadColumn, Progress, TextColumn, TransferSpeedColumn
@@ -539,34 +539,14 @@ def copy_current_img(current_img, output_path):
         return None, None
 
 
-_SELECTOR_TRASH = Path("./outputs/selector_trash")
-
-
-def _selector_trash_dir() -> Path:
-    _SELECTOR_TRASH.mkdir(parents=True, exist_ok=True)
-    return _SELECTOR_TRASH
-
-
-def clear_selector_trash():
-    """清空可撤销回收站 (加载新目录时调用)。"""
-    try:
-        if _SELECTOR_TRASH.exists():
-            for f in _SELECTOR_TRASH.iterdir():
-                if f.is_file():
-                    f.unlink(missing_ok=True)
-    except Exception as e:
-        logger.error(f"清理回收站失败: {e}")
-
-
 def del_current_img(current_img):
-    """把图片移入可撤销的临时回收站, 返回 (回收站路径, 图片列表, 当前图)。"""
+    """把图片移到系统回收站 (send2trash), 返回 (None, 图片列表, 当前图)。"""
     try:
         if current_img:
-            trash = _selector_trash_dir() / f"{uuid.uuid4().hex[:8]}_{Path(current_img).name}"
-            shutil.move(current_img, str(trash))
-            logger.info(loguru_to_rich(f"已将 <c>{current_img}</c> 移入回收站"))
+            send2trash.send2trash(str(Path(current_img)))
+            logger.info(loguru_to_rich(f"已将 <c>{current_img}</c> 移到系统回收站"))
             images, nxt = show_next_img()
-            return str(trash), images, nxt
+            return None, images, nxt
         logger.error("当前未选择图片!")
     except Exception as e:
         logger.error(f"删除图片失败: {e}")
