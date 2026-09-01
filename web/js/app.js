@@ -90,6 +90,7 @@ async function boot() {
     const [state] = await Promise.all([fetchState(), initBackground()]);  // 背景状态与应用状态并行加载
     appState = state;
     document.getElementById("version-badge").textContent = "v" + appState.version;
+    if (appState.update?.available) document.getElementById("version-badge").textContent += " · 更新可用";
   } catch (e) {
     toast("无法连接后端服务: " + e.message, "error");
     return;

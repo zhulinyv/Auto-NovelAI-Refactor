@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse
 from src.generate_images import generate  # noqa: F401  (确保模型导入)
 from utils.config import BASE_DIR
 from utils.gen_queue import gen_queue
-from utils.helpers import read_json, shutdown_app
+from utils.helpers import get_update_status, read_json, shutdown_app
 from utils.jobs import jobs
 from utils.logger import logger
 from utils.plugins import get_manifest
@@ -72,6 +72,7 @@ async def get_state():
         model = "nai-diffusion-4-curated-preview"
     return {
         "version": VERSION,
+        "update": get_update_status(),
         "models": MODELS,
         "resolutions": RESOLUTION,
         "samplers": SAMPLER,

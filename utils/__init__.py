@@ -9,6 +9,7 @@ from utils.helpers import (  # noqa: F401
     check_stop,
     check_update,
     copy_current_img,
+    get_update_status,
     del_current_img,
     download,
     extract,

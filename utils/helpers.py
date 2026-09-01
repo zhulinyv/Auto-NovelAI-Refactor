@@ -346,21 +346,37 @@ def shutdown_app() -> None:
     threading.Timer(0.5, _kill).start()
 
 
+# 更新检查结果缓存 (启动时由 check_update 写入, /api/state 读取展示)
+UPDATE_AVAILABLE: bool = False
+UPDATE_MESSAGE: str = ""
+
+
 def check_update(repo_path: str):
+    global UPDATE_AVAILABLE, UPDATE_MESSAGE
     try:
         if env.check_update:
             repo = Repo(repo_path)
             current_branch = repo.active_branch
             remote_ref = f"origin/{current_branch.name}"
             if remote_ref not in repo.references:
-                return False, "远程分支不存在"
+                UPDATE_AVAILABLE, UPDATE_MESSAGE = False, "远程分支不存在"
+                return False, UPDATE_MESSAGE
             local_commit = current_branch.commit.hexsha
             remote_commit = repo.references[remote_ref].commit.hexsha
             repo.close()
-            return local_commit == remote_commit, local_commit + " (更新可用)"
-        return False, "更新检查已关闭"
+            UPDATE_AVAILABLE = local_commit != remote_commit
+            UPDATE_MESSAGE = "已是最新版本" if not UPDATE_AVAILABLE else "检测到新版本, 请更新"
+            return not UPDATE_AVAILABLE, UPDATE_MESSAGE
+        UPDATE_AVAILABLE, UPDATE_MESSAGE = False, "更新检查已关闭"
+        return False, UPDATE_MESSAGE
     except Exception as e:
+        UPDATE_AVAILABLE, UPDATE_MESSAGE = False, str(e)
         return False, str(e)
+
+
+def get_update_status() -> dict:
+    """返回启动时的更新检查结果 (供 /api/state 与 WebUI 展示)。"""
+    return {"available": UPDATE_AVAILABLE, "message": UPDATE_MESSAGE}
 
 
 def update_repo(path: str) -> str:
