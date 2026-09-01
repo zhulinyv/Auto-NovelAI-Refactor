@@ -313,6 +313,117 @@ function buildPromptCard(saved) {
   card.append(C.negative.node);
   return card;
 }
+/** 构建输出图片查看器: 单图显示 + 左右切换 + 下方缩略图导航 */
+function buildOutputViewer(container, images) {
+  clear(container);
+  container.classList.remove("gallery", "count-1", "count-2", "count-3", "count-4");
+  container.classList.add("output-viewer");
+  if (!images || images.length === 0) {
+    container.append(el("div", { class: "gallery-empty", text: "🌸 还没有图片, 去生成一张吧~" }));
+    return;
+  }
+
+  let idx = 0;
+  const mainImg = el("img", { class: "output-viewer-img", alt: "输出图片" });
+  const mainWrap = el("div", { class: "output-viewer-main" });
+  const prevBtn = el("button", { class: "output-viewer-nav output-viewer-prev", type: "button", html: "‹", title: "上一张" });
+  const nextBtn = el("button", { class: "output-viewer-nav output-viewer-next", type: "button", html: "›", title: "下一张" });
+  mainWrap.append(prevBtn, nextBtn, mainImg);
+  container.append(mainWrap);
+
+  // 缩略图条
+  const thumbStrip = el("div", { class: "output-viewer-thumbs" });
+  const thumbs = images.map((path, i) => {
+    const t = el("div", { class: "thumb-item" + (i === 0 ? " active" : "") }, [
+      el("img", { src: imageUrl(path), loading: "lazy", alt: "第 " + (i + 1) + " 张" }),
+    ]);
+    t.addEventListener("click", () => { idx = i; updateView(); });
+    thumbStrip.append(t);
+    return t;
+  });
+  container.append(thumbStrip);
+  // 启用 edgeScroll 悬停自动滚动, 支持缩略图条左右滚动
+  try { edgeScroll(thumbStrip); } catch {}
+
+  // 自动翻页 (悬停左右边缘)
+  let autoTimer = null;
+  let autoDelay = null;
+  function stopAuto() {
+    if (autoTimer) { clearInterval(autoTimer); autoTimer = null; }
+    if (autoDelay) { clearTimeout(autoDelay); autoDelay = null; }
+    mainWrap.classList.remove("auto-flip-left", "auto-flip-right");
+  }
+  function startAuto(dir) {
+    stopAuto();
+    mainWrap.classList.add(dir < 0 ? "auto-flip-left" : "auto-flip-right");
+    autoDelay = setTimeout(() => {
+      autoTimer = setInterval(() => { idx = (idx + dir + images.length) % images.length; updateView(); }, 2500);
+    }, 1500);
+  }
+  prevBtn.addEventListener("mouseenter", () => startAuto(-1));
+  prevBtn.addEventListener("mouseleave", stopAuto);
+  nextBtn.addEventListener("mouseenter", () => startAuto(1));
+  nextBtn.addEventListener("mouseleave", stopAuto);
+  // 悬停在主图左右各 30% 区域也触发自动翻页 (与箭头按钮联动)
+  mainWrap.addEventListener("mouseenter", (e) => {
+    const rect = mainWrap.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const rel = x / rect.width;
+    if (rel < 0.3) startAuto(-1);
+    else if (rel > 0.7) startAuto(1);
+  });
+  mainWrap.addEventListener("mousemove", (e) => {
+    const rect = mainWrap.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const rel = x / rect.width;
+    // 仅在当前未激活自动翻页时更新区域指示
+    if (!autoTimer && !autoDelay) {
+      mainWrap.classList.toggle("auto-flip-left", rel < 0.3);
+      mainWrap.classList.toggle("auto-flip-right", rel > 0.7);
+    }
+  });
+  mainWrap.addEventListener("mouseleave", stopAuto);
+
+  function updateView() {
+    const path = images[idx];
+    mainImg.src = imageUrl(path);
+    mainImg.alt = "第 " + (idx + 1) + " / " + images.length + " 张";
+    thumbs.forEach((t, i) => t.classList.toggle("active", i === idx));
+    setOutputSelection(path);
+  }
+
+  // 键盘左右键切换
+  document.addEventListener("keydown", function onKey(e) {
+    if (!container.isConnected) { document.removeEventListener("keydown", onKey); return; }
+    if (e.key === "ArrowLeft") { idx = (idx - 1 + images.length) % images.length; updateView(); e.preventDefault(); }
+    if (e.key === "ArrowRight") { idx = (idx + 1) % images.length; updateView(); e.preventDefault(); }
+  });
+
+  // 双击主图放大
+  mainImg.addEventListener("dblclick", async () => {
+    const { openLightbox } = await import("../components.js");
+    openLightbox(imageUrl(images[idx]), "第 " + (idx + 1) + " 张");
+  });
+  // 单击主图: 选中发送
+  mainImg.addEventListener("click", () => setOutputSelection(images[idx]));
+
+  // 预加载相邻图片
+  function preloadAdjacent() {
+    [-1, 0, 1].forEach((offset) => {
+      const i = (idx + offset + images.length) % images.length;
+      const link = document.createElement("link");
+      link.rel = "preload";
+      link.as = "image";
+      link.href = imageUrl(images[i]);
+      document.head.append(link);
+      setTimeout(() => link.remove(), 5000);
+    });
+  }
+  preloadAdjacent();
+
+  updateView();
+}
+
 
 /** 工具条: 左=生图模型+Mode, 右=生成数量+开始/停止 */
 /** 更新 furry 按钮文本 (用显式状态, 不依赖 textContent: Twemoji 会把 emoji 换成 <img>) */
@@ -942,24 +1053,7 @@ function onJobDone(ev) {
   C.generateBtn.disabled = false;
   if (ev.images?.length) {
     lastGeneratedImages = ev.images;
-    gallery(genGalleryEl, ev.images, {
-      zoomOnClick: true,   // 单击图片即放大展示 (双击不再需要)
-      onSelect: (path) => {
-        if (ev.images.length === 1) {
-          // 单张结果: 直接选中并显示发送按钮
-          setOutputSelection(path);
-          return;
-        }
-        // 多张结果: 单击选中显示发送按钮, 再次单击同一张取消选择隐藏按钮
-        if (selectedOutputPath === path) {
-          $$(".gallery-item", genGalleryEl).forEach((x) => x.classList.remove("selected"));
-          setOutputSelection(null);
-        } else {
-          setOutputSelection(path);
-        }
-      },
-    });
-    setOutputSelection(ev.images.length === 1 ? ev.images[0] : null);
+    buildOutputViewer(genGalleryEl, ev.images);  // 内部已选中第一张并显示发送按钮
   }
   if (ev.message) {
     infoEl.textContent = "✅ " + ev.message;
