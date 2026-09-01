@@ -61,9 +61,39 @@ async function flushPendingSaves() {
 }
 
 // 任务事件 (模块级注册一次, 避免重复导航后多次绑定)
+/** 创建/复用实时预览容器: 刷新页面或切换页面后 DOM 重建, 容器可能丢失, 按 job_name 定位面板重建 */
+function ensurePreviewBox(jobId, jobName = "") {
+  const id = `plugin-preview-${jobId}`;
+  let box = document.getElementById(id);
+  if (box) return box;
+  // job_name 格式: plugin:{插件}/{面板}/{动作} -> 定位对应面板容器
+  // 仅当 job_name 缺省 (旧版事件) 时才回退到当前激活面板, 避免跨插件错位
+  const m = /^plugin:(.+?)\/(.+?)\//.exec(jobName || "");
+  let parent = null;
+  if (m) {
+    parent = document.querySelector(`#view-plugin-page .tab-content[data-plugin="${m[1]}"][data-panel="${m[2]}"]`);
+  } else {
+    parent = document.querySelector("#view-plugin-page .tab-content.active");
+  }
+  if (!parent) return null;
+  box = el("div", { id, class: "plugin-preview hidden" });
+  const img = el("img", { class: "plugin-preview-img", alt: "预览" });
+  img.addEventListener("dblclick", () => {
+    if (!img.src) return;
+    const overlay = el("div", { class: "img-max-overlay" }, [
+      el("img", { class: "img-max-content", src: img.src, alt: "预览" }),
+    ]);
+    overlay.addEventListener("click", () => overlay.remove());
+    document.body.append(overlay);
+  });
+  box.append(img, el("div", { class: "muted preview-prompt" }));
+  parent.append(box);
+  return box;
+}
+
 bus.on("job:event", (ev) => {
   if (ev.name !== "preview") return;
-  const target = document.getElementById(`plugin-preview-${ev.id}`);
+  const target = ensurePreviewBox(ev.id, ev.job_name);
   if (!target) return;
   const p = target.querySelector(".preview-prompt");
   if (p && ev.prompt !== undefined) p.textContent = ev.prompt;
@@ -100,8 +130,8 @@ bus.on("job:done", (ev) => {
     // 无输出区 (如配置保存) 时用右上角通知展示结果
     toast("✅ " + msg, "success");
   }
-  // 生成结束: 移除边框闪烁动画
-  const previewBox = document.getElementById(`plugin-preview-${ev.id}`);
+  // 生成结束: 移除边框闪烁动画 (容器丢失时按 job_name 重建, 兼容刷新/切换页面)
+  const previewBox = ensurePreviewBox(ev.id, ev.name);
   if (previewBox) previewBox.classList.remove("generating");
   // 实时预览容器也展示最终图 (无输出框的动作, 如随机画风生成)
   if (ev.image && previewBox) {
@@ -147,8 +177,8 @@ bus.on("job:failed", (ev) => {
   // 任务失败: 先关闭"任务已启动"通知, 只保留一条错误通知
   const startNode = startToasts.get(ev.id);
   if (startNode) { try { closeToastNode(startNode); } catch {} startToasts.delete(ev.id); }
-  // 移除生成中边框动画
-  const previewBox = document.getElementById(`plugin-preview-${ev.id}`);
+  // 移除生成中边框动画 (容器丢失时按 job_name 重建, 兼容刷新/切换页面)
+  const previewBox = ensurePreviewBox(ev.id, ev.name);
   if (previewBox) previewBox.classList.remove("generating");
   if (target) {
     const info = target.querySelector(".info-box");
@@ -383,7 +413,7 @@ export async function renderPluginPage(pluginName, container, ctx) {
   const panelBodies = [];
   plugin.panels.forEach((panel, pi) => {
     const btn = el("button", { class: "tab-btn" + (pi === 0 ? " active" : ""), text: (panel.icon || "🌸") + " " + panel.title });
-    const pbody = el("div", { class: "tab-content" + (pi === 0 ? " active" : "") });
+    const pbody = el("div", { class: "tab-content" + (pi === 0 ? " active" : ""), "data-plugin": plugin.name, "data-panel": panel.id });
     btn.addEventListener("click", () => {
       [...panelBar.children].forEach((b) => b.classList.remove("active"));
       panelBodies.forEach((b) => b.classList.remove("active"));
