@@ -58,8 +58,8 @@ image_generator = Generator("https://image.novelai.net/ai/generate-image")
 
 def _generate_with_retry(generator, json_data, desc, max_retries=3):
     """生成单张图片并自动重试:
-    - 429 且开启"429 自动重试"配置: 无上限重试 (每次等待 4-6 秒)
-    - 其余错误: 最多重试 max_retries 次 (每次等待 4-6 秒), 仍失败则抛出异常 (由上层跳过该图片)
+    - 429 且开启"429 自动重试"配置: 无上限重试 (每次等待 5 秒)
+    - 其余错误: 最多重试 max_retries 次 (每次等待 5 秒), 仍失败则抛出异常 (由上层跳过该图片)
     - 任一点检测到停止信号: 立即抛出 StopGeneration, 不再等待/重试
     """
     retries = 0
@@ -79,7 +79,7 @@ def _generate_with_retry(generator, json_data, desc, max_retries=3):
             if is_429 and getattr(env, "retry_429", False):
                 retries += 1
                 # 429 无上限重试, 但日志中展示次数与原因
-                logger.warning(f"[{desc}] 429 限流, 等待 4-6 秒后自动重试 (第 {retries} 次): {e}")
+                logger.warning(f"[{desc}] 429 限流, 等待 5 秒后自动重试 (第 {retries} 次): {e}")
                 if check_stop():
                     raise StopGeneration("已停止生成")
                 sleep_for_cool(5)
@@ -89,7 +89,7 @@ def _generate_with_retry(generator, json_data, desc, max_retries=3):
                 logger.error(f"[{desc}] 重试 {max_retries} 次仍失败, 跳过该图片: {e}")
                 logger.opt(exception=True).debug("生成重试失败堆栈:")
                 raise
-            logger.warning(f"[{desc}] 生成失败, 等待 4-6 秒后重试 ({retries}/{max_retries}): {e}")
+            logger.warning(f"[{desc}] 生成失败, 等待 5 秒后重试 ({retries}/{max_retries}): {e}")
             if check_stop():
                 raise StopGeneration("已停止生成")
             sleep_for_cool(5)
