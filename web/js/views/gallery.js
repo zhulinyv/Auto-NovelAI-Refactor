@@ -139,6 +139,13 @@ async function handleViewerAction(action, path) {
       pnginfoPicker.set(path);
       if (pnginfoPicker.onChange) pnginfoPicker.onChange(path);
     }
+    // 同时把完整参数 (含角色分区) 发到图片生成, 与法术解析视图中"发送到图片生成"逻辑一致
+    try {
+      const params = await post("/api/pnginfo/to-generate", { image_path: path });
+      setGenerateState(params);
+    } catch (e) {
+      // 参数解析失败不阻塞法术解析页面打开
+    }
     toast("已发送到法术解析 🔮", "success");
   }
 }
@@ -463,10 +470,12 @@ export async function render(container, ctx) {
     el("button", {
       class: "browse-left-expand",
       type: "button",
-      text: "▶ 文件夹",
       title: "展开文件夹区域",
       onclick: () => layout.classList.remove("left-collapsed"),
-    }),
+    }, [
+      el("span", { text: "▶" }),
+      el("span", { text: "文件夹" }),
+    ]),
   ]);
 
   // 右 3/4: 图片网格 + 排序/递归控件

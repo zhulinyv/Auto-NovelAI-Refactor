@@ -1957,7 +1957,7 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
 .browse-layout.left-collapsed { grid-template-columns: auto 1fr; }
 .browse-layout.left-collapsed .browse-left-head,
 .browse-layout.left-collapsed .browse-folders { display: none; }
-.browse-layout.left-collapsed .browse-left-expand { display: inline-flex; align-items: center; justify-content: center; }
+.browse-layout.left-collapsed .browse-left-expand { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
 
 /* ------- 图片浏览: 我的收藏 ------- */
 .browse-fav-section {
