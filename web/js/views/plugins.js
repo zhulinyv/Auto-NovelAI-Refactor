@@ -641,7 +641,11 @@ function renderPanel(plugin, panel, body) {
   const actRow = el("div", { style: "display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;" });
   panel.actions.forEach((action) => {
     actionMeta.set(`plugin:${plugin.name}/${panel.id}/${action.id}`, { setField: action.set_field || "", showOutput: action.show_output });
-    const btn = el("button", { class: "btn btn-primary", text: "▶️ " + action.label });
+    // 动作标签自带区分 emoji (如 "🚀 开始生成") 时省略统一的 ▶️ 前缀; 纯文字标签 (如 "开始生成") 保留
+    const btn = el("button", {
+      class: "btn btn-primary",
+      text: (/^\p{Extended_Pictographic}/u.test(action.label || "") ? "" : "▶️ ") + action.label,
+    });
     btn.addEventListener("click", async () => {
       const payload = {};
       // 跨面板取值: 动作可能引用其他面板的字段 (如生成按钮引用模型/提示词等)
