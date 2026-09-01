@@ -360,11 +360,19 @@ function buildOutputViewer(container, images) {
       autoTimer = setInterval(() => { idx = (idx + dir + images.length) % images.length; updateView(); }, 2500);
     }, 1500);
   }
+  prevBtn.addEventListener("click", (e) => { e.stopPropagation(); stopAuto(); idx = (idx - 1 + images.length) % images.length; updateView(); });
   prevBtn.addEventListener("mouseenter", () => startAuto(-1));
   prevBtn.addEventListener("mouseleave", stopAuto);
+  nextBtn.addEventListener("click", (e) => { e.stopPropagation(); stopAuto(); idx = (idx + 1) % images.length; updateView(); });
   nextBtn.addEventListener("mouseenter", () => startAuto(1));
   nextBtn.addEventListener("mouseleave", stopAuto);
-  // 悬停在主图左右各 30% 区域也触发自动翻页 (与箭头按钮联动)
+  // 悬停在主图左右各 30% 区域也触发自动翻页 (与箭头按钮联动), 点击直接切换
+  mainWrap.addEventListener("click", (e) => {
+    const rect = mainWrap.getBoundingClientRect();
+    const rel = (e.clientX - rect.left) / rect.width;
+    if (rel < 0.3) { stopAuto(); idx = (idx - 1 + images.length) % images.length; updateView(); }
+    else if (rel > 0.7) { stopAuto(); idx = (idx + 1) % images.length; updateView(); }
+  });
   mainWrap.addEventListener("mouseenter", (e) => {
     const rect = mainWrap.getBoundingClientRect();
     const x = e.clientX - rect.left;
@@ -376,7 +384,6 @@ function buildOutputViewer(container, images) {
     const rect = mainWrap.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const rel = x / rect.width;
-    // 仅在当前未激活自动翻页时更新区域指示
     if (!autoTimer && !autoDelay) {
       mainWrap.classList.toggle("auto-flip-left", rel < 0.3);
       mainWrap.classList.toggle("auto-flip-right", rel > 0.7);

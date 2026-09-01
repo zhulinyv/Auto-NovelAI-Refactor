@@ -436,6 +436,7 @@ input.slider-num {
 .output-viewer-main.auto-flip-left .output-viewer-prev { background: linear-gradient(to right, rgba(0,0,0,0.35), transparent); opacity: 1; }
 .output-viewer-main.auto-flip-right .output-viewer-next { background: linear-gradient(to left, rgba(0,0,0,0.35), transparent); opacity: 1; }
 .output-viewer-thumbs { position: relative; }
+.output-viewer-thumbs.edge-scroll-track { justify-content: center; }
 .output-viewer-thumbs .thumb-item {
   flex: 0 0 auto;
   width: 72px;
