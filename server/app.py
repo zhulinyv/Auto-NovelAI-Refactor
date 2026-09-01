@@ -23,7 +23,7 @@ from .routes import queue as queue_routes
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Auto-NovelAI-Refactor", version="2.0.2")
+    app = FastAPI(title="Auto-NovelAI-Refactor", version="2.0.3")
 
     # 后台预热常用缓存: 插件商店数据 (含 git 检查) 与提示词补全标签词典,
     # 避免打开商店页 / 首次输入提示词时的首次加载等待

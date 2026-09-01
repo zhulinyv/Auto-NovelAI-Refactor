@@ -160,7 +160,7 @@ function renderEngine(eng, body) {
   }
 
   const runBtn = el("button", { class: "btn btn-primary", text: "🚀 开始生成" });
-  const stopBtn = el("button", { class: "btn btn-danger", text: "⏹ 停止生成" });
+  const stopBtn = el("button", { class: "btn btn-danger", text: "⏹ 停止" });
   stopBtn.addEventListener("click", async () => {
     toast("正在停止生成...", "warning");
     try { await post("/api/stop"); } catch {}

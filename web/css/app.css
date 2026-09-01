@@ -61,7 +61,7 @@
 .sidebar {
   position: relative;
   width: var(--sidebar-width, 170px);
-  min-width: 132px; /* 最小宽度: 容纳图标(16px)+间距(9px)+四字文本(56px)+padding, 避免换行 */
+  min-width: 145px; /* 最小宽度: 容纳图标(16px)+间距(9px)+四字文本(56px)+padding, 避免换行 */
   max-width: 340px;
   flex-shrink: 0;
   background: var(--panel);

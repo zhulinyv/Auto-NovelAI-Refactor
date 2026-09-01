@@ -453,7 +453,7 @@ function buildModelBar(bar, saved) {
   C.quantity.node.classList.add("mb-quantity");
 
   C.generateBtn = el("button", { class: "btn btn-primary btn-lg", text: "🚀 开始生成" });
-  C.stopBtn = el("button", { class: "btn btn-danger btn-lg", text: "⏹" });
+  C.stopBtn = el("button", { class: "btn btn-danger btn-lg", text: "⏹ 停止" });
   C.stopBtn.title = "停止生成";
 
   bar.append(

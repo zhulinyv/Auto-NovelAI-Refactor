@@ -125,7 +125,7 @@ function renderKind(kind, body) {
   }
 
   const runBtn = el("button", { class: "btn btn-primary", text: "🚀 开始处理" });
-  const stopBtn = el("button", { class: "btn btn-danger", text: "⏹ 停止处理" });
+  const stopBtn = el("button", { class: "btn btn-danger", text: "⏹ 停止" });
   stopBtn.addEventListener("click", async () => {
     toast("正在停止处理...", "warning");
     try { await post("/api/stop"); } catch {}

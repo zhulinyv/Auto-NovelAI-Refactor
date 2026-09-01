@@ -6,7 +6,7 @@ import os
 
 from utils.config import BASE_DIR, env
 
-VERSION = "2.0.2"
+VERSION = "2.0.3"
 
 MODELS = [
     "nai-diffusion-5-full",

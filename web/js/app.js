@@ -296,7 +296,7 @@ function initSidebarResize() {
       const startW = sidebar.offsetWidth;
       const onMove = (ev) => {
         // 最小宽度与 CSS .sidebar min-width 保持一致 (132px), 拖到最小后仍留白是导航文字右侧的固有间距
-        const w = Math.min(340, Math.max(132, startW + (ev.clientX - startX)));
+        const w = Math.min(340, Math.max(145, startW + (ev.clientX - startX)));
         sidebar.style.width = w + "px";
       };
       const onUp = () => {
