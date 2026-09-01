@@ -22,21 +22,33 @@ _job_lock = threading.Lock()
 
 # 当前线程正在执行的任务 id (用于停止信号定位与任务内推送自定义事件)
 _current_job: dict[int, str] = {}
+# 任务 id -> 完整任务名 (job:event 实时事件附带, 供前端刷新/切换页面后重建预览容器)
+_job_names: dict[str, str] = {}
 
 
-def set_current_job(job_id: str) -> None:
+def set_current_job(job_id: str, name: str = "") -> None:
     """在当前线程注册任务 id (任务开始时调用)。"""
     _current_job[threading.get_ident()] = job_id
+    if name:
+        _job_names[job_id] = name
 
 
 def pop_current_job() -> None:
     """移除当前线程的任务注册 (任务结束时调用)。"""
-    _current_job.pop(threading.get_ident(), None)
+    jid = _current_job.pop(threading.get_ident(), None)
+    if jid:
+        _job_names.pop(jid, None)
 
 
 def current_job_id() -> str | None:
     """当前线程正在执行的任务 id (不在任务线程内时返回 None)。"""
     return _current_job.get(threading.get_ident())
+
+
+def current_job_name() -> str:
+    """当前线程正在执行任务的完整名称 (用于 job:event 附带插件定位信息)。"""
+    jid = current_job_id()
+    return _job_names.get(jid, "") if jid else ""
 
 
 def break_file_path(job_id: str | None = None) -> str:
@@ -121,7 +133,7 @@ class JobManager:
         job_id = uuid.uuid4().hex[:8]
 
         def _run():
-            set_current_job(job_id)
+            set_current_job(job_id, name)
             self._running[job_id] = name
             broker.publish("job:start", {"id": job_id, "name": name})
             try:
@@ -147,7 +159,10 @@ class JobManager:
         """任务运行中推送自定义事件 (如实时预览), 需在任务线程内调用。"""
         job_id = current_job_id()
         if job_id:
-            broker.publish("job:event", {"id": job_id, "name": event_name, **data})
+            broker.publish(
+                "job:event",
+                {"id": job_id, "name": event_name, "job_name": current_job_name(), **data},
+            )
 
 
 jobs = JobManager()

@@ -97,7 +97,7 @@ class _Worker(threading.Thread):
         self.task_id = task.id
         tokens = get_tokens()
         set_thread_token(tokens[self.idx] if self.idx < len(tokens) else None)
-        set_current_job(task.id)
+        set_current_job(task.id, task.name)
         broker.publish("job:start", {"id": task.id, "name": task.name})
         self.queue._publish()
         try:
