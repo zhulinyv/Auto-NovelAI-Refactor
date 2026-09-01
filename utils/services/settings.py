@@ -73,11 +73,17 @@ def save_settings(data: dict) -> dict:
 
     old_hide_terminal = env.hide_terminal
     old_port = str(env.port)
+    old_share = bool(env.share)
+    old_disable_all_plugins = bool(env.disable_all_plugins)
     env.update(normalized)
 
     # 检测配置变更
     port_changed = str(normalized.get("port")) != old_port
     hide_terminal_changed = bool(normalized.get("hide_terminal")) != bool(old_hide_terminal)
+    # 插件相关配置变化时, 才需要重载插件 (避免普通设置保存也触发插件重载)
+    plugins_changed = bool(normalized.get("share")) != old_share or bool(
+        normalized.get("disable_all_plugins")
+    ) != old_disable_all_plugins
 
     # 终端隐藏开关实时生效 (仅 Windows, 不阻塞 HTTP 响应)
     if hide_terminal_changed:
@@ -88,19 +94,21 @@ def save_settings(data: dict) -> dict:
         except Exception:
             pass
 
-    # 其他运行时变化 (代理 / 队列 / 插件) 在后台异步应用, 让 HTTP 响应快速返回
+    # 其他运行时变化 (代理 / 队列) 在后台异步应用, 让 HTTP 响应快速返回
     threading.Thread(target=_apply_runtime, args=(normalized,), daemon=True).start()
 
-    # 插件开关也在后台加载
-    def _reload_plugins():
-        try:
-            from utils.plugins import load_plugins
+    # 仅当插件开关/共享模式等插件相关配置变化时, 才在后台重载插件
+    if plugins_changed:
 
-            load_plugins()
-        except Exception:
-            pass
+        def _reload_plugins():
+            try:
+                from utils.plugins import load_plugins
 
-    threading.Thread(target=_reload_plugins, daemon=True).start()
+                load_plugins()
+            except Exception:
+                pass
+
+        threading.Thread(target=_reload_plugins, daemon=True).start()
 
     return {
         "ok": True,
