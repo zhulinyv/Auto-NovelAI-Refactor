@@ -23,7 +23,7 @@ from .routes import queue as queue_routes
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Auto-NovelAI-Refactor", version="2.0.1")
+    app = FastAPI(title="Auto-NovelAI-Refactor", version="2.0.2")
 
     # 后台预热常用缓存: 插件商店数据 (含 git 检查) 与提示词补全标签词典,
     # 避免打开商店页 / 首次输入提示词时的首次加载等待
@@ -70,8 +70,8 @@ def create_app() -> FastAPI:
         async def stream():
             q = broker.subscribe()
             try:
-                # 先补发历史事件, 刷新页面后日志不丢失
-                for ev in broker.history():
+                # 先补发历史日志事件 (刷新页面后日志不丢失); 跳过 job/queue 事件, 避免刷新后重复弹 toast
+                for ev in broker.history("log"):
                     yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
                 while True:
                     try:
