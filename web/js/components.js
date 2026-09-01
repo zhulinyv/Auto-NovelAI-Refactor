@@ -167,6 +167,8 @@ export function initLogConsole() {
       panel.style.height = "220px";
       localStorage.setItem("anr-log-height", "220");
     }
+    // 展开时默认滚动到最新日志
+    body.scrollTop = body.scrollHeight;
   });
   document.getElementById("log-toggle").textContent = "展开";
 
