@@ -61,7 +61,7 @@
 .sidebar {
   position: relative;
   width: var(--sidebar-width, 170px);
-  min-width: 160px;
+  min-width: 132px; /* 最小宽度: 容纳图标(16px)+间距(9px)+四字文本(56px)+padding, 避免换行 */
   max-width: 340px;
   flex-shrink: 0;
   background: var(--panel);
@@ -190,6 +190,7 @@
   flex-wrap: wrap;
 }
 .gen-layout { grid-template-columns: 1fr 1fr; }
+.gen-layout > * { min-width: 0; } /* 防止子项内容撑宽屏幕, 溢出由内部滚动处理 */
 @media (max-width: 1100px) { .gen-layout { grid-template-columns: 1fr; } }
 .grid-left-2 { grid-template-columns: 2fr 1fr; }
 .grid-right-2 { grid-template-columns: 1fr 2fr; }
@@ -395,7 +396,7 @@ input.slider-num {
 }
 
 /* ------- 输出图片查看器 (单图 + 左右切换 + 缩略图) ------- */
-.output-viewer { display: flex; flex-direction: column; gap: 10px; min-height: 60px; }
+.output-viewer { display: flex; flex-direction: column; gap: 10px; min-height: 60px; min-width: 0; max-width: 100%; }
 .output-viewer-main {
   position: relative;
   display: flex;
@@ -435,8 +436,9 @@ input.slider-num {
 .output-viewer-next { right: 0; }
 .output-viewer-main.auto-flip-left .output-viewer-prev { background: linear-gradient(to right, rgba(0,0,0,0.35), transparent); opacity: 1; }
 .output-viewer-main.auto-flip-right .output-viewer-next { background: linear-gradient(to left, rgba(0,0,0,0.35), transparent); opacity: 1; }
-.output-viewer-thumbs { position: relative; }
-.output-viewer-thumbs.edge-scroll-track { justify-content: center; }
+.output-viewer-thumbs { position: relative; max-width: 100%; }
+.output-viewer-thumbs.edge-scroll-track { justify-content: safe center; }
+.output-viewer .edge-scroll { max-width: 100%; min-width: 0; } /* edgeScroll 包裹层: 防止缩略图撑宽卡片 */
 .output-viewer-thumbs .thumb-item {
   flex: 0 0 auto;
   width: 72px;
