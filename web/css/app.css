@@ -781,6 +781,11 @@ input.slider-num {
   width: fit-content;
 }
 .role-card .checkline:hover { background: transparent; }
+.role-card .role-head .checkline {
+  align-self: center;
+  gap: 5px;
+  font-size: 13px;
+}
 /* 角色/参考卡片内收紧间距, 避免添加一个角色占用过多空间 */
 .role-card .grid { gap: 6px; }
 .role-card .field { margin-bottom: 0; gap: 3px; }
@@ -796,6 +801,127 @@ input.slider-num {
   margin: 0 auto;
 }
 .role-card .img-drop-zone.has-image .img-drop-preview { max-height: 200px; }
+
+/* ------- 角色位置选择器 (可视化) ------- */
+.pos-picker {
+  position: relative;
+  background: var(--input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+  margin: 0 auto;
+}
+.pos-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  grid-template-rows: repeat(5, 1fr);
+  gap: 2px;
+  padding: 4px;
+  width: 100%;
+  height: 100%;
+}
+.pos-picker-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 2px 1px;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1.1;
+  color: var(--text-2);
+  background: var(--surface-2);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.12s;
+  gap: 1px;
+}
+.pos-picker-cell:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+.pos-picker-cell.occupied {
+  background: color-mix(in srgb, var(--primary) 8%, var(--surface-2));
+  border: 1px solid color-mix(in srgb, var(--primary) 20%, transparent);
+}
+.pos-cell-label {
+  font-size: 8px;
+  opacity: 0.5;
+  line-height: 1;
+}
+.pos-cell-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  justify-content: center;
+  align-items: center;
+}
+.pos-badge {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+  flex-shrink: 0;
+  transition: transform 0.1s;
+}
+.pos-badge:hover { filter: brightness(1.15); }
+.pos-badge.sel {
+  box-shadow: 0 0 0 2px var(--primary);
+}
+.pos-picker-free {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+  background-image:
+    linear-gradient(rgba(128,128,128,0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(128,128,128,0.08) 1px, transparent 1px);
+  background-size: 20% 20%;
+}
+.pos-picker-dot {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+  transform: translate(-50%, -50%);
+  cursor: grab;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+}
+.pos-picker-dot.sel {
+  box-shadow: 0 0 0 2px var(--primary);
+}
+.pos-picker-info {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+  text-align: center;
+  margin-top: 4px;
+}
+.role-card.selected {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 25%, transparent);
+}
+.role-card.role-selectable {
+  cursor: pointer;
+}
 
 /* ------- 插件 ------- */
 .plugin-card {

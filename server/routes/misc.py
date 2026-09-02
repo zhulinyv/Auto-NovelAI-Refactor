@@ -30,9 +30,11 @@ from utils.variable import (
     MODELS,
     NOISE_SCHEDULE,
     QP_PRESET,
+    QUALITY_TAGS,
     RESOLUTION,
     SAMPLER,
     UC_PRESET,
+    UC_PRESET_TAGS,
     VERSION,
     WILDCARD_TYPE,
 )
@@ -79,6 +81,8 @@ async def get_state():
         "noise_schedules": NOISE_SCHEDULE,
         "uc_presets": UC_PRESET,
         "qp_presets": QP_PRESET,
+        "quality_preset_tags": QUALITY_TAGS,  # 预设名 -> 标签文本 (前端加载上次时剥离检测用)
+        "uc_preset_tags": UC_PRESET_TAGS,  # 负面预设名 -> 标签文本 (前端加载上次时剥离检测用)
         "positions": CHARACTER_POSITION,
         "cr_modes": CR_MODE,
         "wildcard_types": WILDCARD_TYPE,

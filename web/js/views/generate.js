@@ -6,12 +6,13 @@
 // ============================================================
 import { $, $$, el, clear, toast, bus, sliderRow, edgeScroll, imageDropZone, fileDropZone, wireAutocomplete, wildcardsButton } from "../ui.js";
 import { post, imageUrl, fetchLast, openDir } from "../api.js";
-import { gallery, imageEditor, roleList } from "../components.js";
+import { gallery, imageEditor, roleList, characterRegionPicker } from "../components.js";
 
 let S = null;
 let C = {};
 let editor = null;
 let charList = null;
+let charRegion = null;
 let refList = null;
 let vibeList = null;
 let genGalleryEl = null;
@@ -95,11 +96,14 @@ export async function render(container, ctx) {
   row2.append(buildLeftTabs(saved), buildRightPanel());
 
   container.append(row2);
+  charRegion?.refresh?.();
 
   await applyModelChange(true);
   // 启动时恢复上次的角色分区 (需在 applyModelChange 之后, 避免被模型切换逻辑清空)
   if (saved.characters?.length) {
     charList.setItems(saved.characters);
+    charRegion.setCount(saved.characters.length);
+    charRegion.restore(saved.characters.map((c) => c.position));
   }
   updateAiChoiceVisibility();
   bindEvents();
@@ -131,6 +135,53 @@ function ucIdToName(model, id) {
   return (id && maps[model]?.[id]) || null;
 }
 
+/**
+ * 从提示词末尾剥离质量预设标签 (后端生成时会追加 "{提示词}, {预设标签}")。
+ * 若末尾命中某预设标签, 返回剥离后的文本与预设名; 否则原样返回, preset=null。
+ */
+function stripQualityPresetFromEnd(text, model) {
+  const map = (S && S.app && S.app.quality_preset_tags) ? (S.app.quality_preset_tags[model] || {}) : {};
+  const entries = Object.entries(map).filter(([, tags]) => tags); // 去掉空标签 (None)
+  entries.sort((a, b) => b[1].length - a[1].length); // 长标签优先, 避免部分匹配
+  const t = String(text ?? "").trimEnd();
+  for (const [preset, tags] of entries) {
+    if (t === tags) return { text: "", preset }; // 整个就是标签
+    const suffix = ", " + tags;
+    if (t.endsWith(suffix)) {
+      return { text: t.slice(0, t.length - suffix.length).trimEnd(), preset };
+    }
+  }
+  return { text: t, preset: null };
+}
+
+/**
+ * 从负面提示词开头剥离 UC 预设文本 (后端生成时会前置 "{预设文本}, {用户负面提示词}")。
+ * 若开头命中某预设文本, 返回剥离后的文本与预设名; 否则原样返回, preset=null。
+ * 同时兼容服务端 remove_nsfw 对 "nsfw, " 前缀的移除。
+ */
+function stripUCPresetFromStart(text, model) {
+  const map = (S && S.app && S.app.uc_preset_tags) ? (S.app.uc_preset_tags[model] || {}) : {};
+  const entries = Object.entries(map).filter(([, tags]) => tags);
+  entries.sort((a, b) => b[1].length - a[1].length); // 长文本优先, 避免部分匹配
+  const t = String(text ?? "");
+  // 去掉文本开头连续的逗号/空白 (后端拼接预设与用户负面时产生的分隔符)
+  const cutPrefix = (s) => {
+    let i = 0;
+    while (i < s.length && (s[i] === "," || s[i] === " " || s[i] === "\t" || s[i] === "\n" || s[i] === "\r")) i++;
+    return s.slice(i);
+  };
+  for (const [preset, tags] of entries) {
+    // 尝试原始预设文本
+    if (t.startsWith(tags)) return { text: cutPrefix(t.slice(tags.length)), preset };
+    // 兼容 remove_nsfw: 预设以 "nsfw, " 开头时, 尝试去掉该前缀再匹配
+    if (tags.startsWith("nsfw, ")) {
+      const stripped = tags.slice(6);
+      if (t.startsWith(stripped)) return { text: cutPrefix(t.slice(stripped.length)), preset };
+    }
+  }
+  return { text: t, preset: null };
+}
+
 function gridNearest(v) {
   const opts = [0.1, 0.3, 0.5, 0.7, 0.9];
   let best = 0, bestD = Infinity;
@@ -140,7 +191,7 @@ function gridNearest(v) {
 
 /** 角色中心点 (x,y, 0-1) -> 网格坐标 (A1-E5), 与后端 float_to_position 一致 */
 function centerToGrid(x, y) {
-  return String.fromCharCode(65 + gridNearest(y)) + (gridNearest(x) + 1);
+  return String.fromCharCode(65 + gridNearest(x)) + (gridNearest(y) + 1);
 }
 
 /** 从 last.json 的 v4_prompt_positive/negative 恢复角色列表 */
@@ -168,10 +219,16 @@ function buildSavedState() {
   const stored = S.store.load() || {};
   const p = S.app.last?.parameters || {};
   const model = S.app.model || stored.model || "nai-diffusion-4-5-full";
+  // 上次的正面提示词末尾带有质量预设标签: 剥离末尾标签并据此识别预设; 未命中则预设为 Standard
+  const rawPositive = p.v4_prompt?.caption?.base_caption || p.input || stored.positive_prompt || "";
+  const positive = stripQualityPresetFromEnd(rawPositive, model);
+  // 上次的负面提示词开头带有 UC 预设文本: 剥离开头预设并据此识别预设; 未命中则预设为 Heavy
+  const rawNegative = p.negative_prompt || p.v4_negative_prompt?.caption?.base_caption || stored.negative_prompt || "";
+  const negative = stripUCPresetFromStart(rawNegative, model);
   return {
     model,
-    positive_prompt: p.v4_prompt?.caption?.base_caption || p.input || stored.positive_prompt || "",
-    negative_prompt: p.negative_prompt || p.v4_negative_prompt?.caption?.base_caption || stored.negative_prompt || "",
+    positive_prompt: positive.text,
+    negative_prompt: negative.text,
     width: p.width ?? stored.width ?? 832,
     height: p.height ?? stored.height ?? 1216,
     steps: p.steps ?? stored.steps ?? 23,
@@ -180,8 +237,8 @@ function buildSavedState() {
     seed: "-1", // 启动时种子设为随机, 不加载上次的种子
     sampler: p.sampler ?? stored.sampler ?? "k_euler",
     noise_schedule: p.noise_schedule ?? stored.noise_schedule ?? "karras",
-    quality: qpIdToName(model, p.qualityPresetId) || stored.quality || "Standard",
-    uc: ucIdToName(model, p.ucPresetId) || stored.uc || "Heavy",
+    quality: positive.preset || "Standard",
+    uc: negative.preset || (negative.text ? "None" : "Heavy"),
     quantity: stored.quantity ?? 1,
     furry_mode: stored.furry_mode ?? false,
     ai_choice: p.use_coords != null ? !p.use_coords : (stored.ai_choice ?? true),
@@ -219,7 +276,7 @@ function cornerSelect(labelText, options) {
 }
 
 /** 胶囊单选组 (如 AI's Choice / Custom): 返回 {node, get, set} */
-function segChoice(options, value) {
+function segChoice(options, value, onChange = null) {
   const group = el("div", { class: "opt-group" });
   const items = {};
   options.forEach((o) => {
@@ -227,6 +284,7 @@ function segChoice(options, value) {
     item.addEventListener("click", () => {
       Object.values(items).forEach((x) => x.classList.remove("selected"));
       item.classList.add("selected");
+      if (onChange) onChange(o);
     });
     group.append(item);
     items[o] = item;
@@ -291,7 +349,14 @@ function buildPromptCard(saved) {
     try {
       const last = await fetchLast();
       const text = last?.parameters?.v4_prompt?.caption?.base_caption || last?.input || "";
-      if (text) { C.positive.set(text); toast("已加载上次正面提示词 ✅", "success"); }
+      if (text) {
+        // 末尾若含质量预设标签则剥离并同步预设; 不含则预设为 Standard
+        const stripped = stripQualityPresetFromEnd(text, C.model.get());
+        C.positive.set(stripped.text);
+        const preset = stripped.preset || "Standard";
+        if ((S.app.qp_presets || []).includes(preset)) C.quality.set(preset);
+        toast("已加载上次正面提示词 ✅", "success");
+      }
       else toast("没有找到上次的正面提示词", "warning");
     } catch (e) { toast(e.message, "error"); }
   });
@@ -305,7 +370,14 @@ function buildPromptCard(saved) {
     try {
       const last = await fetchLast();
       const text = last?.parameters?.negative_prompt || last?.parameters?.v4_negative_prompt?.caption?.base_caption || "";
-      if (text) { C.negative.set(text); toast("已加载上次负面提示词 ✅", "success"); }
+      if (text) {
+        // 开头若含 UC 预设文本则剥离并同步预设; 不含则预设为 Heavy
+        const stripped = stripUCPresetFromStart(text, C.model.get());
+        C.negative.set(stripped.text);
+        const preset = stripped.preset || (stripped.text ? "None" : "Heavy");
+        if ((S.app.uc_presets || []).includes(preset)) C.uc.set(preset);
+        toast("已加载上次负面提示词 ✅", "success");
+      }
       else toast("没有找到上次的负面提示词", "warning");
     } catch (e) { toast(e.message, "error"); }
   });
@@ -546,6 +618,8 @@ function buildLeftTabs(saved) {
       bodies.forEach((b) => b.classList.remove("active"));
       btn.classList.add("active");
       bodies[i].classList.add("active");
+      // 切到角色分区时刷新位置选择器尺寸 (隐藏时测量的宽度为 0)
+      if (t.id === "characters") charRegion?.refresh?.();
     }});
     tabBtns[t.id] = btn;
     bar.append(btn);
@@ -565,20 +639,29 @@ function buildLeftTabs(saved) {
   const charWrap = el("div");
   // 位置模式: AI's Choice / Custom (添加足够角色后才显示)
   aiChoiceRow = el("div", { class: "field" }, [el("label", { text: "🤖 位置模式" })]);
-  C.aiChoice = segChoice(["AI's Choice", "Custom"], saved.ai_choice ? "AI's Choice" : "Custom");
+  C.aiChoice = segChoice(["AI's Choice", "Custom"], saved.ai_choice ? "AI's Choice" : "Custom", () => updateAiChoiceVisibility());
   aiChoiceRow.append(C.aiChoice.node);
   aiChoiceRow.style.display = "none";
   charSection.append(aiChoiceRow);
+  // 共享区域选择器: 所有角色共用一块与分辨率同比例的区域, 点击或拖动放置
+  const getCharSize = () => ({ w: Number(C.width.get()) || 832, h: Number(C.height.get()) || 1216 });
+  charRegion = characterRegionPicker({ getSize: getCharSize });
+  charSection.append(charRegion.node);
   charList = roleList(charWrap, {
     title: "角色",
     max: 32,
+    selectable: true,
+    // "启用"复选框放到头部, 与"角色 #n"并排
+    headCheckbox: { id: "enabled", label: "启用", default: true },
     fields: [
       { id: "prompt", label: "✨ 正面提示词", type: "textarea", rows: 2 },
       { id: "negative_prompt", label: "🌙 负面提示词", type: "textarea", rows: 2 },
-      { id: "position", label: "📍 位置", type: "position", options: S.app.positions, default: "A1" },
-      { id: "enabled", label: "启用", type: "checkbox", default: true },
     ],
-    onChange: () => updateAiChoiceVisibility(),
+    onSelect: (i) => charRegion.select(i),
+    onChange: (count) => {
+      charRegion.setCount(count);
+      updateAiChoiceVisibility();
+    },
   });
   charSection.append(charWrap);
   bodies[1].append(charSection);
@@ -843,7 +926,12 @@ function updateAiChoiceVisibility() {
   if (!aiChoiceRow || !charList) return;
   const nai5 = isNai5(C.model.get());
   const count = charList.getCount();
-  aiChoiceRow.style.display = (nai5 ? count >= 1 : count >= 2) ? "" : "none";
+  const visible = (nai5 ? count >= 1 : count >= 2);
+  aiChoiceRow.style.display = visible ? "" : "none";
+  // 共享位置区域: AI's Choice 时隐藏 (后端自动分配位置), Custom 时显示
+  if (charRegion && C.aiChoice) {
+    charRegion.node.style.display = (visible && C.aiChoice.get() === "Custom") ? "" : "none";
+  }
 }
 
 async function applyModelChange(initial = false) {
@@ -918,8 +1006,8 @@ async function applyModelChange(initial = false) {
   // 角色数量限制: nai5 32, 其余 6 (以官网为准, 动态限制添加按钮)
   charList.setMax?.(nai5 ? 32 : 6);
 
-  // 角色位置: nai5 用自由坐标 (X/Y), 其余用 A1-E5 网格坐标
-  charList.positionMode?.(nai5 ? "free" : "grid");
+  // 角色位置: nai5 用自由拖动, 其余用 A1-E5 网格区域
+  charRegion?.setMode?.(nai5 ? "free" : "grid");
   updateAiChoiceVisibility();
 
   // 隐藏/不可用的开关复位为非 nai3 默认值, 避免残留值影响后端
@@ -944,6 +1032,7 @@ function bindEvents() {
       C.width.set(w);
       C.height.set(h);
     }
+    charRegion?.refresh?.();
   });
   C.width.input?.addEventListener("change", () => syncResolution());
   C.height.input?.addEventListener("change", () => syncResolution());
@@ -960,6 +1049,7 @@ function syncResolution() {
   const w = C.width.get(), h = C.height.get();
   const res = S.app.resolutions.includes(`${w}x${h}`) ? `${w}x${h}` : "自定义";
   C.resolution.set(res);
+  charRegion?.refresh?.();
 }
 
 function updateInpaintVisibility() {
@@ -977,7 +1067,11 @@ async function collectRequest() {
     inpaint.mask_strength = C.maskStrength.get();
   }
 
-  const characters = charList.getItems().filter((c) => c.enabled);
+  // 角色位置来自共享区域选择器 (按列表下标一一对应), 再过滤未启用的角色
+  const charPositions = charRegion.getPositions();
+  const characters = charList.getItems()
+    .map((c, i) => ({ ...c, position: charPositions[i] ?? c.position ?? "A1" }))
+    .filter((c) => c.enabled);
   const references = refList.getItems();
   const vibeImages = vibeList.getItems().filter((v) => v.path);
 
@@ -1141,8 +1235,9 @@ export function setGenerateState(state) {
     charList.setItems(state.characters.map((c) => ({
       prompt: c.prompt ?? "",
       negative_prompt: c.negative_prompt ?? "",
-      position: c.position ?? "A1",
       enabled: !!c.enabled,
     })));
+    charRegion.setCount(state.characters.length);
+    charRegion.restore(state.characters.map((c) => c.position ?? "A1"));
   }
 }
