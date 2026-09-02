@@ -179,6 +179,7 @@ UC_PRESET_TAGS = {
     },
 }
 
+
 def return_undesired_contentc_preset(model, undesired_contentc_preset):
     negative_prompts = UC_PRESET_TAGS.get(model, {}).get(undesired_contentc_preset, "")
     if env.remove_nsfw:

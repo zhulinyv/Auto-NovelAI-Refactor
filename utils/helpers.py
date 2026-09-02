@@ -149,6 +149,7 @@ def _list_wildcard_txt(category: str) -> list[str]:
         return []
     return sorted(f for f in os.listdir(path) if f.lower().endswith(".txt"))
 
+
 def replace_wildcards(text: str) -> str:
     pattern = r"<([^:]+):([^>]+)>"
     matchers = re.findall(pattern, text)
