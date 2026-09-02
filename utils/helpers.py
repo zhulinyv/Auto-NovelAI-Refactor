@@ -142,6 +142,13 @@ def float_to_position(letter_float: float, number_float: float) -> str:
 # ---------------------------------------------------------------- wildcard
 
 
+def _list_wildcard_txt(category: str) -> list[str]:
+    """列出 wildcard 目录下的 .txt 文件名 (过滤图片等非文本文件, 避免 UnicodeDecodeError)。"""
+    path = f"./wildcards/{category}"
+    if not os.path.isdir(path):
+        return []
+    return sorted(f for f in os.listdir(path) if f.lower().endswith(".txt"))
+
 def replace_wildcards(text: str) -> str:
     pattern = r"<([^:]+):([^>]+)>"
     matchers = re.findall(pattern, text)
@@ -149,8 +156,7 @@ def replace_wildcards(text: str) -> str:
     while matchers:
         for wild_card in matchers:
             if wild_card[1] == "随机":
-                _path = f"./wildcards/{wild_card[0]}/"
-                name = random.choice(os.listdir(_path))
+                name = random.choice(_list_wildcard_txt(wild_card[0]))
                 name = name.replace(".txt", "")
             elif wild_card[1] == "顺序":
                 name, tag = _sequential_wildcard(wild_card[0])
@@ -177,7 +183,7 @@ def replace_wildcards(text: str) -> str:
 def _sequential_wildcard(category: str):
     """顺序 wildcard: 按文件名的字母顺序依次使用。"""
     state_path = "./outputs/temp_wildcards.json"
-    names = sorted(os.listdir(f"./wildcards/{category}"))
+    names = _list_wildcard_txt(category)
     if os.path.exists(state_path):
         data = read_json(state_path)
     else:
