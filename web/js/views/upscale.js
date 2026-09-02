@@ -1,7 +1,7 @@
 // ============================================================
 // 超分降噪视图
 // ============================================================
-import { $, el, clear, toast, bus, sliderRow, showResult, imageDropZone } from "../ui.js";
+import { $, el, clear, toast, bus, sliderRow, showResult, imageDropZone, edgeScroll } from "../ui.js";
 import { post } from "../api.js";
 import { gallery } from "../components.js";
 
@@ -91,7 +91,7 @@ export async function render(container, ctx) {
     bodies.push(body);
     renderEngine(eng, body);
   });
-  tabsWrap.append(bar, ...bodies);
+  tabsWrap.append(edgeScroll(bar), ...bodies);
 
   // 默认显示第一个引擎的按钮
   const firstBtns = ENGINES[0]._btns;
