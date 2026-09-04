@@ -3,7 +3,7 @@
 设计 (与需求确认一致):
 - 单一 FIFO 队列, 所有 NovelAI 生成类操作 (主生图 / 导演工具 / 插件生图) 都提交到这里
 - 每配置一个有效 Token 即开启一个执行通道 (worker): N 个 Token 可同时执行 N 个生图任务
-- 任意通道空闲即领取队首任务; 任务完成后该通道独立冷却 cool_time 秒, 冷却结束再取下一个任务
+- 任意通道空闲即领取队首任务; 多个空闲通道可用时优先分配给编号最小的通道 (即优先使用第一个 Token, 依次类推); 任务完成后该通道独立冷却 cool_time 秒, 冷却结束再取下一个任务
 - 排队中的任务可取消 / 调整顺序; 运行中的任务通过独立停止信号文件中断
 - 通道状态与队列快照通过 queue:update 事件实时推送给前端 (SSE)
 - 非 NovelAI 任务 (超分/本地处理等) 不进队列, 由 JobManager 以多线程方式并行执行
@@ -206,11 +206,26 @@ class GenerationQueue:
         self._publish()
 
     def _take_next(self, worker: _Worker) -> _Task | None:
-        """通道领取队首任务 (FIFO); 通道号超出期望数量时通知其退出。"""
+        """通道领取队首任务 (FIFO); 通道号超出期望数量时通知其退出。
+
+        多个空闲通道同时可用时, 只允许编号最小的通道领取: 通道按序号绑定 Token,
+        从而实现 "优先使用第一个 Token, 第一个忙/冷却时依次往后" 的分配策略。
+        """
         with self._lock:
             if worker.idx >= self.desired_workers():
                 worker.stop_flag.set()
                 return None
+            # 已被任务占用的通道集合 (含刚领到任务、status 尚未更新的通道)
+            running_idx = {t.worker for t in self._running.values()}
+            # 存在编号更小的空闲通道时让位, 保证任务优先分配给靠前的 Token
+            for i in sorted(self._workers):
+                if i >= worker.idx:
+                    break
+                w = self._workers[i]
+                if not w.is_alive() or w.stop_flag.is_set() or i >= self.desired_workers():
+                    continue
+                if w.status == "idle" and i not in running_idx:
+                    return None
             while self._order:
                 tid = self._order.pop(0)
                 task = self._tasks.get(tid)
