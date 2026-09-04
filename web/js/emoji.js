@@ -66,10 +66,12 @@ export function initEmoji() {
     for (const m of mutations) {
       for (const node of m.addedNodes) {
         if (node.nodeType === Node.ELEMENT_NODE) {
-          if (node.classList && node.classList.contains("twemoji")) continue;
+          // 跳过 twemoji 图片与加载失败的回退节点, 否则会重新 parse 形成无限替换循环 (闪烁跳动)
+          if (node.classList && (node.classList.contains("twemoji") || node.classList.contains("native-emoji"))) continue;
           parseNode(node);
         } else if (node.nodeType === Node.TEXT_NODE && node.parentNode) {
-          parseNode(node.parentNode);
+          // 回退节点 (native-emoji) 的父级也不要再 parse, 否则同样会进入无限替换循环
+          if (!node.parentNode.classList?.contains("native-emoji")) parseNode(node.parentNode);
         }
       }
     }
