@@ -7,7 +7,7 @@ import { initLogConsole } from "./components.js";
 import { initEmoji } from "./emoji.js";
 import { initHitokoto } from "./hitokoto.js";
 import { initQueueModal } from "./queueModal.js";
-import { fetchState, post } from "./api.js";
+import { fetchState, post, get } from "./api.js";
 import { $, $$, el, bus, toast, confirmDialog, choiceDialog, initFancySelects } from "./ui.js";
 
 import * as generateView from "./views/generate.js";
@@ -46,13 +46,11 @@ async function boot() {
   const log = initLogConsole();
 
   // ---- SSE 事件流 ----
-  const es = new EventSource("/api/events");
+  // 本地访问用 SSE; 共享链接 (隧道域名) 下 Cloudflare 会缓冲 SSE 实时流 (实测 60s 零字节),
+  // 退化为每 2 秒轮询 /api/live (增量日志 + 队列快照), 保证日志与任务状态可用
   const connDot = document.getElementById("conn-status");
-  es.onopen = () => { connDot.classList.add("online"); connDot.classList.remove("offline"); };
-  es.onerror = () => { connDot.classList.add("offline"); connDot.classList.remove("online"); };
-  es.onmessage = (e) => {
-    let ev;
-    try { ev = JSON.parse(e.data); } catch { return; }
+
+  function handleEvent(ev) {
     switch (ev.type) {
       case "log":
         log.addLine(ev.level, ev.message, ev.exception);
@@ -83,7 +81,33 @@ async function boot() {
         bus.emit("job:event", ev);
         break;
     }
-  };
+  }
+
+  const isLocalAccess = ["127.0.0.1", "localhost", "[::1]"].includes(location.hostname);
+  if (isLocalAccess) {
+    const es = new EventSource("/api/events");
+    es.onopen = () => { connDot.classList.add("online"); connDot.classList.remove("offline"); };
+    es.onerror = () => { connDot.classList.add("offline"); connDot.classList.remove("online"); };
+    es.onmessage = (e) => {
+      let ev;
+      try { ev = JSON.parse(e.data); } catch { return; }
+      handleEvent(ev);
+    };
+  } else {
+    connDot.classList.add("online");
+    let lastLogSeq = 0;
+    async function pollLive() {
+      try {
+        const d = await get("/api/live?log_after=" + lastLogSeq);
+        lastLogSeq = d.last ?? lastLogSeq;
+        for (const ev of d.logs || []) handleEvent(ev);
+        lastQueue = d.queue || lastQueue;
+        updateJobStatus();
+      } catch { /* 后端忙, 下一轮重试 */ }
+    }
+    pollLive();
+    setInterval(pollLive, 2000);
+  }
 
   // ---- 加载应用状态 ----
   try {
@@ -94,6 +118,20 @@ async function boot() {
   } catch (e) {
     toast("无法连接后端服务: " + e.message, "error");
     return;
+  }
+
+  // 共享开关刚切换: 后端插件正在重载, 本页加载到的是旧插件列表, 等重载完成后整页刷新一次
+  if (appState.plugins_reload?.reloading) {
+    toast("🧩 插件正在重新加载, 完成后自动刷新...", "info", 8000);
+    const reloadTimer = setInterval(async () => {
+      try {
+        const s = await get("/api/plugins/reload-status");
+        if (!s.reloading) {
+          clearInterval(reloadTimer);
+          location.reload();
+        }
+      } catch { /* 后端忙, 继续等 */ }
+    }, 800);
   }
   initBackgroundUI();
   initQueueModal(appState.queue || null);
@@ -148,6 +186,12 @@ async function boot() {
   $$(".nav-item").forEach((item) => {
     item.addEventListener("click", () => showView(item.dataset.view));
   });
+
+  // 共享模式: 隐藏插件商店 (访客不可在线安装/管理插件)
+  if (appState.settings?.share) {
+    const storeNav = document.querySelector('.nav-item[data-view="plugins"]');
+    if (storeNav) storeNav.style.display = "none";
+  }
 
   initSidebarResize();
   showView("generate");

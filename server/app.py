@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 
 from utils.config import BASE_DIR
 from utils.events import broker
+from utils.gen_queue import gen_queue
 from utils.logger import logger
 from utils.services import plugins_store
 
@@ -23,7 +24,7 @@ from .routes import queue as queue_routes
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Auto-NovelAI-Refactor", version="2.0.4")
+    app = FastAPI(title="Auto-NovelAI-Refactor", version="2.1.0")
 
     # 后台预热常用缓存: 插件商店数据 (含 git 检查) 与提示词补全标签词典,
     # 避免打开商店页 / 首次输入提示词时的首次加载等待
@@ -84,6 +85,17 @@ def create_app() -> FastAPI:
                 broker.unsubscribe(q)
 
         return StreamingResponse(stream(), media_type="text/event-stream")
+
+    # 共享链接 (隧道) 访问时 Cloudflare 会缓冲 SSE 实时流, 前端退化为轮询本接口:
+    # 增量拉取日志 + 队列快照, 每 2 秒一次
+    @app.get("/api/live")
+    async def live_poll(log_after: int = 0):
+        seq_now = broker.current_seq()
+        if log_after > seq_now:
+            log_after = 0  # 后端重启后序号已重置, 前端序号失效时重新全量拉取
+        logs = broker.history_after("log", log_after)
+        last = logs[-1]["seq"] if logs else min(log_after, seq_now)
+        return {"logs": logs, "last": last, "queue": gen_queue.snapshot()}
 
     # 图标
     @app.get("/favicon.ico", include_in_schema=False)

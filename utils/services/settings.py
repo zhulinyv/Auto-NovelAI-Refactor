@@ -11,10 +11,22 @@ import os
 import threading
 
 from utils.config import env
+from utils.logger import logger
 
 
 def get_settings() -> dict:
-    return env.to_dict()
+    data = env.to_dict()
+    # 附加共享链接状态 (仅展示, 不落盘); 链接在可访问后才返回
+    try:
+        from utils import tunnel
+
+        info = tunnel.get_share_info()
+        data["share_url"] = info["url"]
+        data["share_running"] = info["running"]
+    except Exception:
+        data["share_url"] = None
+        data["share_running"] = False
+    return data
 
 
 def _normalize_tokens(data: dict) -> None:
@@ -80,6 +92,7 @@ def save_settings(data: dict) -> dict:
     # 检测配置变更
     port_changed = str(normalized.get("port")) != old_port
     hide_terminal_changed = bool(normalized.get("hide_terminal")) != bool(old_hide_terminal)
+    share_changed = bool(normalized.get("share")) != old_share
     # 插件相关配置变化时, 才需要重载插件 (避免普通设置保存也触发插件重载)
     plugins_changed = (
         bool(normalized.get("share")) != old_share
@@ -97,6 +110,32 @@ def save_settings(data: dict) -> dict:
 
     # 其他运行时变化 (代理 / 队列) 在后台异步应用, 让 HTTP 响应快速返回
     threading.Thread(target=_apply_runtime, args=(normalized,), daemon=True).start()
+
+    # 共享链接开关: 后台启停外网隧道 (下载/连接可能较慢, 不阻塞响应)
+    if share_changed:
+        # 在响应返回前就同步标记 "插件重载中", 前端跳转后的新页面能立刻看到该状态
+        if plugins_changed:
+            try:
+                from utils.plugins import mark_plugins_reloading
+
+                mark_plugins_reloading()
+            except Exception:
+                pass
+
+        def _apply_share():
+            try:
+                import time
+
+                from utils.tunnel import ensure_tunnel
+
+                if not bool(normalized.get("share")):
+                    # 关闭方向: 稍等片刻再断隧道, 让 "已关闭" 的响应先经隧道送达浏览器
+                    time.sleep(1.5)
+                ensure_tunnel()
+            except Exception as e:
+                logger.error(f"共享链接切换失败: {e}")
+
+        threading.Thread(target=_apply_share, daemon=True).start()
 
     # 仅当插件开关/共享模式等插件相关配置变化时, 才在后台重载插件
     if plugins_changed:
@@ -116,4 +155,5 @@ def save_settings(data: dict) -> dict:
         "message": "修改已生效!",
         "port_changed": port_changed,
         "hide_terminal_changed": hide_terminal_changed,
+        "share_changed": share_changed,
     }

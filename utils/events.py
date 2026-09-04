@@ -22,12 +22,14 @@ class EventBroker:
         self._lock = threading.Lock()
         self._history: list[dict[str, Any]] = []
         self._history_size = history_size
+        self._seq = 0  # 全局递增序号: 供轮询接口做增量拉取
 
     def publish(self, event_type: str, data: dict[str, Any]) -> None:
         if event_type not in _EVENT_TYPES:
             raise ValueError(f"unknown event type: {event_type}")
-        payload = {"type": event_type, "time": time.time(), **data}
         with self._lock:
+            self._seq += 1
+            payload = {"type": event_type, "seq": self._seq, "time": time.time(), **data}
             self._history.append(payload)
             if len(self._history) > self._history_size:
                 self._history = self._history[-self._history_size :]
@@ -52,6 +54,15 @@ class EventBroker:
         if event_type is None:
             return list(self._history)
         return [e for e in self._history if e["type"] == event_type]
+
+    def current_seq(self) -> int:
+        with self._lock:
+            return self._seq
+
+    def history_after(self, event_type: str, after_seq: int) -> list[dict[str, Any]]:
+        """返回 seq 大于 after_seq 的指定类型事件 (供共享链接下的轮询增量拉取)。"""
+        with self._lock:
+            return [e for e in self._history if e["type"] == event_type and e.get("seq", 0) > after_seq]
 
 
 broker = EventBroker()

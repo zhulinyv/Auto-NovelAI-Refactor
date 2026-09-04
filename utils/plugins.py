@@ -23,6 +23,8 @@ from __future__ import annotations
 import importlib.util
 import inspect
 import os
+import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -138,8 +140,38 @@ def _load_plugin_module(location: str, plugin_name: str) -> Any:
     return module
 
 
+# 重载状态: 共享链接开关切换后前端需要感知 "插件正在重载", 完成后自动刷新页面
+_reload_lock = threading.Lock()
+_reloading = False
+_last_reload_done = 0.0
+
+
+def mark_plugins_reloading() -> None:
+    """在触发重载的请求线程内同步标记 (让保存响应返回前状态就绪)。"""
+    global _reloading
+    with _reload_lock:
+        _reloading = True
+
+
+def plugins_reload_status() -> dict:
+    with _reload_lock:
+        return {"reloading": _reloading, "done_at": _last_reload_done}
+
+
 def load_plugins() -> None:
     """扫描 ./plugins 目录并加载所有插件 (跳过禁用列表)。"""
+    global _registry, _reloading, _last_reload_done
+    with _reload_lock:
+        _reloading = True
+    try:
+        _load_all_plugins()
+    finally:
+        with _reload_lock:
+            _reloading = False
+            _last_reload_done = time.time()
+
+
+def _load_all_plugins() -> None:
     global _registry
     _registry = {}
 

@@ -71,8 +71,19 @@ def _open_browser():
 
 
 if __name__ == "__main__":
-    # 重启后不重新打开浏览器窗口, 由前端刷新原窗口
-    if os.environ.get("ANR_SKIP_BROWSER") != "1":
+    if env.share:
+        # 共享模式: 启动时自动建立外网访问隧道; 首次启动隧道就绪后自动打开共享链接,
+        # 重启 (ANR_SKIP_BROWSER=1) 时沿用旧隧道进程, 由前端刷新原窗口即可恢复
+        from utils.tunnel import start_tunnel
+
+        threading.Thread(
+            target=start_tunnel,
+            args=(os.environ.get("ANR_SKIP_BROWSER") != "1",),
+            daemon=True,
+            name="share-tunnel",
+        ).start()
+    elif os.environ.get("ANR_SKIP_BROWSER") != "1":
+        # 本地模式: 重启后不重新打开浏览器窗口, 由前端刷新原窗口
         threading.Timer(1.5, _open_browser).start()
     # 启动后在终端打印一次访问地址 (只保留一条, 不再输出带版本号的 INFO 日志)
     print(f"WebUI 已启动: http://127.0.0.1:{env.port}")

@@ -4,10 +4,19 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
+from utils.config import env
 from utils.helpers import restart, update_repo
 from utils.services import settings as settings_service
 
 router = APIRouter(prefix="/api", tags=["settings"])
+
+
+@router.get("/share")
+async def get_share():
+    """共享链接状态: 开关、隧道进程与当前公网链接 (链接在可访问后才返回)。"""
+    from utils import tunnel
+
+    return {"share": bool(env.share), **tunnel.get_share_info()}
 
 
 @router.get("/settings")

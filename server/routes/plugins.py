@@ -9,10 +9,17 @@ from fastapi import APIRouter, HTTPException
 
 from utils.helpers import read_json
 from utils.logger import logger
-from utils.plugins import get_manifest, run_action
+from utils.plugins import get_manifest, plugins_reload_status, run_action
 from utils.services import plugins_store
 
 router = APIRouter(prefix="/api", tags=["plugins"])
+
+
+@router.get("/plugins/reload-status")
+async def plugins_reload_status_route():
+    """插件重载状态 (共享开关切换后前端轮询, 完成后自动刷新页面)。"""
+    return plugins_reload_status()
+
 
 # 插件表单值持久化 (跨浏览器/刷新保留上次使用的设置)
 _VALUES_PATH = "./outputs/plugin_values.json"

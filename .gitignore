@@ -59,6 +59,8 @@ assets/rife-ncnn-vulkan
 # ================= 缓存与工具 =================
 .pytest_cache/
 .mypy_cache/
+# cloudflared 共享链接隧道程序 (首次开启共享时自动下载)
+bin/
 
 # ================= Git / 系统 =================
 .git/
