@@ -296,7 +296,7 @@ export function confirmDialog(message, { danger = false } = {}) {
       style: "position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:5200;display:flex;align-items:center;justify-content:center;",
     });
     const box = el("div", {
-      class: "card",
+      class: "card dialog-solid",
       style: "width:340px;animation:pop-in 0.2s ease;",
     }, [
       el("div", { class: "card-title", text: danger ? "⚠️ 确认操作" : "💭 请确认" }),
@@ -330,7 +330,7 @@ export function choiceDialog(title, message, choices) {
       overlay.remove();
       resolve(v);
     };
-    const box = el("div", { class: "card", style: "width:340px;animation:pop-in 0.2s ease;" }, [
+    const box = el("div", { class: "card dialog-solid", style: "width:340px;animation:pop-in 0.2s ease;" }, [
       el("div", { class: "card-title", text: title }),
       el("p", { style: "margin-bottom:16px;font-size:13.5px;", text: message }),
       el("div", { style: "display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;" },

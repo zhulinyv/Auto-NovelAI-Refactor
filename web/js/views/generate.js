@@ -478,13 +478,17 @@ function buildOutputViewer(container, images) {
     if (e.key === "ArrowRight") { idx = (idx + 1) % images.length; updateView(); e.preventDefault(); }
   });
 
-  // 双击主图放大
-  mainImg.addEventListener("dblclick", async () => {
+  // 单击主图放大 (单图时不设热区; 多图时左右 30% 翻页热区仍交给 mainWrap 翻页, 避免放大与翻页同时触发)
+  mainImg.addEventListener("click", async (e) => {
+    if (images.length > 1) {
+      const rect = mainWrap.getBoundingClientRect();
+      const rel = (e.clientX - rect.left) / rect.width;
+      if (rel < 0.3 || rel > 0.7) return;
+    }
+    setOutputSelection(images[idx]);
     const { openLightbox } = await import("../components.js");
     openLightbox(imageUrl(images[idx]), "第 " + (idx + 1) + " 张");
   });
-  // 单击主图: 选中发送
-  mainImg.addEventListener("click", () => setOutputSelection(images[idx]));
 
   // 预加载相邻图片
   function preloadAdjacent() {

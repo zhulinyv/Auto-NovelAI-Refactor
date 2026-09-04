@@ -177,6 +177,9 @@
   border-radius: 999px;
 }
 
+/* 对话框本体 (电源菜单 / 确认框): 不透明底色, 与队列弹窗一致 */
+.dialog-solid { background: var(--panel-solid); }
+
 .grid { display: grid; gap: 16px; }
 .grid-2 { grid-template-columns: 1fr 1fr; }
 .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -248,6 +251,7 @@ input.slider-num {
   transition: all 0.18s;
   user-select: none;
 }
+a.btn { text-decoration: none; }
 .btn:hover { transform: translateY(-1px); box-shadow: var(--shadow); border-color: var(--primary); }
 .btn:active { transform: translateY(0); }
 .btn-primary {
@@ -1818,7 +1822,7 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
 .wc-modal-prompt-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 .wc-modal-prompt-label { font-size: 13px; font-weight: 700; color: var(--text-2); }
 .wc-modal-prompt .muted { font-size: 12px; }
-.wc-modal-prompt textarea { width: 100%; min-height: 128px; resize: vertical; line-height: 1.55; }
+.wc-modal-prompt textarea { width: 100%; min-height: 128px; max-height: 354px; resize: vertical; line-height: 1.55; }
 .wc-modal-body { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 18px 18px; }
 .wc-modal-loading { padding: 30px; text-align: center; }
 
@@ -1897,7 +1901,8 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
   align-items: flex-start;
   align-content: flex-start;
   min-height: 64px;
-  max-height: 180px;
+  /* 与生成页正面提示词输入框最大高度一致: 15 行 × 22.4px (14px × 1.6) + 18px 内边距/边框 = 354px */
+  max-height: 354px;
   overflow-y: auto;
   padding: 10px;
   border: 1px solid var(--border);
@@ -2448,24 +2453,25 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
 }
 .pixiv-pid:hover { background: color-mix(in srgb, var(--primary) 24%, transparent); }
 
-.ack-title { font-size: 13px; font-weight: 700; color: var(--text-2); margin: 14px 0 8px; }
-.ack-title:first-of-type { margin-top: 2px; }
+.ack-title { font-size: 13px; font-weight: 700; color: var(--text-2); margin: 0 0 8px; }
 
 /* ------- 赞助页: 翻页区域与内容铺满可用空间 ------- */
 .pager-viewport { height: calc(100vh - 300px); min-height: 400px; }
 .pager-card { height: 100%; display: flex; flex-direction: column; }
 .pager-card > .card-title, .pager-card > p { flex-shrink: 0; }
 
-/* 页1: 收款码卡片纵向撑满, 二维码尽量大 */
+/* 页3: 收款码卡片纵向撑满, 二维码尽量大 */
 .pager-card .sponsor-grid { flex: 1; min-height: 0; margin-top: 10px; gap: 24px; }
 .pager-card .sponsor-item { justify-content: center; gap: 14px; padding: 20px 16px; }
 .pager-card .sponsor-qr { flex: 1; min-height: 0; width: auto; max-width: 100%; margin: 0 auto; aspect-ratio: 1; }
 .pager-card .sponsor-label { font-size: 15px; }
 
-/* 页2: 两组卡片统一行高 (大小一致), 整体在页面内垂直居中 */
+/* 页1: 两组卡片统一行高 (大小一致), 整体在页面内垂直居中 */
 .ack-body { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; }
 .ack-group { display: flex; flex-direction: column; }
-.ack-group .ack-title { flex-shrink: 0; margin: 14px 0 10px; }
+/* 两组顺次排布, 小标题只与上一组卡片留固定间距, 消除居中导致的小标题上方大片空白 */
+.ack-body > .ack-group + .ack-group { margin-top: 22px; }
+.ack-group .ack-title { flex-shrink: 0; margin: 0 0 10px; }
 .ack-group .ack-grid {
   grid-auto-rows: 132px; gap: 14px;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
@@ -2473,6 +2479,23 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
 .ack-item { justify-content: center; gap: 7px; padding: 14px 18px; }
 .ack-name { font-size: 14px; }
 .ack-desc { font-size: 12.5px; }
+
+/* 页2: 加群交流 — 二维码与按钮纵向排列居中 */
+.join-grid { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; }
+.join-grid .sponsor-item { padding: 18px 22px; gap: 12px; }
+.join-grid .sponsor-qr { width: 220px; height: 220px; }
+.join-grid .sponsor-label { font-size: 15px; }
+.sponsor-qr-link { display: block; text-decoration: none; }
+/* 悬停效果由内部 .sponsor-item 自身的上浮负责, 外层链接不再叠加位移, 避免双重弹跳 */
+.sponsor-qr-link:hover .sponsor-item { border-color: var(--primary); }
+.join-btn { font-size: 15px; padding: 10px 34px; }
+
+/* 配置设置: 共享链接外网链接 */
+.share-link-field { grid-column: 1 / -1; }
+.share-link { color: var(--primary); font-weight: 600; word-break: break-all; cursor: pointer; }
+.share-link:hover { text-decoration: underline; }
+.share-link:not([href]) { color: var(--text-2); opacity: 0.8; cursor: default; }
+.share-link:not([href]):hover { text-decoration: none; }
 
 /* ------- 卡片分类删除按钮 (悬停 tab 显示) 与收藏分类标题 ------- */
 .wc-type-del {
@@ -2562,6 +2585,8 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
   max-height: min(72vh, 640px);
   display: flex;
   flex-direction: column;
+  /* 覆盖 .card 的半透明毛玻璃背景, 与 Wildcards 弹窗一样用不透明底色 */
+  background: var(--panel-solid);
   animation: pop-in 0.2s ease;
 }
 .queue-modal-title { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
