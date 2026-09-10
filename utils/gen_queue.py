@@ -166,7 +166,9 @@ class GenerationQueue:
 
     # ---------------------------------------------------------------- 提交
 
-    def submit(self, name: str, fn: Callable, *args, label: str | None = None, model: str | None = None, **kwargs) -> _Task | None:
+    def submit(
+        self, name: str, fn: Callable, *args, label: str | None = None, model: str | None = None, **kwargs
+    ) -> _Task | None:
         """把生成任务加入队列, 返回任务对象 (model 仅供 NAI5 无用量跳过规则使用)。
 
         启用 "用量为空时跳过 nai5 任务" 时: NAI5 任务在全部 Token 剩余用量 <= 0 的情况下
@@ -255,10 +257,13 @@ class GenerationQueue:
                         self._history.append(task)
                         logger.warning(f"全部 Token 剩余用量已为空, 已跳过 NAI5 任务: [{task.label}]")
                         try:
-                            broker.publish("notice", {
-                                "level": "warning",
-                                "message": f"🪫 全部 Token 剩余用量已为空, 已跳过 NAI5 任务: [{task.label}]",
-                            })
+                            broker.publish(
+                                "notice",
+                                {
+                                    "level": "warning",
+                                    "message": f"🪫 全部 Token 剩余用量已为空, 已跳过 NAI5 任务: [{task.label}]",
+                                },
+                            )
                         except Exception:
                             pass
                         self._publish()

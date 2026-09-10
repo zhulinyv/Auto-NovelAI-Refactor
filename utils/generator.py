@@ -98,13 +98,18 @@ def _maybe_send_usage_remind(token: str, anlas, remains) -> None:
         else:
             # 未配置 SMTP: WebUI 右上角消息通知
             try:
-                broker.publish("notice", {
-                    "level": "warning",
-                    "message": f"🪫 Token {masked} 剩余用量仅剩 {remains_num}% (低于提醒阈值 {threshold}%), 请及时关注",
-                })
+                broker.publish(
+                    "notice",
+                    {
+                        "level": "warning",
+                        "message": f"🪫 Token {masked} 剩余用量仅剩 {remains_num}% (低于提醒阈值 {threshold}%), 请及时关注",
+                    },
+                )
             except Exception as e:
                 logger.debug(f"推送用量提醒通知失败: {e}")
-            logger.warning(f"Token {masked} 剩余用量 {remains_num}% 已低于提醒阈值 {threshold}% (未配置 SMTP, 已通过 WebUI 通知)")
+            logger.warning(
+                f"Token {masked} 剩余用量 {remains_num}% 已低于提醒阈值 {threshold}% (未配置 SMTP, 已通过 WebUI 通知)"
+            )
     elif already:
         # 用量已恢复到阈值以上: 重置提醒状态, 再次跌破时可再次提醒
         with _anlas_lock:

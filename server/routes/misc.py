@@ -1146,12 +1146,14 @@ def get_anlas():
     for i, token in enumerate(tokens):
         anlas, remains = snapshot.get(token, (-1, -1))
         active, recover_seconds = extras.get(token, (None, None))
-        anlas_list.append({
-            "index": i,
-            "token": mask_token(token),
-            "anlas": anlas,
-            "remains": remains,
-            "active": active,
-            "recover_seconds": recover_seconds,
-        })
+        anlas_list.append(
+            {
+                "index": i,
+                "token": mask_token(token),
+                "anlas": anlas,
+                "remains": remains,
+                "active": active,
+                "recover_seconds": recover_seconds,
+            }
+        )
     return {"tokens": anlas_list}
