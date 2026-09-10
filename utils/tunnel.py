@@ -27,12 +27,12 @@ _BIN_DIR = BASE_DIR / "bin"
 _PID_FILE = _BIN_DIR / "cloudflared.pid"
 
 _lock = threading.Lock()
-_process: subprocess.Popen | None = None   # 本进程拉起的隧道
-_adopted_pid: int | None = None            # 重启沿用 (非本进程拉起) 的隧道 pid
+_process: subprocess.Popen | None = None  # 本进程拉起的隧道
+_adopted_pid: int | None = None  # 重启沿用 (非本进程拉起) 的隧道 pid
 _tunnel_url: str | None = None
-_url_ready = False                         # 端到端连通性确认通过, 链接真实可访问
-_last_error: str | None = None             # 最近一次建立失败的原因 (展示给前端)
-_pending_open = False                      # 链接就绪后是否需要自动打开浏览器
+_url_ready = False  # 端到端连通性确认通过, 链接真实可访问
+_last_error: str | None = None  # 最近一次建立失败的原因 (展示给前端)
+_pending_open = False  # 链接就绪后是否需要自动打开浏览器
 _browser_opened = False
 
 
@@ -163,7 +163,7 @@ def start_tunnel(open_browser: bool = False) -> bool:
         with _lock:
             _adopted_pid = adopted["pid"]
             _tunnel_url = adopted["url"]
-            _url_ready = True   # 沿用的旧隧道早已注册完成, 直接视为就绪
+            _url_ready = True  # 沿用的旧隧道早已注册完成, 直接视为就绪
             _pending_open = open_browser
         logger.info(f"共享链接: 沿用上次未关闭的隧道 {_tunnel_url}")
         _write_pidfile(_adopted_pid, _tunnel_url)
