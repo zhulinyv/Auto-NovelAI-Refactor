@@ -67,6 +67,15 @@ def _apply_runtime(data: dict) -> None:
     except Exception:
         pass
 
+    # Token 列表变化时重新查询全部 Token 的剩余点数/用量 (点数查询较慢, 放后台)
+    if "tokens" in data:
+        try:
+            from utils.generator import inquire_all_anlas
+
+            threading.Thread(target=inquire_all_anlas, daemon=True, name="anlas-refresh").start()
+        except Exception:
+            pass
+
 
 def save_settings(data: dict) -> dict:
     """保存配置: 立即生效, 返回变更标志供前端提示 (端口 / 隐藏终端等需注意的重启事项)。"""
@@ -75,11 +84,17 @@ def save_settings(data: dict) -> dict:
     for key in ("token", "proxy", "custom_path", "smtp_mail", "smtp_token"):
         if key in normalized and normalized[key] in (None, ""):
             normalized[key] = None if key in ("proxy", "token", "smtp_mail", "smtp_token") else ""
-    for key in ("cool_time", "port", "smtp_num"):
+    for key in ("cool_time", "port", "smtp_num", "anlas_remind_percent"):
         try:
             normalized[key] = int(normalized.get(key, 0))
         except (TypeError, ValueError):
             normalized[key] = 0
+    # 剩余用量提醒: 范围 -1 (关闭) ~ 100 (仅在前端提交了该字段时钳制)
+    if "anlas_remind_percent" in normalized:
+        try:
+            normalized["anlas_remind_percent"] = max(-1, min(100, int(normalized["anlas_remind_percent"])))
+        except (TypeError, ValueError):
+            normalized["anlas_remind_percent"] = -1
 
     _normalize_tokens(normalized)
 

@@ -498,6 +498,33 @@ def send_mail() -> None:
                 logger.error(f"关闭 SMTP 连接失败: {e}")
 
 
+def send_anlas_remind_mail(masked: str, remains: float, threshold: int) -> None:
+    """剩余用量低于阈值提醒邮件 (复用 SMTP 配置)。"""
+    if not env.smtp_mail or not env.smtp_token:
+        logger.warning("未配置邮箱账号或授权码, 已跳过用量提醒邮件")
+        return
+    mail_host = "smtp.qq.com"
+    text = f"Token {masked} 的剩余用量仅剩 {remains}% (低于设定阈值 {threshold}%), 请及时关注。"
+    message = MIMEText(text, "plain", "utf-8")
+    message["From"] = env.smtp_mail
+    message["To"] = env.smtp_mail
+    message["Subject"] = "ANR 用量提醒"
+    smtp_obj = None
+    try:
+        smtp_obj = smtplib.SMTP_SSL(mail_host, smtplib.SMTP_SSL_PORT)
+        smtp_obj.login(env.smtp_mail, env.smtp_token)
+        smtp_obj.sendmail(env.smtp_mail, env.smtp_mail, message.as_string())
+        logger.success(f"用量提醒邮件已发送: Token {masked} 剩余用量 {remains}%")
+    except smtplib.SMTPException as e:
+        logger.error(f"用量提醒邮件发送失败: {e}")
+    finally:
+        if smtp_obj is not None:
+            try:
+                smtp_obj.quit()
+            except smtplib.SMTPException as e:
+                logger.error(f"关闭 SMTP 连接失败: {e}")
+
+
 # ---------------------------------------------------------------- 图片筛选
 
 

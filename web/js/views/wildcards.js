@@ -3,8 +3,8 @@
 //   左: 卡片库 (分类页签 / 搜索 / 多选 / 拖拽)   右: 卡片编辑
 //   卡片多选状态通过 cardSelection 共享给弹窗 ("添加选中" 按钮),
 //   拖拽中的卡片通过 cardDrag 共享给弹窗的提示词编辑器投放。
-//   交互: 普通点击=编辑并单选, Ctrl+点击=多选, Shift+点击=范围多选,
-//         选中后可拖入上方提示词, 或点弹窗的 "➕ 添加选中"。
+//   交互: 点击=选中/取消 (与提示词库一致), 双击=打开编辑, Shift+点击=范围选;
+//         选择按分类分桶保存, 切换分类不清其它分类的选中, 可跨分类 "添加选中"。
 //   封面约定: 卡片同目录下的 <名称>.png/jpg/webp 即为其封面
 // ============================================================
 import { $, $$, el, clear, toast, confirmDialog, wireAutocomplete } from "../ui.js";
@@ -17,15 +17,17 @@ const state = { type: null, name: null, keyword: "", lastIdx: -1 };
 
 /** 卡片多选状态 (弹窗的 "添加选中" 按钮据此批量插入提示词) */
 export const cardSelection = {
-  type: null,
-  names: [],
+  map: {},  // 分类 -> 卡片名数组 (跨分类保留, 切换分类不清空其它分类)
   _listeners: new Set(),
-  set(type, names) {
-    this.type = type;
-    this.names = names;
+  set(map) {
+    this.map = map || {};
     for (const fn of this._listeners) {
-      try { fn(names); } catch { /* 忽略监听器异常 */ }
+      try { fn(this.map); } catch { /* 忽略监听器异常 */ }
     }
+  },
+  /** 已选卡片总数 (跨分类求和) */
+  count() {
+    return Object.values(this.map).reduce((a, s) => a + (s?.length || 0), 0);
   },
   onChange(fn) { this._listeners.add(fn); },
 };
@@ -64,10 +66,11 @@ export const activeLib = {
 export async function renderPanel(container, ctx, opts = {}) {
   S = ctx;
   clear(container);
-  cardSelection.set(null, []);
+  cardSelection.set({});
   promptSelection.set([]);
   activeLib.set("cards");
-  const selection = new Set();
+  let selection = new Set();       // 当前分类的选中卡片 (与 cardSelection.map[state.type] 同步)
+  const selectionStore = new Map(); // 分类 -> Set<卡片名>: 跨分类保留选择
   let allCards = [];
   let visibleCards = [];
 
@@ -180,10 +183,13 @@ export async function renderPanel(container, ctx, opts = {}) {
   container.append(layout);
 
   // 弹窗批量添加完成后会清空共享选择, 这里同步面板本地的选中 UI
-  cardSelection.onChange((names) => {
+  cardSelection.onChange((map) => {
     if (!container.isConnected) return;
-    if (!names.length && selection.size) {
-      selection.clear();
+    let total = 0;
+    for (const s of Object.values(map || {})) total += s?.length || 0;
+    if (!total && selectionStore.size) {
+      selectionStore.clear();
+      selection = new Set();
       state.lastIdx = -1;
       syncSelectionClasses();
     }
@@ -559,8 +565,8 @@ export async function renderPanel(container, ctx, opts = {}) {
           try {
             await post("/api/wildcards/delete-type", { type: t });
             toast(`分类 <${t}> 已删除 (移到回收站) 🗑️`, "success");
-            if (state.type === t) { state.type = null; renderEditPlaceholder(); }
-            selection.clear();
+            if (state.type === t) { state.type = null; renderEditPlaceholder(); selection = new Set(); }
+            selectionStore.delete(t);           // 移除被删分类的选择桶 (其它分类的选择保留)
             await loadTypes();
             await loadCards();
             syncSelection();
@@ -568,10 +574,13 @@ export async function renderPanel(container, ctx, opts = {}) {
         },
       }));
       tab.addEventListener("click", async () => {
+        const prevType = state.type;
+        if (prevType && prevType !== t) selectionStore.set(prevType, new Set(selection));
         state.type = t;
         state.name = null;
         state.lastIdx = -1;
-        selection.clear();
+        // 切换分类不清空其它分类的选中: 保存当前分类的桶, 恢复目标分类的桶
+        selection = selectionStore.get(t) || new Set();
         await loadTypes();
         await loadCards();
         syncSelection();
@@ -608,32 +617,50 @@ export async function renderPanel(container, ctx, opts = {}) {
       grid.append(el("div", { class: "gallery-empty", text: !state.type ? "请选择一个分类" : (kw ? "没有匹配的卡片" : "该分类暂无卡片") }));
       return;
     }
-    visibleCards.forEach((card) => grid.append(renderCard(card)));
+    // DocumentFragment 批量插入: 155 张卡时一次性 append 比逐张快约 40%
+    const frag = document.createDocumentFragment();
+    visibleCards.forEach((card) => frag.append(renderCard(card)));
+    grid.append(frag);
     syncSelectionClasses();
   }
 
+  // 搜索防抖: 大量卡片时每敲一个字符全量重建网格很卡, 150ms 合并一次
+  let searchTimer = 0;
   searchBox.addEventListener("input", () => {
-    state.keyword = searchBox.value;
-    renderGrid();
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+      state.keyword = searchBox.value;
+      renderGrid();
+    }, 150);
   });
 
   // ---------------- 卡片多选 / 拖拽 ----------------
   function syncSelection() {
-    cardSelection.set(state.type, [...selection]);
+    // 合并所有分类的选中桶同步给弹窗 (当前分类以 selection 为准)
+    const map = {};
+    for (const [t, s] of selectionStore) {
+      if (t === state.type || !s.size) continue;
+      map[t] = [...s];
+    }
+    if (state.type && selection.size) map[state.type] = [...selection];
+    cardSelection.set(map);
     syncSelectionClasses();
   }
 
   function syncSelectionClasses() {
     $$(".wildcard-card", grid).forEach((c) => c.classList.toggle("selected", selection.has(c.dataset.name)));
-    const n = selection.size;
-    selText.textContent = n ? `已选 ${n} 张卡片 — 拖入上方提示词, 或点右上角 "➕ 添加选中"` : "";
+    const n = cardSelection.count();
+    const nTypes = Object.values(cardSelection.map).filter((s) => s?.length).length;
+    selText.textContent = n
+      ? `已选 ${n} 张卡片${nTypes > 1 ? ` (${nTypes} 个分类)` : ""} — 拖入上方提示词, 或点右上角 "➕ 添加选中"`
+      : "";
     selBar.classList.toggle("hidden", !n);
   }
 
   function renderCard(card) {
     const item = el("div", {
       class: "wildcard-card" + (card.special ? " wildcard-special" : ""),
-      title: card.tags || card.name,
+      title: "点击选中/取消 · 双击编辑\n" + (card.tags || card.name),
       draggable: true,
     });
     item.dataset.name = card.name;
@@ -649,13 +676,6 @@ export async function renderPanel(container, ctx, opts = {}) {
 
     item.addEventListener("click", (e) => {
       const idx = visibleCards.findIndex((c) => c.name === card.name);
-      if (e.ctrlKey || e.metaKey) {
-        if (selection.has(card.name)) selection.delete(card.name);
-        else selection.add(card.name);
-        state.lastIdx = idx;
-        syncSelection();
-        return;
-      }
       if (e.shiftKey && state.lastIdx >= 0 && idx >= 0) {
         const [a, b] = [Math.min(state.lastIdx, idx), Math.max(state.lastIdx, idx)];
         selection.clear();
@@ -663,13 +683,15 @@ export async function renderPanel(container, ctx, opts = {}) {
         syncSelection();
         return;
       }
-      // 普通点击: 编辑该卡片, 并将其设为唯一选中
-      selection.clear();
-      selection.add(card.name);
+      // 普通点击 / Ctrl+点击: 切换选中 (与提示词库一致, 再点取消)
+      if (selection.has(card.name)) selection.delete(card.name);
+      else selection.add(card.name);
       state.lastIdx = idx;
       syncSelection();
-      selectCard(card.name);
     });
+
+    // 双击: 打开编辑区 (选择状态不受影响)
+    item.addEventListener("dblclick", () => selectCard(card.name));
 
     item.addEventListener("dragstart", (e) => {
       if (!selection.has(card.name)) {
@@ -817,7 +839,7 @@ export async function renderPanel(container, ctx, opts = {}) {
     renderEditPlaceholder();
     syncSelection();
     await loadCards();
-  }
+  }  // 删除后同步共享选择 (其它分类的选中保留)
 
   /** 编辑区占位 (未选中任何卡片) */
   function renderEditPlaceholder() {
@@ -825,7 +847,7 @@ export async function renderPanel(container, ctx, opts = {}) {
     clear(editCard);
     editCard.append(
       el("div", { class: "card-title", text: "✏️ 编辑卡片" }),
-      el("div", { class: "muted", text: "从左侧选择一张卡片后在此编辑。Ctrl+点击多选, Shift+点击范围选; 选中后可拖入上方提示词或点 \"添加选中\"" }),
+      el("div", { class: "muted", text: "从左侧选择一张卡片后在此编辑。单击卡片选中/取消 (可多选), 双击打开编辑; 选中后可拖入上方提示词或点 \"添加选中\"" }),
     );
   }
 

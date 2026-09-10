@@ -55,6 +55,15 @@ async function boot() {
       case "log":
         log.addLine(ev.level, ev.message, ev.exception);
         break;
+      case "notice":
+        // 后端主动推送的右上角消息通知 (用量提醒 / NAI5 任务跳过等)
+        log.addLine(ev.level || "info", ev.message || "");
+        toast(ev.message || "通知", ev.level === "error" ? "error" : ev.level === "success" ? "success" : "warning", 10000);
+        break;
+      case "anlas:update":
+        // 剩余点数/用量快照更新 (启动查询 / 生成后按 Token 更新)
+        bus.emit("anlas:update", ev);
+        break;
       case "queue:update":
         lastQueue = ev.queue || null;
         updateJobStatus();
@@ -96,11 +105,17 @@ async function boot() {
   } else {
     connDot.classList.add("online");
     let lastLogSeq = 0;
+    let lastNotifySeq = 0;
+    let lastAnlasSeq = 0;
     async function pollLive() {
       try {
-        const d = await get("/api/live?log_after=" + lastLogSeq);
+        const d = await get("/api/live?log_after=" + lastLogSeq + "&notify_after=" + lastNotifySeq + "&anlas_after=" + lastAnlasSeq);
         lastLogSeq = d.last ?? lastLogSeq;
         for (const ev of d.logs || []) handleEvent(ev);
+        lastNotifySeq = d.notify_last ?? lastNotifySeq;
+        for (const ev of d.notifications || []) handleEvent(ev);
+        lastAnlasSeq = d.anlas_last ?? lastAnlasSeq;
+        for (const ev of d.anlas || []) handleEvent(ev);
         lastQueue = d.queue || lastQueue;
         updateJobStatus();
       } catch { /* 后端忙, 下一轮重试 */ }

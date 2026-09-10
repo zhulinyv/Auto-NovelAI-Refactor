@@ -115,7 +115,7 @@ export function openWildcardsModal(source, { title = "提示词" } = {}) {
     type: "button",
     text: "➕ 添加选中",
     disabled: true,
-    title: "把下方库中选中的项批量加入提示词 (卡片库: Ctrl+点击多选 / Shift+点击范围选, 也可直接拖入; 提示词库: 点击标签多选)",
+    title: "把下方库中选中的项批量加入提示词 (卡片库: 点击卡片选中/取消, 可跨分类, 双击编辑, 也可直接拖入; 提示词库: 点击标签多选)",
   });
   const weightModeBtn = el("button", {
     class: "btn btn-sm",
@@ -433,20 +433,23 @@ export function openWildcardsModal(source, { title = "提示词" } = {}) {
     if (!e.target.closest(".p-chip")) setMode("text");
   });
 
-  // ---- 批量加入选中的卡片 (按钮 / 拖拽共用) ----
-  async function addCards(names, type) {
-    if (!type || !names?.length) {
-      toast("请先在卡片库选择卡片 (普通点击选中并编辑, Ctrl+点击多选, Shift+点击范围选)", "warning");
+  // ---- 批量加入选中的卡片 (按钮 / 拖拽共用); batch: [{type, names}], 支持跨分类 ----
+  async function addCardsBatch(batch) {
+    const total = (batch || []).reduce((a, b) => a + (b.names?.length || 0), 0);
+    if (!total) {
+      toast("请先在卡片库点击选择卡片 (再次点击取消, 双击编辑, 可跨分类多选)", "warning");
       return;
     }
     let added = 0;
-    for (const name of names) {
-      try {
-        const res = await post("/api/wildcards/add-to-prompt", { prompt: ta.value, type, name });
-        ta.value = res.prompt ?? ta.value;
-        added++;
-      } catch (e) {
-        toast(`添加 <${type}:${name}> 失败: ` + e.message, "error");
+    for (const { type, names } of batch) {
+      for (const name of names) {
+        try {
+          const res = await post("/api/wildcards/add-to-prompt", { prompt: ta.value, type, name });
+          ta.value = res.prompt ?? ta.value;
+          added++;
+        } catch (e) {
+          toast(`添加 <${type}:${name}> 失败: ` + e.message, "error");
+        }
       }
     }
     if (!added) return;
@@ -454,7 +457,7 @@ export function openWildcardsModal(source, { title = "提示词" } = {}) {
     syncToSource(source, ta.value);
     try { source.dispatchEvent(new Event("change", { bubbles: true })); } catch { /* 忽略 */ }
     toast(`已添加 ${added} 张卡片到提示词 🌸`, "success");
-    cardSelection.set(cardSelection.type, []);
+    cardSelection.set({});   // 跨分类选择全部清空
   }
 
   addSelBtn.addEventListener("click", () => {
@@ -466,17 +469,18 @@ export function openWildcardsModal(source, { title = "提示词" } = {}) {
       promptSelection.clear();
       toast(`已添加 ${tags.length} 个提示词到提示词 🌸`, "success");
     } else {
-      addCards(cardSelection.names, cardSelection.type);
+      // 卡片库: 跨分类逐桶添加
+      addCardsBatch(Object.entries(cardSelection.map).map(([type, names]) => ({ type, names: names || [] })));
     }
   });
   clearSelBtn.addEventListener("click", () => {
     if (activeLib.lib === "prompts") promptSelection.clear();
-    else cardSelection.set(cardSelection.type, []);
+    else cardSelection.set({});
   });
   /** 共用按钮状态: 随当前库和各自选择数量刷新 */
   function refreshSelBtns() {
     if (!addSelBtn.isConnected) return;
-    const n = activeLib.lib === "prompts" ? promptSelection.tags.length : cardSelection.names.length;
+    const n = activeLib.lib === "prompts" ? promptSelection.tags.length : cardSelection.count();
     addSelBtn.disabled = !n;
     addSelBtn.textContent = n ? `➕ 添加选中 (${n})` : "➕ 添加选中";
     clearSelBtn.disabled = !n;
@@ -503,7 +507,7 @@ export function openWildcardsModal(source, { title = "提示词" } = {}) {
     const type = cardDrag.type;
     cardDrag.type = null;
     cardDrag.names = [];
-    addCards(names, type);
+    addCardsBatch([{ type, names }]);   // 拖拽: 单一分类的一批卡片
   });
 
   // ---- 下方: Wildcards 面板全部功能 ----

@@ -14,6 +14,7 @@ from pathlib import Path
 import psutil
 import send2trash
 from fastapi import APIRouter, HTTPException, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 
 from src.generate_images import generate  # noqa: F401  (确保模型导入)
@@ -756,8 +757,11 @@ async def wildcard_names(wildcard_type: str):
 
 @router.get("/wildcards/{wildcard_type}/cards")
 async def wildcard_cards(wildcard_type: str):
-    """列出卡片 (含封面信息), 用于网格展示。"""
-    return {"cards": wildcards.list_cards(wildcard_type)}
+    """列出卡片 (含封面信息), 用于网格展示。
+
+    卡片多时涉及大量文件 IO, 放线程池执行, 避免阻塞事件循环上的其它接口。
+    """
+    return {"cards": await run_in_threadpool(wildcards.list_cards, wildcard_type)}
 
 
 @router.post("/wildcards/{wildcard_type}/{wildcard_name}/cover")
@@ -1123,12 +1127,31 @@ def translate_online(payload: dict):
 
 
 # ---------------------------------------------------------------- 剩余点数 / 用量
-# 生成请求成功后由 utils.generator 更新全局缓存, 前端轮询展示; 返回 -1 表示尚未生成过
+# 启动时查询全部 Token, 生成后仅更新本次所用 Token, 前端按 Token 展示; 值为 -1 表示尚未查询到
 
 
 @router.get("/anlas")
 def get_anlas():
-    """返回最近一次生成后查询到的 (剩余点数, 剩余用量), 未生成过时为 -1。"""
-    from utils.generator import ANLAS, REMAINS
+    """返回全部 Token 的剩余点数/用量 (启动时查询一次, 每次生成后只更新所用 Token)。
 
-    return {"anlas": ANLAS, "remains": REMAINS}
+    active: 订阅是否有效 (对号/错号); recover_seconds: 下次恢复 1% 的秒数 (前端换算小时)。
+    """
+    from utils.generator import get_anlas_extra, get_anlas_snapshot
+    from utils.tokens import get_tokens, mask_token
+
+    snapshot = get_anlas_snapshot()
+    extras = get_anlas_extra()
+    tokens = get_tokens()
+    anlas_list = []
+    for i, token in enumerate(tokens):
+        anlas, remains = snapshot.get(token, (-1, -1))
+        active, recover_seconds = extras.get(token, (None, None))
+        anlas_list.append({
+            "index": i,
+            "token": mask_token(token),
+            "anlas": anlas,
+            "remains": remains,
+            "active": active,
+            "recover_seconds": recover_seconds,
+        })
+    return {"tokens": anlas_list}

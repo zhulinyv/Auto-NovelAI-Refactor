@@ -35,6 +35,13 @@ let lastOutputPath = null;
 let selectedOutputPath = null; // 多张结果中当前选中的图片 (再次单击取消)
 let lastGeneratedImages = []; // 最近一次生成的全部图片 (供 wildcards 取最后一张做封面)
 
+// 剩余点数/用量下拉徽标状态 (anlas-wrap: 容器, anlas-badge: 按钮, anlas-menu: 下拉面板)
+let anlasWrapEl = null;
+let anlasBadgeEl = null;
+let anlasMenuEl = null;
+let anlasSelected = 0;         // 徽标当前展示的 Token 序号
+let anlasOutsideBound = false; // 点击外部关闭下拉 (页面级只绑一次)
+
 // ---------------- 控件工厂 ----------------
 
 function field(label, type = "text", opts = {}) {
@@ -817,10 +824,33 @@ function buildParamsTab(body, saved) {
 // ---------------- Row2 右: 输出 ----------------
 
 function buildRightPanel() {
+  // 剩余点数/用量: 下拉徽标 (多 Token 时避免标题行文本过长溢出, 点击展开选择查看的 Token)
+  anlasWrapEl = el("div", { class: "anlas-wrap" });
+  anlasBadgeEl = el("button", { class: "badge anlas-badge", id: "anlas-badge", type: "button", title: "剩余点数 / 用量" }, "点数: --");
+  anlasMenuEl = el("div", { class: "anlas-menu" });
+  anlasMenuEl.hidden = true;
+  anlasWrapEl.append(anlasBadgeEl, anlasMenuEl);
+  anlasBadgeEl.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleAnlasMenu();
+  });
+  anlasMenuEl.addEventListener("click", (e) => {
+    const item = e.target.closest(".anlas-item");
+    if (!item) return;
+    anlasSelected = Number(item.dataset.idx) || 0;
+    toggleAnlasMenu(false);
+    updateAnlasBadge();
+  });
+  if (!anlasOutsideBound) {
+    anlasOutsideBound = true;
+    document.addEventListener("click", (e) => {
+      if (anlasWrapEl && !anlasWrapEl.contains(e.target)) toggleAnlasMenu(false);
+    });
+  }
   const card = el("div", { class: "card", style: "min-height:400px;display:flex;flex-direction:column;" }, [
     el("div", { class: "card-title" }, [
       "🖼️ 输出图片",
-      el("span", { class: "badge", id: "anlas-badge", style: "margin-left:auto;cursor:default;", title: "最近一次生成后的剩余点数 / 用量 (每次生成后更新)" }, "点数: --"),
+      anlasWrapEl,
     ]),
   ]);
   genGalleryEl = el("div", { class: "gallery", style: "flex:1;" });
@@ -839,20 +869,85 @@ function buildRightPanel() {
   return card;
 }
 
-/** 刷新右上角"剩余点数/用量"徽标 (最近一次生成后由后端缓存, 生成结束与页面加载时更新) */
+/** 展开/收起剩余点数/用量下拉面板 (force 省略时切换) */
+function toggleAnlasMenu(force) {
+  if (!anlasMenuEl) return;
+  const open = force !== undefined ? force : anlasMenuEl.hidden;
+  anlasMenuEl.hidden = !open;
+  anlasBadgeEl?.classList.toggle("open", open);
+  if (open) updateAnlasBadge();
+}
+
+/** 刷新右上角"剩余点数/用量"下拉徽标 (启动时查询全部 Token, 生成结束与页面加载时更新, 生成后仅本次所用 Token 变化) */
+let anlasRetryTimer = 0;
+let anlasRetryCount = 0;
+function anlasEntryText(t) {
+  const a = Number(t.anlas);
+  const r = Number(t.remains);
+  const ok = Number.isFinite(a) && Number.isFinite(r) && a >= 0;
+  const name = t.token || "Token";
+  return ok ? `${name} · 点数: ${a} · 用量: ${r}%` : `${name} · 未查询到`;
+}
+
+/** 下拉行: 订阅状态 emoji (本地 Twemoji 资源 ✅/❌, 跨设备显示一致) */
+function anlasStatusText(t) {
+  if (t.active === true) return "✅";   // 2705.svg
+  if (t.active === false) return "❌";  // 274c.svg
+  return "·";                           // 尚未查询到
+}
+
+/** 下拉行: "下次恢复1%: x.xx 小时" (秒 -> 小时, 保留两位小数) */
+function anlasRecoverText(t) {
+  const s = Number(t.recover_seconds);
+  if (!Number.isFinite(s) || s < 0) return "下次恢复1%: --";
+  return `下次恢复1%: ${(s / 3600).toFixed(2)} 小时`;
+}
+
 async function updateAnlasBadge() {
   try {
     const res = await fetch("/api/anlas");
     const data = await res.json();
-    const badge = document.getElementById("anlas-badge");
+    const badge = anlasBadgeEl || document.getElementById("anlas-badge");
     if (!badge) return;
-    const a = Number(data.anlas);
-    const r = Number(data.remains);
-    if (Number.isFinite(a) && Number.isFinite(r) && a >= 0) {
-      badge.textContent = `点数: ${a} · 用量: ${r}%`;
-    } else {
-      badge.textContent = "点数: -- · 用量: --";
+    const list = Array.isArray(data.tokens) ? data.tokens : [];
+    if (!list.length) {
+      badge.textContent = "点数: --";
+      badge.title = "未配置 Token, 无法查询剩余点数 / 用量";
+      if (anlasMenuEl) anlasMenuEl.replaceChildren();
+      return;
     }
+    // 启动查询尚未完成 (全部为 -1 哨兵值): 短暂自动重试; 查询完成后后端也会推送 anlas:update 主动刷新
+    const ready = list.some((t) => Number(t.anlas) >= 0);
+    if (ready) {
+      if (anlasRetryTimer) { clearTimeout(anlasRetryTimer); anlasRetryTimer = 0; }
+      anlasRetryCount = 0;
+    } else if (anlasRetryCount < 10) {
+      anlasRetryCount++;
+      if (!anlasRetryTimer) {
+        anlasRetryTimer = setTimeout(() => { anlasRetryTimer = 0; updateAnlasBadge(); }, 3000);
+      }
+    }
+    // 徽标只显示当前选中的 Token (多 Token 时避免文本溢出, 下拉面板内查看全部)
+    const cur = list.find((t) => (t.index ?? 0) === anlasSelected) || list[0];
+    anlasSelected = cur.index ?? 0;
+    badge.textContent = `${anlasStatusText(cur)} ${anlasEntryText(cur)}`;
+    badge.title = list.length > 1
+      ? "点击选择查看的 Token (启动时查询全部, 生成后只更新本次所用 Token)"
+      : "剩余点数 / 用量 (启动时查询, 生成后只更新本次所用 Token)";
+    if (!anlasMenuEl) return;
+    anlasMenuEl.replaceChildren(
+      ...list.map((t) => {
+        const item = el("div", { class: "anlas-item" + ((t.index ?? 0) === anlasSelected ? " active" : "") }, [
+          el("span", { class: "anlas-status", text: anlasStatusText(t), title: t.active === true ? "订阅有效" : t.active === false ? "订阅无效/未激活" : "尚未查询" }),
+          el("span", { class: "anlas-item-name", text: t.token || "Token" }),
+          el("span", { class: "anlas-item-val", text: (Number.isFinite(Number(t.anlas)) && Number(t.anlas) >= 0 ? `点数: ${Number(t.anlas)} · 用量: ${Number(t.remains)}%` : "未查询到") }),
+          el("span", { class: "anlas-item-recover", text: anlasRecoverText(t) }),
+        ]);
+        item.dataset.idx = String(t.index ?? 0);
+        return item;
+      }),
+      el("div", { class: "anlas-note muted", text: "剩余点数及用量 · 恢复时间在查询时更新" }),
+    );
   } catch {}
 }
 
@@ -1047,6 +1142,8 @@ function bindEvents() {
   });
   bus.on("job:done", onJobDone);
   bus.on("job:failed", onJobFailed);
+  // 启动查询 / 生成后按 Token 更新点数用量时, 后端会推送 anlas:update 事件, 徽标自动刷新
+  bus.on("anlas:update", updateAnlasBadge);
 }
 
 function syncResolution() {

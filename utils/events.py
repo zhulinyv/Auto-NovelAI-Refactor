@@ -11,7 +11,7 @@ import threading
 import time
 from typing import Any
 
-_EVENT_TYPES = ("log", "job:start", "job:event", "job:done", "job:failed", "queue:update")
+_EVENT_TYPES = ("log", "notice", "anlas:update", "job:start", "job:event", "job:done", "job:failed", "queue:update")
 
 
 class EventBroker:

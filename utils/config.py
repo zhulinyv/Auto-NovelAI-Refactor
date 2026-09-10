@@ -29,6 +29,8 @@ DEFAULTS: dict[str, Any] = {
     "hide_terminal": False,
     "disable_all_plugins": False,
     "skip_inquire_anlas": False,
+    "anlas_remind_percent": 1,
+    "skip_nai5_no_usage": False,
     "format_input": True,
     "remove_nsfw": True,
     "smtp_num": 0,
@@ -47,10 +49,11 @@ _BOOL_KEYS = {
     "hide_terminal",
     "disable_all_plugins",
     "skip_inquire_anlas",
+    "skip_nai5_no_usage",
     "format_input",
     "remove_nsfw",
 }
-_INT_KEYS = {"cool_time", "port", "smtp_num"}
+_INT_KEYS = {"cool_time", "port", "smtp_num", "anlas_remind_percent"}
 
 
 def _coerce(key: str, value: Any) -> Any:

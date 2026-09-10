@@ -42,6 +42,8 @@ async def director(payload: dict):
     except Exception as e:
         logger.error(f"提交导演工具任务失败: {e}")
         raise HTTPException(status_code=500, detail=f"提交任务失败: {e}")
+    if task is None:
+        raise HTTPException(status_code=429, detail="全部 Token 剩余用量已用完, 已跳过本次 NAI5 任务")
     return {"job_id": task.id, "queued": True, "position": gen_queue.position(task.id)}
 
 

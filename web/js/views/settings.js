@@ -131,6 +131,8 @@ export async function render(container, ctx) {
   cf("🔄 启动时检查更新", "check_update");
   cf("📝 格式化输入", "format_input", "删除多余空格和逗号或添加缺少的空格和逗号");
   cf("⚡ 跳过剩余点数/用量计算", "skip_inquire_anlas");
+  sf("🪫 剩余用量提醒%", "anlas_remind_percent", -1, 100, 1, "某 Token 剩余用量小于等于该值时发送一次提醒 (-1 为关闭); 配置了 SMTP 发邮件, 未配置则在右上角弹通知");
+  cf("🚭 用量为空时跳过 nai5 任务", "skip_nai5_no_usage", "NAI5 系列模型任务不分配给剩余用量为 0 的 Token (即使空闲); 全部 Token 无用量时跳过任务并提示");
   cf("🚫 删除 nsfw 标签", "remove_nsfw");
   cf("🔄 429 自动重试", "retry_429", "遇到 429 限流时无上限自动重试; 未开启时出错最多自动重试 3 次 (每次等待 5 秒, 仍失败则跳过该张继续生成)");
   cf("🧩 禁用全部插件", "disable_all_plugins");

@@ -2,8 +2,9 @@ from utils.logger import logger
 from utils.tokens import current_token
 
 
-def build_headers():
-    token = current_token()
+def build_headers(token: str | None = None):
+    """构建请求头; 不传 token 时使用当前线程绑定的 Token。"""
+    token = token or current_token()
     if not token:
         logger.error("未配置 Token!")
 

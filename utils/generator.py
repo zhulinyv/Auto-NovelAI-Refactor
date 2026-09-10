@@ -18,24 +18,98 @@ import ujson as json
 
 from utils.config import env
 from utils.errors import NovelAIAPIError
-from utils.helpers import generate_random_str
+from utils.events import broker
+from utils.helpers import generate_random_str, send_anlas_remind_mail
 from utils.logger import logger
 from utils.models.headers import build_headers
+from utils.tokens import current_token, get_tokens, mask_token
 from utils.variable import get_proxies
 
 _anlas_ctx = threading.local()
+_anlas_lock = threading.Lock()
 
 # 兼容保留的全局值 (多通道并发时请使用 get_last_anlas())
 ANLAS = -1
 REMAINS = -1
 
+# 每个 Token 最近一次查询到的 (剩余点数, 剩余用量); 启动时全部查询, 生成后只更新用到的 Token
+# 每次写入后通过 broker 发布 "anlas:update" 事件, 已打开的页面立即刷新剩余点数/用量徽标
+_ANLAS_BY_TOKEN: dict[str, tuple] = {}
 
-def _set_last_anlas(anlas, remains) -> None:
+# 每个 Token 最近一次查询到的 (订阅是否有效 active, 下次恢复 1% 的秒数); 与 _ANLAS_BY_TOKEN 同步更新
+_ANLAS_EXTRA: dict[str, tuple] = {}
+
+# 已触发用量提醒的 Token 集合: 提醒一次后不再重复提醒, 用量恢复到阈值以上时移除 (可再次提醒)
+_REMINDED_TOKENS: set[str] = set()
+
+
+def _set_last_anlas(anlas, remains, token: str | None = None) -> None:
     global ANLAS, REMAINS
     _anlas_ctx.anlas = anlas
     _anlas_ctx.remains = remains
     ANLAS = anlas
     REMAINS = remains
+    # 记录到按 Token 的缓存, 供前端分 Token 展示 (token 缺省时取当前线程绑定的 Token)
+    if token is None:
+        token = current_token()
+    if token:
+        with _anlas_lock:
+            _ANLAS_BY_TOKEN[token] = (anlas, remains)
+        try:
+            broker.publish("anlas:update", {"token": mask_token(token) or "(未知)"})
+        except Exception:
+            pass
+        _maybe_send_usage_remind(token, anlas, remains)
+
+
+def _maybe_send_usage_remind(token: str, anlas, remains) -> None:
+    """某 Token 剩余用量低于阈值时提醒一次 (配置 SMTP 发邮件, 否则 WebUI 右上角通知);
+    恢复到阈值以上后重置, 再次跌破时可再次提醒。"""
+    if anlas == "skipped" or remains == "skipped":
+        return
+    try:
+        threshold = int(getattr(env, "anlas_remind_percent", 1))
+    except (TypeError, ValueError):
+        threshold = 1
+    if threshold < 0:
+        return  # -1 (或任何负值) 为关闭
+    try:
+        remains_num = float(remains)
+    except (TypeError, ValueError):
+        return
+    if remains_num < 0 or remains_num > 100:
+        return  # -1 等失败哨兵值, 不参与提醒判断
+    masked = mask_token(token) or "(未知 Token)"
+    with _anlas_lock:
+        already = token in _REMINDED_TOKENS
+    if remains_num <= threshold:
+        if already:
+            return
+        with _anlas_lock:
+            _REMINDED_TOKENS.add(token)
+        if env.smtp_mail and env.smtp_token:
+            logger.warning(f"Token {masked} 剩余用量 {remains_num}% 已低于提醒阈值 {threshold}%, 正在发送提醒邮件...")
+            threading.Thread(
+                target=send_anlas_remind_mail,
+                args=(masked, remains_num, threshold),
+                daemon=True,
+                name="anlas-remind-mail",
+            ).start()
+        else:
+            # 未配置 SMTP: WebUI 右上角消息通知
+            try:
+                broker.publish("notice", {
+                    "level": "warning",
+                    "message": f"🪫 Token {masked} 剩余用量仅剩 {remains_num}% (低于提醒阈值 {threshold}%), 请及时关注",
+                })
+            except Exception as e:
+                logger.debug(f"推送用量提醒通知失败: {e}")
+            logger.warning(f"Token {masked} 剩余用量 {remains_num}% 已低于提醒阈值 {threshold}% (未配置 SMTP, 已通过 WebUI 通知)")
+    elif already:
+        # 用量已恢复到阈值以上: 重置提醒状态, 再次跌破时可再次提醒
+        with _anlas_lock:
+            _REMINDED_TOKENS.discard(token)
+        logger.info(f"Token {masked} 用量已恢复到 {remains_num}% (阈值 {threshold}%), 重置用量提醒状态")
 
 
 def get_last_anlas() -> tuple:
@@ -43,14 +117,26 @@ def get_last_anlas() -> tuple:
     return getattr(_anlas_ctx, "anlas", -1), getattr(_anlas_ctx, "remains", -1)
 
 
-def inquire_anlas():
-    """查询剩余点数与用量。"""
+def get_anlas_snapshot() -> dict[str, tuple]:
+    """全部 Token 的 (剩余点数, 剩余用量) 快照。"""
+    with _anlas_lock:
+        return dict(_ANLAS_BY_TOKEN)
+
+
+def get_anlas_extra() -> dict[str, tuple]:
+    """全部 Token 的 (订阅是否有效 active, 下次恢复 1% 的秒数) 快照。"""
+    with _anlas_lock:
+        return dict(_ANLAS_EXTRA)
+
+
+def inquire_anlas(token: str | None = None):
+    """查询剩余点数与用量 (token 缺省时用当前线程绑定的 Token), 并写入按 Token 缓存。"""
     if env.skip_inquire_anlas:
         return "skipped", "skipped"
     try:
         rep = requests.get(
             "https://image.novelai.net/user/subscription",
-            headers=build_headers(),
+            headers=build_headers(token),
             proxies=get_proxies(),
             timeout=(15, 30),
         )
@@ -60,11 +146,27 @@ def inquire_anlas():
             anlas = body["trainingStepsLeft"]["fixedTrainingStepsLeft"]
             if anlas == 0:
                 anlas = body["trainingStepsLeft"]["purchasedTrainingSteps"]
+            # 订阅状态与下次恢复 1% 的秒数 (供前端展示 "下次恢复1%: x.xx 小时")
+            active = bool(body.get("active"))
+            try:
+                seconds = float(body["usage"]["timeUntilNextPercent"])
+            except (KeyError, TypeError, ValueError):
+                seconds = None
+            with _anlas_lock:
+                _ANLAS_EXTRA[token] = (active, seconds)
+            _set_last_anlas(anlas, remains, token)
             return anlas, remains
         return -1, -1
     except Exception as e:
         logger.debug(f"查询剩余点数失败 (不影响生成): {e}")
         return -1, -1
+
+
+def inquire_all_anlas() -> dict[str, tuple]:
+    """逐个查询全部有效 Token 的剩余点数与用量 (启动 / Token 配置变化时调用)。"""
+    for token in get_tokens():
+        inquire_anlas(token)
+    return get_anlas_snapshot()
 
 
 def _response_error_message(rep) -> str:

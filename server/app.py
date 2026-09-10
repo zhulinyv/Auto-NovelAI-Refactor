@@ -24,11 +24,19 @@ from .routes import queue as queue_routes
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Auto-NovelAI-Refactor", version="2.1.0")
+    app = FastAPI(title="Auto-NovelAI-Refactor", version="2.1.3")
 
     # 后台预热常用缓存: 插件商店数据 (含 git 检查) 与提示词补全标签词典,
     # 避免打开商店页 / 首次输入提示词时的首次加载等待
     def _warm_caches():
+        # 启动查询剩余点数/用量放在最前: 输出区右上角徽标依赖该数据,
+        # 查完立即通过 anlas:update 事件让已打开的页面刷新徽标
+        try:
+            from utils.generator import inquire_all_anlas
+
+            inquire_all_anlas()
+        except Exception as e:
+            logger.debug(f"启动查询剩余点数失败: {e}")
         try:
             plugins_store.list_plugins()
         except Exception as e:
@@ -89,13 +97,29 @@ def create_app() -> FastAPI:
     # 共享链接 (隧道) 访问时 Cloudflare 会缓冲 SSE 实时流, 前端退化为轮询本接口:
     # 增量拉取日志 + 队列快照, 每 2 秒一次
     @app.get("/api/live")
-    async def live_poll(log_after: int = 0):
+    async def live_poll(log_after: int = 0, notify_after: int = 0, anlas_after: int = 0):
         seq_now = broker.current_seq()
         if log_after > seq_now:
             log_after = 0  # 后端重启后序号已重置, 前端序号失效时重新全量拉取
+        if notify_after > seq_now:
+            notify_after = 0
+        if anlas_after > seq_now:
+            anlas_after = 0
         logs = broker.history_after("log", log_after)
+        notifications = broker.history_after("notice", notify_after)
+        anlas_events = broker.history_after("anlas:update", anlas_after)
         last = logs[-1]["seq"] if logs else min(log_after, seq_now)
-        return {"logs": logs, "last": last, "queue": gen_queue.snapshot()}
+        notify_last = notifications[-1]["seq"] if notifications else min(notify_after, seq_now)
+        anlas_last = anlas_events[-1]["seq"] if anlas_events else min(anlas_after, seq_now)
+        return {
+            "logs": logs,
+            "last": last,
+            "notifications": notifications,
+            "notify_last": notify_last,
+            "anlas": anlas_events,
+            "anlas_last": anlas_last,
+            "queue": gen_queue.snapshot(),
+        }
 
     # 图标
     @app.get("/favicon.ico", include_in_schema=False)

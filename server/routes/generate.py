@@ -30,10 +30,13 @@ def _build_label(request: dict) -> str:
 async def start_generate(request: dict):
     """提交生图任务: 有空闲通道立即执行, 否则排队等待 (FIFO, 冷却后自动开始)。"""
     try:
-        task = gen_queue.submit("图片生成", generate, request, label=_build_label(request))
+        task = gen_queue.submit("图片生成", generate, request, label=_build_label(request), model=request.get("model"))
     except Exception as e:
         logger.error(f"启动生成任务失败: {e}")
         raise HTTPException(status_code=500, detail=f"启动生成任务失败: {e}")
+    if task is None:
+        # 启用 "用量为空时跳过 nai5 任务" 且全部 Token 剩余用量 <= 0: 任务未入队
+        raise HTTPException(status_code=429, detail="全部 Token 剩余用量已用完, 已跳过本次 NAI5 生成任务")
     return {"job_id": task.id, "queued": True, "position": gen_queue.position(task.id)}
 
 

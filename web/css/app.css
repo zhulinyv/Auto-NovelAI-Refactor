@@ -177,6 +177,82 @@
   border-radius: 999px;
 }
 
+/* 输出区右上角: 剩余点数/用量下拉徽标 (多 Token 时避免标题行溢出) */
+.anlas-wrap { margin-left: auto; position: relative; min-width: 0; display: inline-flex; }
+.anlas-wrap .anlas-badge {
+  font-family: inherit;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  border: none;
+  transition: background 0.15s;
+}
+.anlas-wrap .anlas-badge:hover,
+.anlas-wrap .anlas-badge.open { filter: brightness(1.12); }
+.anlas-wrap .anlas-badge img.twemoji { width: 13px; height: 13px; vertical-align: -2px; margin-right: 3px; }
+.anlas-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 70;
+  min-width: 380px;
+  max-width: 520px;
+  max-height: 300px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--panel-solid);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  padding: 6px;
+}
+.anlas-menu[hidden] { display: none; }
+.anlas-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-1, inherit);
+  white-space: nowrap;
+  overflow: hidden;
+  cursor: pointer;
+}
+.anlas-item .anlas-status {
+  flex: 0 0 16px;
+  text-align: center;
+  font-weight: 400;
+}
+.anlas-item .anlas-status img.twemoji { width: 14px; height: 14px; vertical-align: -2px; }
+.anlas-item .anlas-item-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.anlas-item .anlas-item-val { flex: 0 0 auto; }
+.anlas-item .anlas-item-recover {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-weight: 400;
+  color: var(--text-2);
+}
+.anlas-item:hover { background: var(--surface-2); }
+.anlas-item.active { background: var(--surface-2); }
+.anlas-note {
+  font-size: 11px;
+  line-height: 1.5;
+  padding: 6px 10px 3px;
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+}
+
 /* 对话框本体 (电源菜单 / 确认框): 不透明底色, 与队列弹窗一致 */
 .dialog-solid { background: var(--panel-solid); }
 
@@ -1852,7 +1928,7 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
 .wc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
 
 /* 卡片选中 / 拖拽 */
-.wildcard-card { position: relative; cursor: pointer; }
+.wildcard-card { position: relative; cursor: pointer; content-visibility: auto; contain-intrinsic-size: auto 250px; }
 .wildcard-card.dragging { opacity: 0.45; transform: none; }
 .wildcard-card .wc-check {
   position: absolute;
