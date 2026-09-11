@@ -813,7 +813,7 @@ function buildParamsTab(body, saved) {
   editor = imageEditor(editorWrap, { onChange: () => updateInpaintVisibility() });
   inpaintCtlRow = el("div", { class: "grid grid-3 hidden", style: "margin-top:12px;" });
   C.inpaintStrength = field("💪 强度", "slider", { min: 0.01, max: 0.99, step: 0.01, value: 0.7 });
-  C.inpaintNoise = field("🌫️ 噪声", "slider", { min: 0, max: 10, step: 0.01, value: 0 });
+  C.inpaintNoise = field("🌫️ 噪声", "slider", { min: 0, max: 0.99, step: 0.01, value: 0 });
   C.maskStrength = field("🧩 Mask Strength", "slider", { min: 0.01, max: 1, step: 0.01, value: 1 });
   inpaintCtlRow.append(C.inpaintStrength.node, C.inpaintNoise.node, C.maskStrength.node);
   card.append(inpaintTitle, editorWrap, inpaintCtlRow);
