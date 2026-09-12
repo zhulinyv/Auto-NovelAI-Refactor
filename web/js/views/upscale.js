@@ -99,7 +99,7 @@ export async function render(container, ctx) {
 
   bus.on("job:done", (ev) => {
     if (ev.name?.startsWith("超分:")) {
-      if (ev.images?.length) gallery(galleryEl, ev.images);
+      if (ev.images?.length) gallery(galleryEl, ev.images, { zoomOnClick: true });
       if (ev.message) showResult(infoEl, ev.message);
     }
   });

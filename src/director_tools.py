@@ -9,13 +9,48 @@ from pathlib import Path
 from PIL import Image
 
 from utils.config import env
+from utils.errors import NovelAIAPIError
 from utils.generator import Generator
-from utils.helpers import check_stop, format_str, playsound, reset_stop, sleep_for_cool
+from utils.helpers import check_stop, format_str, playsound, reset_stop, sleep_for_cool, StopGeneration
 from utils.image_tools import image_to_base64
 from utils.logger import logger
 from utils.models import director
 
 generator = Generator("https://image.novelai.net/ai/augment-image")
+
+
+def _generate_with_retry(json_data: dict, desc: str, max_retries: int = 3):
+    """调用 augment-image 并自动重试 (与生图 _generate_with_retry 行为一致):
+    - 429 且开启"429 自动重试"配置: 无上限重试 (每次等待 5 秒)
+    - 其余错误: 最多重试 max_retries 次 (每次等待 5 秒), 仍失败则抛出异常 (由上层跳过该图片)
+    - 任一点检测到停止信号: 立即抛出 StopGeneration, 不再等待/重试
+    """
+    retries = 0
+    while True:
+        if check_stop():
+            raise StopGeneration("已停止生成")
+        try:
+            data = generator.generate(json_data)
+            if not data:
+                raise NovelAIAPIError("NovelAI 未返回图片数据")
+            return data
+        except StopGeneration:
+            raise
+        except Exception as e:
+            # 捕获所有异常 (含 requests 连接错误/超时/NovelAIAPIError), 统一进入重试流程
+            is_429 = "429" in str(e)
+            if is_429 and getattr(env, "retry_429", False):
+                retries += 1
+                logger.warning(f"[{desc}] 429 限流, 等待 5 秒后自动重试 (第 {retries} 次): {e}")
+                sleep_for_cool(5)
+                continue
+            retries += 1
+            if retries > max_retries:
+                logger.error(f"[{desc}] 重试 {max_retries} 次仍失败, 跳过该图片: {e}")
+                logger.opt(exception=True).debug("导演工具重试失败堆栈:")
+                raise
+            logger.warning(f"[{desc}] 请求失败, 等待 5 秒后重试 ({retries}/{max_retries}): {e}")
+            sleep_for_cool(5)
 
 
 def _input_images(input_path: str | None, input_image: str | None) -> list[str]:
@@ -43,7 +78,7 @@ def _process(image_path: str, build_fn, image_type: str) -> str | None:
     with Image.open(image_path) as image:
         w, h = image.size
     json_data = build_fn(width=w, height=h, image=image_to_base64(image_path))
-    image_data = generator.generate(json_data)
+    image_data = _generate_with_retry(json_data, os.path.basename(image_path))
     if not image_data:
         return None
     return generator.save(image_data, image_type, random.randint(1000000000, 9999999999))
@@ -100,7 +135,7 @@ def run_director(kind: str, input_path: str | None, input_image: str | None, opt
                 with Image.open(image_path) as image:
                     w, h = image.size
                 json_data = director.remove_bg(width=w, height=h, image=image_to_base64(image_path))
-                result = generator.generate(json_data)
+                result = _generate_with_retry(json_data, f"{os.path.basename(image_path)} (Remove BG)")
                 if isinstance(result, tuple):
                     masked, generated, blend = result
                 else:
@@ -118,7 +153,11 @@ def run_director(kind: str, input_path: str | None, input_image: str | None, opt
                     image_list.append(path)
                     if not single:
                         sleep_for_cool(env.cool_time)
+        except StopGeneration:
+            logger.warning("已停止生成!")
+            break
         except Exception as e:
+            # 重试耗尽后的最终失败 (重试等待期间均已在 _generate_with_retry 内记录)
             logger.error(f"处理 {os.path.basename(image_path)} 失败: {e}")
             logger.opt(exception=True).debug("处理失败堆栈:")
             if not single:

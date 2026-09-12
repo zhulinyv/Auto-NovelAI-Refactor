@@ -4,7 +4,11 @@
 //   右上角: 排序方式 (名称/修改时间/大小) + 递归展示复选框 + 正序/倒序
 //   悬停突出显示; 双击打开应用内全屏查看器 (图片居中偏左, 右侧按钮:
 //   "使用该图片参数" / "发送到图片生成" / "发送到法术解析" / "删除 (移到回收站)")
-//   浏览期间每 5 秒轮询目录变化, 内容有变自动刷新 (temp_ 文件已排除)
+//   浏览期间每 5 秒轮询目录变化, 内容有变自动增量刷新 (temp_ 文件已排除)
+// 性能优化 (大量图片时不再卡顿):
+//   - 网格加载 360px WebP 缩略图 (/api/browse/thumb, 后端磁盘缓存), 不再加载原图
+//   - 滚动加载: 每批渲染 100 张, 滚动到底自动续载 (IntersectionObserver 哨兵)
+//   - 轮询增量刷新: 可见窗口未变时只更新计数/哨兵, 不再销毁重建整个网格
 // ============================================================
 import { $, el, clear, toast, confirmDialog } from "../ui.js";
 import { get, post, imageUrl } from "../api.js";
@@ -258,30 +262,135 @@ function sortedImages() {
   return list;
 }
 
+// ---------------- 网格渲染 (缩略图 + 滚动加载) ----------------
+
+const PAGE_SIZE = 100;            // 滚动加载: 每批渲染张数
+let renderedCount = 0;            // 已渲染张数
+let renderedPaths = new Set();    // 已渲染图片路径集合 (增量刷新比对用)
+let gridObserver = null;          // 滚动加载哨兵观察器
+let sentinelEl = null;            // 哨兵元素
+
+/** 缩略图 URL (后端 360px WebP 磁盘缓存; 生成失败时 onerror 回退原图) */
+function thumbUrl(path) {
+  return `/api/browse/thumb?path=${encodeURIComponent(path)}`;
+}
+
+/** 构建单个网格项 (缩略图 + 删除/收藏按钮 + 点击全屏查看) */
+function makeGridItem(img) {
+  const item = el("div", { class: "browse-item", title: `${img.name}\n单击全屏查看` });
+  const pic = el("img", { alt: img.name, loading: "lazy", decoding: "async" });
+  // 缩略图加载失败 (不支持的格式/损坏文件) 时回退加载原图
+  pic.addEventListener("error", () => {
+    if (!pic.dataset.fallback) {
+      pic.dataset.fallback = "1";
+      pic.src = imageUrl(img.path);
+    }
+  });
+  pic.src = thumbUrl(img.path);
+  item.append(pic);
+  // 右上角收藏按钮 (星星) 与删除按钮 (🗑️)
+  item.append(makeBrowseDelBtn(img.path, img.name));
+  item.append(makeFavStar(img.path, img.name));
+  item.addEventListener("click", () => openViewer(img.path, img.name));
+  return item;
+}
+
+function detachGridObserver() {
+  if (gridObserver) {
+    gridObserver.disconnect();
+    gridObserver = null;
+  }
+  if (sentinelEl) {
+    sentinelEl.remove();
+    sentinelEl = null;
+  }
+}
+
+function attachGridObserver(list) {
+  const grid = document.getElementById("browse-grid");
+  const main = document.getElementById("main");   // .main 是滚动容器
+  if (!grid || !main) return;
+  sentinelEl = el("div", { style: "height:1px;" });
+  grid.append(sentinelEl);
+  gridObserver = new IntersectionObserver(
+    (entries) => {
+      if (entries.some((e) => e.isIntersecting)) loadMore(list);
+    },
+    { root: main, rootMargin: "600px" },   // 提前 600px 预加载, 快速滚动也顺滑
+  );
+  gridObserver.observe(sentinelEl);
+}
+
+/** 滚动到底部: 追加渲染下一批 (只动新增节点, 已渲染的不重建) */
+function loadMore(list) {
+  const grid = document.getElementById("browse-grid");
+  if (!grid) return;
+  const next = list.slice(renderedCount, renderedCount + PAGE_SIZE);
+  if (!next.length) {
+    detachGridObserver();
+    return;
+  }
+  const frag = document.createDocumentFragment();
+  for (const img of next) frag.append(makeGridItem(img));
+  detachGridObserver();          // 连同旧哨兵一起移除
+  grid.append(frag);
+  for (const img of next) renderedPaths.add(img.path);
+  renderedCount += next.length;
+  if (renderedCount < list.length) attachGridObserver(list);
+}
+
 function renderGrid() {
   const grid = document.getElementById("browse-grid");
   const count = document.getElementById("browse-count");
   if (!grid) return;
   clear(grid);
+  detachGridObserver();
   // 收藏模式: 按收藏时间倒序展示 (最近收藏在前), 不参与目录排序
   const favMode = state.favMode;
   const list = favMode ? state.favItems : sortedImages();
   if (count) count.textContent = favMode ? `共 ${list.length} 张收藏` : `共 ${list.length} 张图片`;
   if (!list.length) {
+    renderedCount = 0;
+    renderedPaths = new Set();
     grid.append(el("div", { class: "browse-empty", text: favMode ? "还没有收藏的图片 — 点击图片右上角 ☆ 即可收藏" : "该目录下没有图片" }));
     return;
   }
-  list.forEach((img) => {
-    const item = el("div", { class: "browse-item", title: `${img.name}\n单击全屏查看` });
-    item.append(
-      el("img", { src: imageUrl(img.path), alt: img.name, loading: "lazy" }),
-    );
-    // 右上角收藏按钮 (星星) 与删除按钮 (🗑️)
-    item.append(makeBrowseDelBtn(img.path, img.name));
-    item.append(makeFavStar(img.path, img.name));
-    item.addEventListener("click", () => openViewer(img.path, img.name));
-    grid.append(item);
-  });
+  // 滚动加载: 只渲染第一页, 滚动到底部时由哨兵继续加载 (大量图片时不再一次性创建上万个节点)
+  const page = Math.min(PAGE_SIZE, list.length);
+  const frag = document.createDocumentFragment();
+  for (const img of list.slice(0, page)) frag.append(makeGridItem(img));
+  grid.append(frag);
+  renderedCount = page;
+  renderedPaths = new Set(list.slice(0, page).map((i) => i.path));
+  if (renderedCount < list.length) attachGridObserver(list);
+}
+
+/** 轮询增量刷新: 对比新列表与已渲染窗口, 尽量不重建 DOM */
+function syncGrid() {
+  const count = document.getElementById("browse-count");
+  if (!count) return;
+  const list = sortedImages();
+  count.textContent = `共 ${list.length} 张图片`;
+  if (!list.length || renderedCount === 0) {
+    renderGrid();   // 全部删光 / 本来就空: 重渲染显示空态
+    return;
+  }
+  // 新列表的前 renderedCount 项与已渲染集合一致 = 可见窗口内容未变
+  const newWindow = list.slice(0, renderedCount).map((i) => i.path);
+  const sameWindow =
+    newWindow.length === renderedPaths.size &&
+    newWindow.every((p) => renderedPaths.has(p));
+  if (sameWindow) {
+    // 新增/删除都发生在窗口之外: 不动 DOM, 只用新列表续载 (重建哨兵闭包)
+    detachGridObserver();
+    if (renderedCount < list.length) attachGridObserver(list);
+    return;
+  }
+  // 窗口内容变化 (顶部插入 / 窗口内删除 / 排序位置变化): 重渲染当前页并保持滚动位置
+  const scroller = document.getElementById("main");
+  const keepTop = scroller ? scroller.scrollTop : 0;
+  renderGrid();
+  if (scroller) scroller.scrollTop = Math.min(keepTop, scroller.scrollHeight);
 }
 // ---------------- 文件夹树 (可展开 / 收起) ----------------
 
@@ -411,12 +520,12 @@ async function pollOnce() {
       await loadImages();
       return;
     }
-    // 当前目录图片变化 (新增/删除生成结果)
+    // 当前目录图片变化 (新增/删除生成结果): 增量刷新, 不再销毁重建整个网格
     const images = iRes.images || [];
     if (imagesSig(images) !== state.imgSig) {
       state.images = images;
       state.imgSig = imagesSig(images);
-      renderGrid();
+      syncGrid();
     }
   } catch { /* 轮询失败静默, 下次再试 */ }
 }

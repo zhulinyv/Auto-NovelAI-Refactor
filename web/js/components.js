@@ -225,7 +225,7 @@ export function initLogConsole() {
 
 // ---------------- 图片编辑器 (图生图/重绘) ----------------
 
-export function imageEditor(container, { onChange } = {}) {
+export function imageEditor(container, { onChange, onImageLoad } = {}) {
   clear(container);
   const state = {
     mode: "图生图",
@@ -251,13 +251,17 @@ export function imageEditor(container, { onChange } = {}) {
   function setupCanvases(img) {
     const w = img.naturalWidth || img.width;
     const h = img.naturalHeight || img.height;
-    [bgCanvas, maskCanvas, doodleCanvas, compositeCanvas].forEach((c) => {
+    [bgCanvas, doodleCanvas, compositeCanvas].forEach((c) => {
       c.width = w;
       c.height = h;
     });
+    // 蒙版画布: 原图 1/8 尺寸 (每个蒙版像素对应 8x8 图像块, 预览即为方格)
+    maskCanvas.width = Math.max(1, Math.round(w / 8));
+    maskCanvas.height = Math.max(1, Math.round(h / 8));
     ctx(bgCanvas).drawImage(img, 0, 0);
-    ctx(maskCanvas).clearRect(0, 0, w, h);
+    ctx(maskCanvas).clearRect(0, 0, maskCanvas.width, maskCanvas.height);
     ctx(doodleCanvas).clearRect(0, 0, w, h);
+    resetHistory();   // 换图后历史失效
     clear(canvasWrap);
     canvasWrap.append(compositeCanvas, removeOverlayBtn);
     renderComposite();
@@ -271,19 +275,45 @@ export function imageEditor(container, { onChange } = {}) {
     if (state.mode === "涂鸦重绘") {
       ctx(compositeCanvas).drawImage(doodleCanvas, 0, 0);
     } else if (state.mode === "局部重绘") {
-      ctx(compositeCanvas).globalAlpha = 0.4;
-      ctx(compositeCanvas).drawImage(maskCanvas, 0, 0);
-      ctx(compositeCanvas).globalAlpha = 1;
+      // 半透明方格蒙版预览: 关闭平滑插值放大 1/8 蒙版, 白色 8x8 方格即实际重绘区域
+      const c = ctx(compositeCanvas);
+      c.imageSmoothingEnabled = false;
+      c.globalAlpha = 0.45;
+      c.drawImage(maskCanvas, 0, 0, w, h);
+      c.globalAlpha = 1;
+      c.imageSmoothingEnabled = true;
     }
   }
 
-  function drawStroke(canvas, x, y) {
+  /** 笔画参数: 蒙版画在 1/8 小画布上 (固定灰色, 线宽换算到蒙版坐标系; 后端只按 alpha 识别蒙版, 颜色不影响语义); 涂鸦画在全尺寸画布上 (用户颜色) */
+  function strokeSetup(canvas) {
     const c = ctx(canvas);
+    const isMask = canvas === maskCanvas;
     c.globalCompositeOperation = state.tool === "eraser" ? "destination-out" : "source-over";
-    c.strokeStyle = state.tool === "eraser" ? "#000" : state.brushColor;
-    c.lineWidth = state.brushSize;
+    c.strokeStyle = isMask ? "#808080" : state.brushColor;
+    c.lineWidth = isMask ? Math.max(1, state.brushSize * (canvas.width / compositeCanvas.width)) : state.brushSize;
     c.lineCap = "round";
     c.lineJoin = "round";
+    return c;
+  }
+
+  /** 二值化蒙版: alpha >= 128 的像素设为不透明灰色, 其余完全透明 (无半透明过渡像素) */
+  function binarizeMask() {
+    const c = ctx(maskCanvas);
+    const data = c.getImageData(0, 0, maskCanvas.width, maskCanvas.height);
+    const px = data.data;
+    for (let i = 0; i < px.length; i += 4) {
+      if (px[i + 3] >= 128) {
+        px[i] = 128; px[i + 1] = 128; px[i + 2] = 128; px[i + 3] = 255;
+      } else {
+        px[i] = 0; px[i + 1] = 0; px[i + 2] = 0; px[i + 3] = 0;
+      }
+    }
+    c.putImageData(data, 0, 0);
+  }
+
+  function drawStroke(canvas, x, y) {
+    const c = strokeSetup(canvas);
     c.beginPath();
     c.moveTo(x, y);
     c.lineTo(x + 0.01, y + 0.01);
@@ -302,9 +332,22 @@ export function imageEditor(container, { onChange } = {}) {
     if (!state.image) return;
     e.preventDefault();
     state.drawing = true;
+    // 指针捕获: 拖拽移出画布也持续接收事件, 松开才结束
+    try { compositeCanvas.setPointerCapture(e.pointerId); } catch {}
     const { x, y } = getPos(e);
+    // 快速选区工具: 记下起点, 拖拽实时预览, 松开时提交填充
+    if (state.tool === "rect" || state.tool === "ellipse" || state.tool === "lasso") {
+      shapeDrag = { tool: state.tool, sx: x, sy: y, cx: x, cy: y, points: [{ x, y }], mx: e.clientX, my: e.clientY };
+      renderComposite();
+      drawShapePreview();
+      return;
+    }
     const target = state.mode === "涂鸦重绘" ? doodleCanvas : maskCanvas;
-    drawStroke(target, x, y);
+    const sx = target.width / compositeCanvas.width;
+    const sy = target.height / compositeCanvas.height;
+    pushHistory([target]);
+    drawStroke(target, x * sx, y * sy);
+    if (target === maskCanvas) binarizeMask();
     renderComposite();
   }
 
@@ -312,24 +355,167 @@ export function imageEditor(container, { onChange } = {}) {
     if (!state.drawing || !state.image) return;
     e.preventDefault();
     const { x, y } = getPos(e);
+    // 选区拖拽: 更新终点 / 套索顶点, 实时预览 + 尺寸标签
+    if (shapeDrag) {
+      shapeDrag.cx = clampX(x);
+      shapeDrag.cy = clampY(y);
+      shapeDrag.mx = e.clientX;
+      shapeDrag.my = e.clientY;
+      const lp = shapeDrag.points[shapeDrag.points.length - 1];
+      if (shapeDrag.tool === "lasso" && (Math.abs(shapeDrag.cx - lp.x) > 2 || Math.abs(shapeDrag.cy - lp.y) > 2)) {
+        shapeDrag.points.push({ x: shapeDrag.cx, y: shapeDrag.cy });
+      }
+      renderComposite();
+      drawShapePreview();
+      return;
+    }
     const target = state.mode === "涂鸦重绘" ? doodleCanvas : maskCanvas;
-    const c = ctx(target);
-    c.globalCompositeOperation = state.tool === "eraser" ? "destination-out" : "source-over";
-    c.strokeStyle = state.tool === "eraser" ? "#000" : state.brushColor;
-    c.lineWidth = state.brushSize;
-    c.lineCap = "round";
-    c.lineJoin = "round";
-    c.lineTo(x, y);
+    const sx = target.width / compositeCanvas.width;
+    const sy = target.height / compositeCanvas.height;
+    const c = strokeSetup(target);
+    c.lineTo(x * sx, y * sy);
     c.stroke();
+    if (target === maskCanvas) binarizeMask();
     renderComposite();
   }
 
-  function endStroke() { state.drawing = false; }
+  function endStroke() {
+    if (shapeDrag) { commitShape(); return; }   // 选区: 松开时提交
+    state.drawing = false;
+  }
 
   compositeCanvas.addEventListener("pointerdown", startStroke);
   compositeCanvas.addEventListener("pointermove", moveStroke);
   compositeCanvas.addEventListener("pointerup", endStroke);
   compositeCanvas.addEventListener("pointerleave", endStroke);
+
+  // ---- 画笔/橡皮悬停区域提示 (跟随鼠标的圆圈, 直径 = 画笔大小 × 画布显示缩放) ----
+  const brushCursor = el("div", { class: "brush-cursor" });
+  let lastPointer = null;   // 最近一次悬停位置 (滑条调大小时原地刷新用)
+
+  /** 更新悬停指示圈: 换算当前画笔在屏幕上的实际涂抹直径并定位到鼠标下方 (仅画笔/橡皮; 选区工具隐藏) */
+  function updateBrushCursor(clientX, clientY) {
+    const brushLike = state.tool === "brush" || state.tool === "eraser";
+    if (!state.image || state.mode === "图生图" || !brushLike) {
+      brushCursor.style.display = "none";
+      lastPointer = null;
+      return;
+    }
+    const rect = compositeCanvas.getBoundingClientRect();
+    const wrapRect = canvasWrap.getBoundingClientRect();
+    const scale = rect.width / compositeCanvas.width;   // 画布像素 -> 屏幕像素
+    const d = Math.max(2, state.brushSize * scale);
+    brushCursor.style.width = d + "px";
+    brushCursor.style.height = d + "px";
+    brushCursor.classList.toggle("eraser", state.tool === "eraser");
+    brushCursor.style.left = clientX - wrapRect.left + "px";
+    brushCursor.style.top = clientY - wrapRect.top + "px";
+    // clear(canvasWrap) 重建画布后元素被移除, 这里自动补回
+    if (!canvasWrap.contains(brushCursor)) canvasWrap.append(brushCursor);
+    brushCursor.style.display = "block";
+    lastPointer = { x: clientX, y: clientY };
+  }
+
+  function hideBrushCursor() {
+    brushCursor.style.display = "none";
+    lastPointer = null;
+  }
+
+  compositeCanvas.addEventListener("pointerenter", (e) => updateBrushCursor(e.clientX, e.clientY));
+  compositeCanvas.addEventListener("pointermove", (e) => updateBrushCursor(e.clientX, e.clientY));
+  compositeCanvas.addEventListener("pointerleave", hideBrushCursor);
+
+  // ---- 快速选区 (矩形 / 椭圆 / 套索): 拖拽实时预览, 松开时填充到蒙版或涂鸦层 ----
+  let shapeDrag = null;   // { tool, sx, sy, cx, cy, points, mx, my }  画布坐标系 + 鼠标屏幕坐标
+  const shapeSizeLabel = el("div", { class: "shape-size-label" });
+
+  const clampX = (x) => Math.max(0, Math.min(compositeCanvas.width, x));
+  const clampY = (y) => Math.max(0, Math.min(compositeCanvas.height, y));
+
+  function hexToRgb(hex) {
+    const m = /^#?([0-9a-f]{6})$/i.exec(hex || "");
+    if (!m) return "255,255,255";
+    const n = parseInt(m[1], 16);
+    return ((n >> 16) & 255) + "," + ((n >> 8) & 255) + "," + (n & 255);
+  }
+
+  /** 构建选区路径 (rect / ellipse / lasso 多边形) */
+  function shapePath(c, d) {
+    c.beginPath();
+    if (d.tool === "rect") {
+      c.rect(Math.min(d.sx, d.cx), Math.min(d.sy, d.cy), Math.abs(d.cx - d.sx), Math.abs(d.cy - d.sy));
+    } else if (d.tool === "ellipse") {
+      c.ellipse((d.sx + d.cx) / 2, (d.sy + d.cy) / 2, Math.abs(d.cx - d.sx) / 2, Math.abs(d.cy - d.sy) / 2, 0, 0, Math.PI * 2);
+    } else {
+      c.moveTo(d.points[0].x, d.points[0].y);
+      for (let i = 1; i < d.points.length; i++) c.lineTo(d.points[i].x, d.points[i].y);
+      if (d.points.length > 2) c.closePath();
+    }
+  }
+
+  /** 拖拽中的半透明形状预览 (只画在合成画布上, 不提交到蒙版/涂鸦层) */
+  function drawShapePreview() {
+    const d = shapeDrag;
+    if (!d) return;
+    const rgb = state.mode === "涂鸦重绘" ? hexToRgb(state.brushColor) : "128,128,128";
+    const c = ctx(compositeCanvas);
+    c.save();
+    shapePath(c, d);
+    c.fillStyle = "rgba(" + rgb + ", 0.35)";
+    c.fill();
+    c.lineWidth = Math.max(1, compositeCanvas.width / 500);
+    c.strokeStyle = "rgba(" + rgb + ", 0.95)";
+    c.stroke();
+    c.restore();
+    updateShapeSizeLabel();
+  }
+
+  /** 实时尺寸标签: 跟随鼠标显示选区当前宽 x 高 (图像像素) */
+  function updateShapeSizeLabel() {
+    const d = shapeDrag;
+    if (!d) return;
+    const w = Math.round(Math.abs(d.cx - d.sx));
+    const h = Math.round(Math.abs(d.cy - d.sy));
+    shapeSizeLabel.textContent = w + " × " + h;
+    const wrapRect = canvasWrap.getBoundingClientRect();
+    shapeSizeLabel.style.left = Math.min(d.mx - wrapRect.left + 14, wrapRect.width - shapeSizeLabel.offsetWidth - 6) + "px";
+    shapeSizeLabel.style.top = Math.min(d.my - wrapRect.top + 18, wrapRect.height - 26) + "px";
+    if (!canvasWrap.contains(shapeSizeLabel)) canvasWrap.append(shapeSizeLabel);
+    shapeSizeLabel.style.display = "block";
+  }
+
+  function hideShapeSizeLabel() { shapeSizeLabel.style.display = "none"; }
+
+  /** 松开: 把选区形状填充到目标层 (蒙版固定灰色并二值化; 涂鸦用当前颜色) */
+  function commitShape() {
+    const d = shapeDrag;
+    shapeDrag = null;
+    state.drawing = false;
+    hideShapeSizeLabel();
+    if (!d) return;
+    const target = state.mode === "涂鸦重绘" ? doodleCanvas : maskCanvas;
+    const c = ctx(target);
+    c.globalCompositeOperation = "source-over";
+    c.fillStyle = target === maskCanvas ? "#808080" : state.brushColor;
+    pushHistory([target]);
+    // 选区坐标是全图坐标系: 蒙版画布为 1/8 尺寸, 提交时按比例缩放到蒙版坐标系
+    c.save();
+    c.scale(target.width / compositeCanvas.width, target.height / compositeCanvas.height);
+    shapePath(c, d);
+    c.fill();
+    c.restore();
+    if (target === maskCanvas) binarizeMask();
+    renderComposite();
+  }
+
+  /** 取消当前选区拖拽 (Esc) */
+  function cancelShape() {
+    if (!shapeDrag) return;
+    shapeDrag = null;
+    state.drawing = false;
+    hideShapeSizeLabel();
+    renderComposite();
+  }
 
   // ---- 工具面板 (分区布局: 上传 / 模式 / 画笔 / 操作) ----
   const tools = el("div", { class: "editor-tools" });
@@ -348,6 +534,7 @@ export function imageEditor(container, { onChange } = {}) {
       state.image = img;
       setupCanvases(img);
       updateRemoveBtn();
+      if (onImageLoad) onImageLoad(img);   // 通知外部: 基础图片尺寸就绪 (分辨率自动对齐)
       if (onChange) onChange();
       toast("基础图片已加载 🌸");
     };
@@ -371,6 +558,9 @@ export function imageEditor(container, { onChange } = {}) {
 
   function clearImage() {
     state.image = null;
+    hideBrushCursor();
+    hideShapeSizeLabel();
+    resetHistory();
     [bgCanvas, maskCanvas, doodleCanvas].forEach((c) => ctx(c).clearRect(0, 0, c.width, c.height));
     clear(canvasWrap);
     canvasWrap.append(placeholder, removeOverlayBtn);
@@ -399,35 +589,115 @@ export function imageEditor(container, { onChange } = {}) {
     state.mode = m;
     renderComposite();
     updateBrushSection();
+    if (m === "图生图") hideBrushCursor();   // 图生图不需要绘制, 隐藏画笔提示圈
     if (onChange) onChange();
   });
 
-  // 画笔/橡皮分段 + 大小滑条 + 颜色 (与 ANR 一致: 局部重绘只画遮罩不需要颜色, 涂鸦重绘需要)
-  const toolGroup = segGroup(["🖌️ 画笔", "🧽 橡皮"], "🖌️ 画笔", (m) => {
-    state.tool = m.includes("橡皮") ? "eraser" : "brush";
-  });
+  // 画笔/橡皮/快速选区分段 + 大小滑条 + 颜色 (与 ANR 一致: 局部重绘只画遮罩不需要颜色, 涂鸦重绘需要)
+  const toolGroup = el("div", { class: "opt-group ed-seg" });
+  const shapeGroup = el("div", { class: "opt-group ed-seg" });
+  const TOOL_OPTIONS = [
+    [toolGroup, "brush", "🖌️ 画笔", ""],
+    [toolGroup, "eraser", "🧽 橡皮", ""],
+    [shapeGroup, "rect", "▭ 矩形", "拖拽框选矩形区域, 拖拽时实时显示宽高"],
+    [shapeGroup, "ellipse", "◯ 椭圆", "拖拽框选椭圆区域, 拖拽时实时显示宽高"],
+    [shapeGroup, "lasso", "✎ 套索", "拖拽圈选任意形状区域 (Esc 取消)"],
+  ];
+  for (const [group, tool, label, tip] of TOOL_OPTIONS) {
+    const item = el("label", {
+      class: "opt-item" + (tool === state.tool ? " selected" : ""),
+      text: label,
+      "data-tool": tool,
+      title: tip,
+    });
+    item.addEventListener("click", () => setTool(tool));
+    group.append(item);
+  }
+  /** 统一切换工具: 两组分段按钮单选同步 */
+  function setTool(t) {
+    state.tool = t;
+    if (shapeDrag) cancelShape();   // 拖拽中切工具: 取消当前选区
+    $$(".opt-item", toolGroup).forEach((x) => x.classList.toggle("selected", x.dataset.tool === t));
+    $$(".opt-item", shapeGroup).forEach((x) => x.classList.toggle("selected", x.dataset.tool === t));
+    // 悬停中切换工具: 指示圈实线(画笔)/虚线(橡皮)/隐藏(选区) 即时切换
+    if (lastPointer) updateBrushCursor(lastPointer.x, lastPointer.y);
+  }
   const colorInput = el("input", { type: "color", value: state.brushColor });
   colorInput.addEventListener("input", () => { state.brushColor = colorInput.value; });
   const colorRow = el("div", { class: "ed-color-row" }, [el("span", { class: "ed-color-label", text: "颜色" }), colorInput]);
   // 大小滑条: 同时控制画笔和橡皮的粗细
   const sizeCtl = sliderRow({ min: 4, max: 120, step: 1, value: state.brushSize });
-  sizeCtl.input.addEventListener("input", () => { state.brushSize = sizeCtl.get(); });
+  sizeCtl.input.addEventListener("input", () => {
+    state.brushSize = sizeCtl.get();
+    // 悬停中调整大小: 指示圈直径即时跟随
+    if (lastPointer) updateBrushCursor(lastPointer.x, lastPointer.y);
+  });
   sizeCtl.node.style.flex = "1";
   sizeCtl.node.style.minWidth = "0";
   brushSec = el("div", { class: "ed-sec ed-brush-sec" }, [
-    el("div", { class: "ed-sec-title", text: "🖍️ 画笔 / 橡皮" }),
+    el("div", { class: "ed-sec-title", text: "🖍️ 画笔 / 橡皮 / 快速选区" }),
     toolGroup,
     el("div", { class: "ed-size-row" }, [el("span", { class: "ed-color-label", text: "大小" }), sizeCtl.node]),
     colorRow,
+    shapeGroup,
   ]);
   function updateBrushSection() {
-    // 图生图不需要绘制, 整块隐藏; 局部重绘不需要画笔颜色, 仅涂鸦重绘显示颜色
-    brushSec.classList.toggle("hidden", state.mode === "图生图");
+    const isI2I = state.mode === "图生图";
+    // 图生图不需要绘制: 画笔区与操作按钮行全部隐藏; 局部重绘不需要颜色, 仅涂鸦重绘显示颜色
+    brushSec.classList.toggle("hidden", isI2I);
+    historyRow.classList.toggle("hidden", isI2I);
+    actionsRow.classList.toggle("hidden", isI2I);
     colorRow.classList.toggle("hidden", state.mode !== "涂鸦重绘");
   }
 
+  // ---- 撤销 / 恢复 (绘制历史: 每次操作前快照将被修改的画布) ----
+  const undoStack = [];
+  const redoStack = [];
+  const HISTORY_MAX = 20;
+  const snapshotCanvas = (c) => ctx(c).getImageData(0, 0, c.width, c.height);
+
+  function updateHistoryBtns() {
+    undoBtn.disabled = undoStack.length === 0;
+    redoBtn.disabled = redoStack.length === 0;
+  }
+  function resetHistory() {
+    undoStack.length = 0;
+    redoStack.length = 0;
+    if (undoBtn) updateHistoryBtns();
+  }
+  /** 记录一步操作: 传入本次将要修改的画布, 保存修改前快照 */
+  function pushHistory(canvases) {
+    undoStack.push(canvases.map((c) => ({ canvas: c, data: snapshotCanvas(c) })));
+    if (undoStack.length > HISTORY_MAX) undoStack.shift();
+    redoStack.length = 0;   // 有新操作后, 不可恢复
+    updateHistoryBtns();
+  }
+  function undoHistory() {
+    const entry = undoStack.pop();
+    if (!entry) return;
+    redoStack.push(entry.map((e) => ({ canvas: e.canvas, data: snapshotCanvas(e.canvas) })));
+    for (const e of entry) ctx(e.canvas).putImageData(e.data, 0, 0);
+    renderComposite();
+    updateHistoryBtns();
+  }
+  function redoHistory() {
+    const entry = redoStack.pop();
+    if (!entry) return;
+    undoStack.push(entry.map((e) => ({ canvas: e.canvas, data: snapshotCanvas(e.canvas) })));
+    for (const e of entry) ctx(e.canvas).putImageData(e.data, 0, 0);
+    renderComposite();
+    updateHistoryBtns();
+  }
+
+  const undoBtn = el("button", { class: "btn btn-sm btn-ghost", text: "↩️ 撤销", title: "撤销上一步绘制 (Ctrl+Z)" });
+  undoBtn.addEventListener("click", undoHistory);
+  const redoBtn = el("button", { class: "btn btn-sm btn-ghost", text: "↪️ 恢复", title: "恢复被撤销的绘制 (Ctrl+Y)" });
+  redoBtn.addEventListener("click", redoHistory);
+  updateHistoryBtns();
+
   const clearBtn = el("button", { class: "btn btn-sm btn-ghost", text: "🗑️ 清空绘制" });
   clearBtn.addEventListener("click", () => {
+    pushHistory([maskCanvas, doodleCanvas]);
     ctx(maskCanvas).clearRect(0, 0, maskCanvas.width, maskCanvas.height);
     ctx(doodleCanvas).clearRect(0, 0, doodleCanvas.width, doodleCanvas.height);
     renderComposite();
@@ -465,27 +735,60 @@ export function imageEditor(container, { onChange } = {}) {
     if (overlay) closeFullscreen(); else openFullscreen();
   });
 
-  // Esc 关闭
+  // Esc 关闭 (选区拖拽中先取消选区); Ctrl+Z / Ctrl+Y 撤销恢复
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") closeFullscreen();
+    if (e.key === "Escape") {
+      if (shapeDrag) { cancelShape(); return; }
+      closeFullscreen();
+      return;
+    }
+    if (!state.image) return;
+    const mod = e.ctrlKey || e.metaKey;
+    if (!mod) return;
+    // 文本输入焦点时不拦截系统编辑快捷键
+    const tag = document.activeElement && document.activeElement.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+    const key = e.key.toLowerCase();
+    if (key === "z" && !e.shiftKey) {
+      e.preventDefault();
+      undoHistory();
+    } else if (key === "y" || (key === "z" && e.shiftKey)) {
+      e.preventDefault();
+      redoHistory();
+    }
   });
 
+  // 操作按钮两行 (撤销/恢复 + 清空/全屏): 图生图模式下与画笔区一并隐藏
+  const historyRow = el("div", { class: "ed-actions" }, [undoBtn, redoBtn]);
+  const actionsRow = el("div", { class: "ed-actions" }, [clearBtn, fullscreenBtn]);
   updateBrushSection();
   updateRemoveBtn();
   tools.append(
     el("div", { class: "ed-sec" }, [el("div", { class: "ed-sec-title", text: "🎨 重绘模式" }), modeGroup]),
     brushSec,
-    el("div", { class: "ed-actions" }, [clearBtn, fullscreenBtn]),
+    historyRow,
+    actionsRow,
   );
   wrap.append(canvasWrap, tools);
   container.append(wrap);
+
+  /** 导出蒙版: 把 1/8 蒙版画布无损放大回原图尺寸 (关闭平滑插值, 保持 8x8 方格硬边与二值), 文件与原图同尺寸 */
+  async function buildMaskBlob() {
+    const c = document.createElement("canvas");
+    c.width = bgCanvas.width;
+    c.height = bgCanvas.height;
+    const cx = c.getContext("2d");
+    cx.imageSmoothingEnabled = false;
+    cx.drawImage(maskCanvas, 0, 0, c.width, c.height);
+    return new Promise((resolve) => c.toBlob(resolve, "image/png"));
+  }
 
   // 导出: 上传三张图, 返回路径
   async function exportImages() {
     if (!state.image) return null;
     const blob = (c) => new Promise((resolve) => c.toBlob(resolve, "image/png"));
     const bgBlob = await blob(bgCanvas);
-    const maskBlob = await blob(maskCanvas);
+    const maskBlob = await buildMaskBlob();
     const compBlob = await blob(compositeCanvas);
     const files = await uploadFiles([
       new File([bgBlob], "background.png"),
@@ -508,6 +811,7 @@ export function imageEditor(container, { onChange } = {}) {
     img.onload = () => {
       state.image = img;
       setupCanvases(img);
+      if (onImageLoad) onImageLoad(img);   // 通知外部: 基础图片尺寸就绪 (分辨率自动对齐)
       if (onChange) onChange();
       toast("已加载到图生图编辑器 🎨", "success");
     };

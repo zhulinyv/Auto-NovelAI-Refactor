@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import platform
@@ -150,56 +151,100 @@ _BROWSE_EXCLUDED_DIRS = {
 
 
 @router.get("/browse/folders")
-async def browse_folders():
-    """列出 outputs 目录及其全部子目录 (相对路径), 供图片浏览视图选择。"""
+def browse_folders():
+    """列出 outputs 目录及其全部子目录 (相对路径), 供图片浏览视图选择。
+
+    同步 def: FastAPI 会在线程池执行, 目录扫描不再阻塞事件循环 (大量图片时应用不再整体卡住)。
+    scandir 递归遍历, 遇到排除目录直接跳过, 比 rglob + 逐项 is_dir 快得多。
+    """
     base = BASE_DIR / "outputs"
     folders = [""]
+
+    def walk(d: Path, rel_prefix: str):
+        try:
+            entries = sorted(os.scandir(d), key=lambda e: e.name)
+        except OSError:
+            return
+        for entry in entries:
+            if not entry.is_dir(follow_symlinks=False):
+                continue
+            name = entry.name
+            if name.startswith((".", "_")):  # "_"/"." 开头为内部/测试目录
+                continue
+            rel = f"{rel_prefix}/{name}" if rel_prefix else name
+            if rel.split("/")[0] in _BROWSE_EXCLUDED_DIRS:
+                continue
+            folders.append(rel)
+            walk(Path(entry.path), rel)
+
     if base.exists():
-        for p in sorted(base.rglob("*")):
-            if p.is_dir() and not p.name.startswith((".", "_")):  # "_"/"." 开头为内部/测试目录
-                rel = p.relative_to(base).as_posix()
-                top = rel.split("/")[0]
-                if top in _BROWSE_EXCLUDED_DIRS or top.startswith(("_", ".")):
-                    continue
-                folders.append(rel)
+        walk(base, "")
     return {"base": "outputs", "folders": folders}
 
 
 @router.get("/browse/images")
-async def browse_images(dir: str = "", recursive: bool = False):
-    """列出 outputs 下指定子目录的图片 (recursive=True 时含子目录, 前端自行排序)。"""
+def browse_images(dir: str = "", recursive: bool = False):
+    """列出 outputs 下指定子目录的图片 (recursive=True 时含子目录, 前端自行排序)。
+
+    同步 def: FastAPI 会在线程池执行, 浏览期间每 5 秒的轮询不再周期性阻塞事件循环。
+    scandir 递归遍历 (Windows 上 DirEntry 自带 stat 信息, 无需逐文件 stat),
+    并在遍历时跳过排除目录, 大量图片时扫描速度提升一个数量级。
+    """
     base = (BASE_DIR / "outputs").resolve()
     target = (base / dir).resolve()
     images = []
     # 防目录穿越: 解析后必须仍在 outputs 内
     if str(target).startswith(str(base)) and target.is_dir():
-        candidates = target.rglob("*") if recursive else target.iterdir()
-        for p in candidates:
+        top0 = dir.strip("/").split("/")[0] if dir else None
+
+        def walk(d: Path, top: str | None):
             try:
-                if not p.is_file() or p.suffix.lower() not in _BROWSE_EXTS:
-                    continue
-                if "temp_" in p.name.lower():  # 排除临时文件
-                    continue
-                top = p.relative_to(base).as_posix().split("/")[0]
-                if top in _BROWSE_EXCLUDED_DIRS or top.startswith(("_", ".")):
-                    continue
-                st = p.stat()
-                images.append(
-                    {
-                        "name": p.name,
-                        "path": p.as_posix(),
-                        "mtime": st.st_mtime,
-                        "size": st.st_size,
-                    }
-                )
+                with os.scandir(d) as it:
+                    for entry in it:
+                        name = entry.name
+                        try:
+                            if entry.is_dir(follow_symlinks=False):
+                                if not recursive:
+                                    continue
+                                if name.startswith((".", "_")):
+                                    continue
+                                child_top = top if top else name
+                                if child_top in _BROWSE_EXCLUDED_DIRS:
+                                    continue
+                                walk(Path(entry.path), child_top)
+                                continue
+                            if not entry.is_file(follow_symlinks=False):
+                                continue
+                            if "temp_" in name.lower():  # 排除临时文件
+                                continue
+                            if os.path.splitext(name)[1].lower() not in _BROWSE_EXTS:
+                                continue
+                            if top is not None and (top in _BROWSE_EXCLUDED_DIRS or top.startswith(("_", "."))):
+                                continue
+                            st = entry.stat(follow_symlinks=False)
+                            images.append(
+                                {
+                                    "name": name,
+                                    "path": Path(entry.path).relative_to(base).as_posix(),
+                                    "mtime": st.st_mtime,
+                                    "size": st.st_size,
+                                }
+                            )
+                        except OSError:
+                            continue
             except OSError:
-                continue
+                return
+
+        walk(target, top0)
     return {"dir": dir, "images": images}
 
 
 @router.post("/browse/delete")
-async def browse_delete(payload: dict):
-    """把图片浏览中的图片移到系统回收站 (send2trash, 不经过 selector_trash 文件夹)。"""
+def browse_delete(payload: dict):
+    """把图片浏览中的图片移到系统回收站 (send2trash, 不经过 selector_trash 文件夹)。
+
+    同步 def: 回收站操作是阻塞 IO, 在线程池执行避免卡住事件循环。
+    """
     path = (payload.get("path") or "").strip()
     base = (BASE_DIR / "outputs").resolve()
     if not path:
@@ -217,6 +262,90 @@ async def browse_delete(payload: dict):
     except Exception as e:
         logger.error(f"删除图片失败: {e}")
         raise HTTPException(status_code=500, detail=f"删除失败: {e}")
+
+
+# ---------------------------------------------------------------- 图片浏览缩略图
+
+_THUMB_SIZE = 360  # 网格缩略图最长边 (px), 兼容高分屏
+_THUMB_DIR = BASE_DIR / "outputs" / ".thumb_cache"  # "." 开头目录不会出现在图片浏览中
+_THUMB_CAP = 20000  # 缓存文件数上限, 超过后按最旧优先清理一半
+
+
+@router.get("/browse/thumb")
+def browse_thumb(path: str):
+    """返回图片的 360px WebP 缩略图 (磁盘缓存)。
+
+    缓存键包含原图 mtime_ns + size: 原图更新/覆盖后自动失效重新生成。
+    同步 def: Pillow 解码/缩放在线程池执行, 不阻塞事件循环。
+    生成失败返回 404, 前端收到后回退加载原图。
+    """
+    base = (BASE_DIR / "outputs").resolve()
+    p = Path(path)
+    target = (p if p.is_absolute() else base / path).resolve()
+    if not str(target).startswith(str(base)) or not target.is_file():
+        raise HTTPException(status_code=404, detail="图片不存在或无权访问")
+    if target.suffix.lower() not in _BROWSE_EXTS:
+        raise HTTPException(status_code=400, detail="不支持的图片类型")
+    try:
+        st = target.stat()
+    except OSError:
+        raise HTTPException(status_code=404, detail="图片不存在")
+    rel = target.relative_to(base).as_posix()
+    key = hashlib.sha1(f"{rel}|{st.st_mtime_ns}|{st.st_size}".encode("utf-8")).hexdigest()
+    _THUMB_DIR.mkdir(parents=True, exist_ok=True)
+    thumb = _THUMB_DIR / f"{key}.webp"
+    if not thumb.is_file():
+        _generate_thumbnail(target, thumb)
+    if not thumb.is_file():  # 生成失败 -> 前端回退原图
+        raise HTTPException(status_code=404, detail="缩略图生成失败")
+    # 缓存键已包含内容版本, 可永久缓存
+    return FileResponse(
+        thumb, media_type="image/webp", headers={"Cache-Control": "public, max-age=31536000, immutable"}
+    )
+
+
+def _generate_thumbnail(target: Path, thumb: Path) -> None:
+    """生成缩略图并原子写入缓存 (失败静默, 由调用方回退 404)。"""
+    tmp = None
+    try:
+        from PIL import Image, ImageOps
+
+        with Image.open(target) as img:
+            img.load()
+            try:
+                img = ImageOps.exif_transpose(img)  # 按 EXIF 方向摆正 (手机拍摄等)
+            except Exception:
+                pass
+            if img.mode not in ("RGB", "RGBA"):
+                img = img.convert("RGBA" if img.mode in ("P", "LA", "PA") else "RGB")
+            img.thumbnail((_THUMB_SIZE, _THUMB_SIZE), Image.Resampling.LANCZOS)
+            tmp = thumb.with_name(f".{uuid.uuid4().hex}.tmp")
+            img.save(tmp, format="WEBP", quality=82, method=4)
+        os.replace(tmp, thumb)  # 原子替换: 并发请求也不会读到半张图
+        _prune_thumb_cache()
+    except Exception as e:
+        logger.debug(f"缩略图生成失败 {target}: {e}")
+        try:
+            if tmp is not None and tmp.exists():
+                tmp.unlink()
+        except OSError:
+            pass
+
+
+def _prune_thumb_cache() -> None:
+    """缓存文件数超过上限时删除最旧的一半 (缩略图随时可再生, 清理失败无影响)。"""
+    try:
+        entries = [e for e in os.scandir(_THUMB_DIR) if e.is_file() and e.name.endswith(".webp")]
+        if len(entries) <= _THUMB_CAP:
+            return
+        entries.sort(key=lambda e: e.stat().st_mtime)
+        for e in entries[: len(entries) // 2]:
+            try:
+                os.unlink(e.path)
+            except OSError:
+                pass
+    except OSError:
+        pass
 
 
 # ---------------------------------------------------------------- 图片收藏 (我的收藏)
@@ -276,8 +405,11 @@ async def favorites_remove(payload: dict):
 
 
 @router.post("/upload")
-async def upload_files(files: list[UploadFile]):
-    upload_dir = BASE_DIR / "outputs" / "uploads"
+async def upload_files(files: list[UploadFile], subdir: str = "uploads"):
+    parts = [p for p in subdir.split("/") if p]
+    if not parts or any(not re.fullmatch(r"[\w\-]+", p) for p in parts):
+        raise HTTPException(status_code=400, detail="非法上传子目录")
+    upload_dir = BASE_DIR.joinpath("outputs", *parts)
     upload_dir.mkdir(parents=True, exist_ok=True)
     saved = []
     for file in files:

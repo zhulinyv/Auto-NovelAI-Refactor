@@ -24,11 +24,12 @@ export const get = (url) => request("GET", url);
 export const post = (url, body) => request("POST", url, body ?? {});
 export const del = (url) => request("DELETE", url);
 
-/** 上传文件, 返回 [{name, path}] */
-export async function uploadFiles(files) {
+/** 上传文件, 返回 [{name, path}]; subdir 可选 (如 "director/pixel_snap"), 默认 outputs/uploads */
+export async function uploadFiles(files, subdir = "") {
   const form = new FormData();
   for (const f of files) form.append("files", f);
-  const res = await fetch("/api/upload", { method: "POST", body: form });
+  const url = subdir ? "/api/upload?subdir=" + encodeURIComponent(subdir) : "/api/upload";
+  const res = await fetch(url, { method: "POST", body: form });
   if (!res.ok) {
     let detail = `HTTP ${res.status}`;
     try { detail = (await res.json()).detail || detail; } catch {}

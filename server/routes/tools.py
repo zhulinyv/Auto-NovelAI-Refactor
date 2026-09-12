@@ -47,6 +47,36 @@ async def director(payload: dict):
     return {"job_id": task.id, "queued": True, "position": gen_queue.position(task.id)}
 
 
+@router.get("/director/local-images")
+def director_local_images(dir: str = ""):
+    """列出目录顶层的图片文件, 供前端本地工具 (Pixel Snap) 批处理枚举输入。
+
+    目录扫描行为与后端导演工具 _input_images 对齐 (非递归, 排除 temp_ 临时文件)。
+    同步 def: 线程池执行, 网络盘目录遍历不阻塞事件循环。
+    """
+    import os
+    from pathlib import Path
+
+    if not dir:
+        raise HTTPException(status_code=400, detail="未指定目录")
+    p = Path(dir)
+    try:
+        p = p.resolve()
+    except OSError:
+        raise HTTPException(status_code=400, detail="无效的目录路径")
+    if not p.is_dir():
+        raise HTTPException(status_code=404, detail=f"目录不存在: {p}")
+    exts = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
+    images = []
+    for f in sorted(os.listdir(p)):
+        if "temp_" in f.lower():
+            continue
+        fp = p / f
+        if fp.is_file() and fp.suffix.lower() in exts:
+            images.append(str(fp))
+    return {"images": images}
+
+
 # ---------------------------------------------------------------- 超分
 
 

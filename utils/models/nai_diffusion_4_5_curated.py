@@ -101,5 +101,6 @@ def inpaint(json_data, **kwargs):
     json_data["action"] = "infill"
     json_data["parameters"]["inpaintImg2ImgStrength"] = kwargs["inpaint_i2i_strength"]
     json_data["parameters"]["mask"] = kwargs["mask"]
-    json_data["parameters"]["add_original_image"] = False
+    # 对齐官网 inpaint 默认行为 (Overlay Original Image): 蒙版外区域保持原图逐像素不变
+    json_data["parameters"]["add_original_image"] = True
     return json_data

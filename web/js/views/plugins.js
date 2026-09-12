@@ -78,7 +78,7 @@ function ensurePreviewBox(jobId, jobName = "") {
   if (!parent) return null;
   box = el("div", { id, class: "plugin-preview hidden" });
   const img = el("img", { class: "plugin-preview-img", alt: "预览" });
-  img.addEventListener("dblclick", () => {
+  img.addEventListener("click", () => {
     if (!img.src) return;
     const overlay = el("div", { class: "img-max-overlay" }, [
       el("img", { class: "img-max-content", src: img.src, alt: "预览" }),
@@ -141,7 +141,7 @@ bus.on("job:done", (ev) => {
   if (target) {
     if (ev.images?.length) {
       const gal = target.querySelector(".gallery");
-      if (gal) gallery(gal, ev.images);
+      if (gal) gallery(gal, ev.images, { zoomOnClick: true });
     }
     if (ev.image) {
       const img = target.querySelector(".preview-img");
@@ -661,8 +661,8 @@ function renderPanel(plugin, panel, body) {
         if (!pvBox) {
           pvBox = el("div", { id: previewId, class: "plugin-preview hidden" });
           const pvImg = el("img", { class: "plugin-preview-img", alt: "预览" });
-          // 双击最大化查看
-          pvImg.addEventListener("dblclick", () => {
+          // 单击最大化查看
+          pvImg.addEventListener("click", () => {
             if (!pvImg.src) return;
             const overlay = el("div", { class: "img-max-overlay" }, [
               el("img", { class: "img-max-content", src: pvImg.src, alt: "预览" }),

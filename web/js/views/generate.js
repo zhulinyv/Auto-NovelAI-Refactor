@@ -810,7 +810,18 @@ function buildParamsTab(body, saved) {
   // 图生图 / 重绘
   const inpaintTitle = el("div", { class: "card-title", style: "margin-top:14px;", text: "🎨 图生图 / 局部重绘 / 涂鸦重绘" });
   const editorWrap = el("div");
-  editor = imageEditor(editorWrap, { onChange: () => updateInpaintVisibility() });
+  editor = imageEditor(editorWrap, {
+    onChange: () => updateInpaintVisibility(),
+    // 上传基础图片后: 分辨率自动改为图片尺寸最接近的 64 倍数
+    onImageLoad: (img) => {
+      const w = round64(img.naturalWidth || img.width);
+      const h = round64(img.naturalHeight || img.height);
+      C.width.set(w);
+      C.height.set(h);
+      syncResolution();
+      toast(`📐 分辨率已随图片对齐: ${w} × ${h}`, "info");
+    },
+  });
   inpaintCtlRow = el("div", { class: "grid grid-3 hidden", style: "margin-top:12px;" });
   C.inpaintStrength = field("💪 强度", "slider", { min: 0.01, max: 0.99, step: 0.01, value: 0.7 });
   C.inpaintNoise = field("🌫️ 噪声", "slider", { min: 0, max: 0.99, step: 0.01, value: 0 });
@@ -1122,6 +1133,12 @@ async function applyModelChange(initial = false) {
 
 // ---------------- 事件绑定 ----------------
 
+/** 对齐到最接近的 64 的倍数 (下限 64, 与后端 return_x64 一致); 供手动输入与图片上传共用 */
+function round64(v) {
+  const n = Math.round(Number(v) / 64) * 64;
+  return Number.isFinite(n) && n >= 64 ? n : 64;
+}
+
 function bindEvents() {
   C.model.input?.addEventListener("change", () => applyModelChange());
   C.resolution.input?.addEventListener("change", () => {
@@ -1133,8 +1150,20 @@ function bindEvents() {
     }
     charRegion?.refresh?.();
   });
-  C.width.input?.addEventListener("change", () => syncResolution());
-  C.height.input?.addEventListener("change", () => syncResolution());
+  // 自定义分辨率: 失焦/回车后自动对齐到最接近的 64 的倍数 (round64 为模块级函数)
+  const snap64 = (c, label) => {
+    const before = String(c.get()).trim();
+    const after = round64(before);
+    if (String(after) !== before) {
+      c.set(after);
+      syncResolution();
+      toast(`📐 ${label}已对齐到 64 的倍数: ${after}`, "info");
+    } else {
+      syncResolution();
+    }
+  };
+  C.width.input?.addEventListener("change", () => snap64(C.width, "宽"));
+  C.height.input?.addEventListener("change", () => snap64(C.height, "高"));
   C.sm.input?.addEventListener("change", () => setVisible(C.smDyn, isNai3(C.model.get()) && C.sm.get()));
   C.generateBtn.addEventListener("click", onGenerate);
   C.stopBtn.addEventListener("click", async () => {
@@ -1287,7 +1316,7 @@ export async function sendToImg2img(path) {
   if (!path) return false;
   try {
     await editor.loadImage(path);
-    toast("已加载到图生图编辑器 🎨", "success");
+    // "已加载到图生图编辑器" 提示由编辑器 loadImage 内部弹出, 这里不再重复
     // 切换到参数设置页签
     const bar = document.querySelector("#view-generate .tabs");
     if (bar) { [...bar.children].forEach((b, i) => b.classList.toggle("active", i === 0)); }

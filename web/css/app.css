@@ -711,6 +711,35 @@ a.btn { text-decoration: none; }
 }
 .editor-remove-btn:hover { background: var(--danger); }
 
+/* 画笔/橡皮悬停区域提示圈 (跟随鼠标, 直径 = 画笔大小 × 画布显示缩放) */
+.editor-canvas-wrap .brush-cursor {
+  position: absolute;
+  z-index: 9;
+  display: none;
+  border: 1.5px solid rgba(255, 255, 255, 0.95);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), inset 0 0 0 1px rgba(0, 0, 0, 0.35);
+  border-radius: 50%;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+.editor-canvas-wrap .brush-cursor.eraser { border-style: dashed; }
+
+/* 选区拖拽时的实时尺寸标签 (矩形/椭圆/套索, 显示宽 × 高) */
+.editor-canvas-wrap .shape-size-label {
+  position: absolute;
+  z-index: 11;
+  display: none;
+  padding: 2px 8px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.72);
+  border-radius: 999px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.editor-canvas-wrap canvas { cursor: crosshair; }
+
 /* 全屏编辑遮罩层 */
 .editor-overlay {
   position: fixed;
