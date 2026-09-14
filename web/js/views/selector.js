@@ -3,13 +3,13 @@
 // ============================================================
 import { $, el, clear, toast } from "../ui.js";
 import { post, imageUrl } from "../api.js";
+import { openLightbox } from "../components.js";
 
 let S = null;
 let currentPath = null;
 let previewEl = null;
 let infoEl = null;
 let loadBtn = null;
-let fullBtn = null;
 
 export async function render(container, ctx) {
   S = ctx;
@@ -51,14 +51,8 @@ export async function render(container, ctx) {
     ]),
   );
 
-  fullBtn = el("button", { class: "btn btn-sm btn-ghost", type: "button", text: "⛶ 全窗口", style: "display:none;" });
-  fullBtn.title = "全窗口显示当前图片";
-  fullBtn.addEventListener("click", () => openFullscreenPreview());
   const mainCard = el("div", { class: "card", style: "margin:0;" }, [
-    el("div", { class: "card-title", style: "display:flex;align-items:center;justify-content:space-between;width:100%;" }, [
-      el("span", { text: "🖼️ 预览" }),
-      fullBtn,
-    ]),
+    el("div", { class: "card-title" }, ["🖼️ 预览"]),
   ]);
   previewEl = el("div", { style: "text-align:center;min-height:300px;display:flex;align-items:center;justify-content:center;color:var(--text-2);", text: "加载目录后显示图片" });
   infoEl = el("div", { class: "info-box", style: "margin-top:10px;" });
@@ -69,13 +63,18 @@ export async function render(container, ctx) {
     el("div", { class: "card-title" }, ["🎛️ 操作"]),
   ]);
   const actions = el("div", { style: "display:flex;flex-direction:column;gap:8px;" });
+  const dirAction = (url, input) => {
+    const dir = input.value.trim();
+    if (!dir) { toast("请先填写目标目录 📂", "warning"); return; }
+    selectorAction(url, { output_path: dir, current: currentPath });
+  };
   const btnDefs = [
     ["↩️ 撤销", () => selectorAction("/api/selector/undo")],
     ["⏭️ 跳过", () => selectorAction("/api/selector/next")],
-    ["📥 移动到目录1", () => selectorAction("/api/selector/move", { output_path: dir1.value, current: currentPath })],
-    ["📥 移动到目录2", () => selectorAction("/api/selector/move", { output_path: dir2.value, current: currentPath })],
-    ["📋 复制到目录1", () => selectorAction("/api/selector/copy", { output_path: dir1.value, current: currentPath })],
-    ["📋 复制到目录2", () => selectorAction("/api/selector/copy", { output_path: dir2.value, current: currentPath })],
+    ["📥 移动到目录1", () => dirAction("/api/selector/move", dir1)],
+    ["📥 移动到目录2", () => dirAction("/api/selector/move", dir2)],
+    ["📋 复制到目录1", () => dirAction("/api/selector/copy", dir1)],
+    ["📋 复制到目录2", () => dirAction("/api/selector/copy", dir2)],
     ["🗑️ 删除", () => selectorAction("/api/selector/delete", { current: currentPath }), true],
   ];
   btnDefs.forEach(([text, fn, danger]) => {
@@ -102,32 +101,33 @@ async function pickFolder(input) {
   } catch (e) { toast(e.message, "error"); }
 }
 
-function openFullscreenPreview() {
-  const img = previewEl?.querySelector("img");
-  if (!img) return;
-  const overlay = el("div", { class: "fullscreen-preview", style: "position:fixed;inset:0;z-index:4000;background:rgba(0,0,0,0.88);display:flex;align-items:center;justify-content:center;cursor:zoom-out;" });
-  const big = el("img", { src: img.src, style: "max-width:96vw;max-height:94vh;border-radius:var(--radius-sm);box-shadow:var(--shadow-lg);" });
-  const close = el("button", { text: "✕", style: "position:absolute;top:16px;right:20px;width:40px;height:40px;border-radius:var(--radius-sm);border:none;background:color-mix(in srgb,var(--panel-solid) 90%,var(--border));color:var(--text-1);font-size:18px;cursor:pointer;" });
-  const closeAll = () => overlay.remove();
-  overlay.append(big, close);
-  overlay.addEventListener("click", closeAll);
-  close.addEventListener("click", (e) => { e.stopPropagation(); closeAll(); });
-  document.body.append(overlay);
+/** 放大查看当前正在筛选的图片 (共享 Lightbox: 单击图片切换原始大小/适应窗口, 点空白或 Esc 关闭) */
+function zoomCurrent() {
+  if (!currentPath) return;
+  openLightbox(imageUrl(currentPath), String(currentPath).split(/[\\/]/).pop());
 }
 
 async function selectorAction(url, payload) {
   try {
     const res = await post(url, payload ?? { current: currentPath });
+    // 后端报错 (没有可撤销 / 移动·复制·删除失败 / 目录没有图片): 只提示,
+    // 保留当前预览与队列状态, 不能误显示成"已浏览完所有图片"
+    if (res.error) { toast(res.error, "warning"); return; }
     if (res.current) {
       currentPath = res.current;
       clear(previewEl);
-      previewEl.append(el("img", { src: imageUrl(res.current), style: "max-width:100%;max-height:640px;border-radius:var(--radius-sm);box-shadow:var(--shadow);" }));
-      fullBtn.style.display = "";
+      const pic = el("img", {
+        src: imageUrl(res.current),
+        alt: "当前图片",
+        title: "单击放大查看",
+        style: "max-width:100%;max-height:640px;border-radius:var(--radius-sm);box-shadow:var(--shadow);cursor:zoom-in;",
+      });
+      pic.addEventListener("click", zoomCurrent);
+      previewEl.append(pic);
       infoEl.textContent = "当前: " + res.current;
     } else {
       currentPath = null;
       clear(previewEl);
-      fullBtn.style.display = "none";
       previewEl.append(document.createTextNode("已浏览完所有图片 🎉"));
       infoEl.textContent = "";
     }
