@@ -19,7 +19,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 
 from src.generate_images import generate  # noqa: F401  (确保模型导入)
-from utils.config import BASE_DIR
+from utils.config import BASE_DIR, resolve_media_path
 from utils.gen_queue import gen_queue
 from utils.helpers import get_update_status, read_json, shutdown_app
 from utils.jobs import jobs
@@ -45,10 +45,20 @@ router = APIRouter(prefix="/api", tags=["misc"])
 
 
 def _resolve_allowed(path: str) -> Path | None:
-    """把前端传入的路径解析为绝对路径 (不再限制目录, 默认支持全部磁盘访问)。"""
+    """把前端传入的路径解析为绝对路径 (不再限制目录, 默认支持全部磁盘访问)。
+
+    相对路径优先按 outputs 根解析: /api/browse/images 返回的正是 outputs 相对路径
+    (全屏看图经 /api/image 直接收到该路径); outputs 下不存在时再按当前工作目录
+    解析, 兼容旧的 CWD 相对路径调用方。
+    """
     if not path:
         return None
-    p = Path(path).resolve()
+    p = Path(path)
+    if not p.is_absolute():
+        cand = (BASE_DIR / "outputs" / path).resolve()
+        if cand.exists():
+            return cand
+    p = p.resolve()
     return p if p.exists() else None
 
 
@@ -147,7 +157,8 @@ _BROWSE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif"}
 _BROWSE_EXCLUDED_DIRS = {
     "backgrounds",
     "uploads",
-}  # API 壁纸缓存 / 上传目录, 不在图片浏览中展示
+    "selector_trash",
+}  # API 壁纸缓存 / 上传目录 / 筛选可撤销回收站, 不在图片浏览中展示
 
 
 @router.get("/browse/folders")
@@ -222,10 +233,14 @@ def browse_images(dir: str = "", recursive: bool = False):
                             if top is not None and (top in _BROWSE_EXCLUDED_DIRS or top.startswith(("_", "."))):
                                 continue
                             st = entry.stat(follow_symlinks=False)
+                            ap = Path(entry.path)
                             images.append(
                                 {
                                     "name": name,
-                                    "path": Path(entry.path).relative_to(base).as_posix(),
+                                    # path: 相对 outputs (缩略图等新接口使用); _abs: 绝对路径,
+                                    # 供全屏看图 / 删除 / 收藏 / 法术解析等按绝对路径工作的接口使用
+                                    "path": ap.relative_to(base).as_posix(),
+                                    "_abs": ap.as_posix(),
                                     "mtime": st.st_mtime,
                                     "size": st.st_size,
                                 }
@@ -249,7 +264,8 @@ def browse_delete(payload: dict):
     base = (BASE_DIR / "outputs").resolve()
     if not path:
         raise HTTPException(status_code=400, detail="缺少图片路径")
-    target = Path(path).resolve()
+    # 相对路径按 outputs 根解析 (图片浏览接口返回 outputs 相对路径)
+    target = Path(resolve_media_path(path)).resolve()
     # 防目录穿越: 仅允许删除 outputs 内的图片
     if not str(target).startswith(str(base)) or not target.is_file():
         raise HTTPException(status_code=404, detail="图片不存在或无权访问")
@@ -361,8 +377,12 @@ def _read_favorites() -> list:
         items = data.get("items", []) if isinstance(data, dict) else []
         out = []
         for it in items:
-            if isinstance(it, dict) and it.get("path") and Path(it["path"]).exists():
-                out.append(it)
+            if not (isinstance(it, dict) and it.get("path")):
+                continue
+            # 相对路径按 outputs 根解析 (兼容旧数据); 统一回绝对路径 posix, 与浏览接口 _abs 同形式
+            fp = Path(resolve_media_path(str(it["path"]))).as_posix()
+            if Path(fp).exists():
+                out.append({**it, "path": fp})
         return out
     except Exception:
         return []
@@ -385,6 +405,8 @@ async def favorites_add(payload: dict):
     path = str(payload.get("path") or "").strip()
     if not path:
         raise HTTPException(status_code=400, detail="图片路径不能为空")
+    # 统一存绝对路径 posix (相对路径按 outputs 根解析), 与 _read_favorites 输出/去重形式一致
+    path = Path(resolve_media_path(path)).as_posix()
     name = str(payload.get("name") or "").strip() or Path(path).name
     items = [x for x in _read_favorites() if x["path"] != path]
     items.insert(0, {"path": path, "name": name, "added_at": time.time()})
@@ -396,6 +418,8 @@ async def favorites_add(payload: dict):
 async def favorites_remove(payload: dict):
     """把一张图片移出收藏 (不删除文件)。"""
     path = str(payload.get("path") or "").strip()
+    if path:
+        path = Path(resolve_media_path(path)).as_posix()
     items = [x for x in _read_favorites() if x["path"] != path]
     _write_favorites(items)
     return {"items": items}

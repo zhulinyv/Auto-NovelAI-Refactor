@@ -13,6 +13,21 @@ from typing import Any
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 SETTINGS_FILE = BASE_DIR / "settings.json"
+OUTPUTS_DIR = BASE_DIR / "outputs"
+
+
+def resolve_media_path(path):
+    """把前端传入的图片路径规范为绝对路径。
+
+    图片浏览接口 (/api/browse/images) 返回的是相对 outputs 的路径
+    (如 text2image/2026-09-01/xxx.png), 而进程启动时已把工作目录切到
+    项目根 (main.py), 相对路径直接按 CWD 解析找不到文件。统一规则:
+    绝对路径原样返回; 相对路径按 outputs 目录解析; 空值原样返回。
+    """
+    if not path:
+        return path
+    p = Path(path)
+    return p if p.is_absolute() else OUTPUTS_DIR / p
 
 DEFAULTS: dict[str, Any] = {
     "token": None,

@@ -178,6 +178,7 @@ function openViewer(path, name) {
     zoomed = !zoomed;
     img.style.maxWidth = zoomed ? "none" : "100%";
     img.style.maxHeight = zoomed ? "none" : "100%";
+    img.style.cursor = zoomed ? "zoom-out" : "zoom-in";
   });
 
   const mkBtn = (text, action) => {
@@ -277,21 +278,24 @@ function thumbUrl(path) {
 
 /** 构建单个网格项 (缩略图 + 删除/收藏按钮 + 点击全屏查看) */
 function makeGridItem(img) {
+  // path 是后端返回的相对 outputs 路径; 全屏看图 / 删除 / 收藏 / 参数导入等
+  // 一律使用绝对路径 _abs, 避免按项目根解析不到文件 (放大显示空白 404 的根因)
+  const full = img._abs || img.path;
   const item = el("div", { class: "browse-item", title: `${img.name}\n单击全屏查看` });
   const pic = el("img", { alt: img.name, loading: "lazy", decoding: "async" });
   // 缩略图加载失败 (不支持的格式/损坏文件) 时回退加载原图
   pic.addEventListener("error", () => {
     if (!pic.dataset.fallback) {
       pic.dataset.fallback = "1";
-      pic.src = imageUrl(img.path);
+      pic.src = imageUrl(full);
     }
   });
   pic.src = thumbUrl(img.path);
   item.append(pic);
   // 右上角收藏按钮 (星星) 与删除按钮 (🗑️)
-  item.append(makeBrowseDelBtn(img.path, img.name));
-  item.append(makeFavStar(img.path, img.name));
-  item.addEventListener("click", () => openViewer(img.path, img.name));
+  item.append(makeBrowseDelBtn(full, img.name));
+  item.append(makeFavStar(full, img.name));
+  item.addEventListener("click", () => openViewer(full, img.name));
   return item;
 }
 

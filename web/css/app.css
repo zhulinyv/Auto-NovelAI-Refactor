@@ -1392,12 +1392,15 @@ select.corner-select { min-height: 0; height: 26px; }
 /* ------- 全窗口看图 (Lightbox) ------- */
 .lightbox {
   position: fixed; inset: 0; z-index: 4000;
-  display: flex; align-items: center; justify-content: center;
+  display: flex;
+  overflow: auto; /* 放大到原始大小后可滚动查看, 不再溢出被裁掉 */
   background: rgba(0,0,0,0.88);
   animation: pop-in 0.18s ease;
   cursor: zoom-out;
 }
 .lightbox img {
+  margin: auto; /* flex + auto 外边距: 适应窗口时居中, 原始大小溢出时起点不被裁切 */
+  flex-shrink: 0;
   max-width: 94vw; max-height: 90vh;
   object-fit: contain;
   border-radius: var(--radius-sm);
@@ -2180,13 +2183,14 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
   flex: 1;
   min-width: 0;
   display: flex;
-  align-items: center;
-  justify-content: center;
   padding: 24px;
+  overflow: auto; /* 单击切换“原始大小”后, 超出窗口的图片可滚动查看而不是被裁掉 */
 }
 .img-viewer-img-wrap img {
   max-width: 100%;
   max-height: 100%;
+  margin: auto; /* flex + auto 外边距: 适应窗口时居中, 原始大小溢出时起点不被裁切 */
+  flex-shrink: 0; /* 极端小窗口下也保持不压缩, 由滚动兜底 */
   border-radius: var(--radius-sm);
   box-shadow: 0 10px 44px rgba(0, 0, 0, 0.55);
   cursor: zoom-in;
