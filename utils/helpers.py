@@ -15,13 +15,13 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 import zipfile
 from email.mime.text import MIMEText
 from pathlib import Path
 
 import numpy as np
 import requests
-import send2trash
 import ujson as json
 from PIL import Image
 from rich.progress import BarColumn, DownloadColumn, Progress, TextColumn, TransferSpeedColumn
@@ -536,67 +536,103 @@ def _safe_img_paths(input_path: str) -> list[str]:
     ]
 
 
+def _save_selector_queue(file_list: list[str]) -> None:
+    np.save("./outputs/temp_selector.npy", np.array(file_list))
+
+
+def _load_selector_queue() -> list[str]:
+    if not os.path.exists("./outputs/temp_selector.npy"):
+        return []
+    return [str(f) for f in np.load("./outputs/temp_selector.npy")]
+
+
 def show_first_img(input_path: str):
+    """加载目录并显示第一张可读图片 (损坏/读不了的文件自动跳过)。"""
     try:
         file_list = _safe_img_paths(input_path)
-        if not file_list:
-            logger.error("输入的目录中没有图片!")
-            return None, None
-        img_path = file_list[0]
-        np.save("./outputs/temp_selector.npy", np.array(file_list[1:]))
-        with Image.open(img_path):
-            return [str(img_path)], img_path
     except Exception as e:
         logger.error(f"加载图片目录失败: {e}")
         return None, None
+    if not file_list:
+        logger.error("输入的目录中没有图片!")
+        return None, None
+    _save_selector_queue(file_list)
+    return show_next_img()
 
 
 def show_next_img():
+    """从队列取下一张图片; 单张文件损坏或已被移走时自动跳过, 队列清空才算浏览完。
+
+    (撤销恢复的历史队列快照里可能含有已被删除的文件, 若不跳过读不到的条目,
+     会把"读取失败"当成"队列已空", 明明还有图片却提示已浏览完所有图片。)
+    """
     try:
-        if not os.path.exists("./outputs/temp_selector.npy"):
-            return None, None
-        file_list = [str(f) for f in np.load("./outputs/temp_selector.npy")]
-        if not file_list:
-            return None, None
-        img_path = file_list[0]
-        np.save("./outputs/temp_selector.npy", np.array(file_list[1:]))
-        with Image.open(img_path):
-            return [str(img_path)], img_path
+        file_list = _load_selector_queue()
     except Exception as e:
         logger.error(f"读取图片列表失败: {e}")
         return None, None
+    while file_list:
+        img_path, file_list = file_list[0], file_list[1:]
+        _save_selector_queue(file_list)
+        try:
+            with Image.open(img_path):
+                return [str(img_path)], img_path
+        except Exception:
+            logger.warning(f"图片不存在或无法读取, 已跳过: {img_path}")
+    return None, None
 
 
 def move_current_img(current_img, output_path):
+    """移动图片并显示下一张, 返回 (图片列表, 当前图, 错误信息)。失败时队列不动。"""
     try:
         os.makedirs(output_path, exist_ok=True)
         shutil.move(current_img, str(Path(output_path) / Path(current_img).name))
         logger.info(loguru_to_rich(f"已将 <c>{current_img}</c> 移动到 <c>{output_path}</c>"))
-        return show_next_img()
+        images, nxt = show_next_img()
+        return images, nxt, None
     except Exception as e:
         logger.error(f"移动图片失败: {e}")
-        return None, None
+        return None, None, f"移动失败: {e}"
 
 
 def copy_current_img(current_img, output_path):
+    """复制图片并显示下一张, 返回 (图片列表, 当前图, 错误信息)。失败时队列不动。"""
     try:
         os.makedirs(output_path, exist_ok=True)
         shutil.copyfile(current_img, str(Path(output_path) / Path(current_img).name))
         logger.info(loguru_to_rich(f"已将 <c>{current_img}</c> 复制到 <c>{output_path}</c>"))
-        return show_next_img()
+        images, nxt = show_next_img()
+        return images, nxt, None
     except Exception as e:
         logger.error(f"复制图片失败: {e}")
-        return None, None
+        return None, None, f"复制失败: {e}"
+
+
+# 筛选删除使用可撤销的本地回收站: send2trash 无法找回文件路径, 撤销删除会失效
+_SELECTOR_TRASH = Path("./outputs/selector_trash")
+
+
+def clear_selector_trash():
+    """清空可撤销回收站 (加载新目录时调用, 与清空历史保持一致)。"""
+    try:
+        if _SELECTOR_TRASH.exists():
+            for f in _SELECTOR_TRASH.iterdir():
+                if f.is_file():
+                    f.unlink(missing_ok=True)
+    except Exception as e:
+        logger.error(f"清理回收站失败: {e}")
 
 
 def del_current_img(current_img):
-    """把图片移到系统回收站 (send2trash), 返回 (None, 图片列表, 当前图)。"""
+    """把图片移入可撤销的临时回收站, 返回 (回收站路径, 图片列表, 当前图)。"""
     try:
         if current_img:
-            send2trash.send2trash(str(Path(current_img)))
-            logger.info(loguru_to_rich(f"已将 <c>{current_img}</c> 移到系统回收站"))
+            _SELECTOR_TRASH.mkdir(parents=True, exist_ok=True)
+            trash = _SELECTOR_TRASH / f"{uuid.uuid4().hex[:8]}_{Path(current_img).name}"
+            shutil.move(current_img, str(trash))
+            logger.info(loguru_to_rich(f"已将 <c>{current_img}</c> 移入回收站"))
             images, nxt = show_next_img()
-            return None, images, nxt
+            return str(trash), images, nxt
         logger.error("当前未选择图片!")
     except Exception as e:
         logger.error(f"删除图片失败: {e}")

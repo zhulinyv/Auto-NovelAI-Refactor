@@ -168,35 +168,35 @@ async def run_tagger(payload: dict):
 
 @router.post("/selector/load")
 async def selector_load(payload: dict):
-    images, current = selector.load(payload.get("path", ""))
-    return {"images": images, "current": current}
+    images, current, error = selector.load(payload.get("path", ""))
+    return {"images": images, "current": current, "error": error}
 
 
 @router.post("/selector/next")
 async def selector_next(payload: dict = None):
-    images, current = selector.next_img((payload or {}).get("current"))
-    return {"images": images, "current": current}
+    images, current, error = selector.next_img((payload or {}).get("current"))
+    return {"images": images, "current": current, "error": error}
 
 
 @router.post("/selector/move")
 async def selector_move(payload: dict):
-    images, current = selector.move(payload.get("current"), payload.get("output_path", ""))
-    return {"images": images, "current": current}
+    images, current, error = selector.move(payload.get("current"), payload.get("output_path", ""))
+    return {"images": images, "current": current, "error": error}
 
 
 @router.post("/selector/copy")
 async def selector_copy(payload: dict):
-    images, current = selector.copy(payload.get("current"), payload.get("output_path", ""))
-    return {"images": images, "current": current}
+    images, current, error = selector.copy(payload.get("current"), payload.get("output_path", ""))
+    return {"images": images, "current": current, "error": error}
 
 
 @router.post("/selector/delete")
 async def selector_delete(payload: dict):
-    images, current = selector.delete(payload.get("current"))
-    return {"images": images, "current": current}
+    images, current, error = selector.delete(payload.get("current"))
+    return {"images": images, "current": current, "error": error}
 
 
 @router.post("/selector/undo")
 async def selector_undo():
-    images, current = selector.undo()
-    return {"images": images, "current": current}
+    images, current, error = selector.undo()
+    return {"images": images, "current": current, "error": error}
