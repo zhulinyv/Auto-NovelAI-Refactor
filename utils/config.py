@@ -29,6 +29,7 @@ def resolve_media_path(path):
     p = Path(path)
     return p if p.is_absolute() else OUTPUTS_DIR / p
 
+
 DEFAULTS: dict[str, Any] = {
     "token": None,
     "tokens": [],
