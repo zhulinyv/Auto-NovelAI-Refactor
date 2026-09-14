@@ -24,27 +24,21 @@ function parseNode(node) {
         loading: "lazy",
         decoding: "async",
       }),
+      // 本地 SVG 缺失时的回退 (内置资源只覆盖界面常用 emoji, 用户文件名/路径里的 emoji 可能没有对应 SVG)。
+      // 不能走 twemoji 默认 onerror: 它把失败图片替换回"纯文本节点", 而 MutationObserver 会把
+      // 新增文本节点的父级再次 parse → 又生成图片 → 又 404 → 无限 img↔文本 替换循环 (emoji 闪动)。
+      // 这里替换成带 native-emoji class 的 span, 观察者对这类节点已免疫, 一次回退即终止。
+      onerror: function () {
+        const img = this;
+        if (!img.parentNode) return;
+        const alt = img.alt || "";
+        if (!alt) { img.remove(); return; }
+        const span = document.createElement("span");
+        span.className = "native-emoji";
+        span.textContent = alt;
+        img.replaceWith(span);
+      },
     });
-    // 离线 / 资源缺失时: 还原为原生 emoji, 避免出现裂图
-    if (node.querySelectorAll) {
-      node.querySelectorAll("img.twemoji").forEach((img) => {
-        img.addEventListener(
-          "error",
-          () => {
-            const alt = img.getAttribute("alt") || "";
-            if (alt) {
-              const span = document.createElement("span");
-              span.className = "native-emoji";
-              span.textContent = alt;
-              img.replaceWith(span);
-            } else {
-              img.remove();
-            }
-          },
-          { once: true },
-        );
-      });
-    }
   } catch (e) {
     /* 解析失败不影响页面 */
   }

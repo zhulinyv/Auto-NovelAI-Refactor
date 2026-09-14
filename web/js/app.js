@@ -271,6 +271,7 @@ function updateTitle(busy) {
   document.title = busy ? `${BASE_TITLE} 任务运行中...` : idleTitle();
 }
 
+let lastJobText = null;
 function updateJobStatus() {
   const node = document.getElementById("job-status");
   if (!node) return;
@@ -291,7 +292,13 @@ function updateJobStatus() {
   }
   if (otherJobs.size) parts.push(`🛠️ 本地任务 ${otherJobs.size}`);
   const busy = parts.length > 0;
-  node.textContent = busy ? parts.join(" · ") : "✅ 空闲";
+  const status = busy ? parts.join(" · ") : "✅ 空闲";
+  // 文本未变则不重写: textContent 赋值会销毁已解析的 emoji 图片并触发 MutationObserver 重新解析,
+  // 每 2 秒轮询都重写会让状态栏 emoji 反复重绘闪动 (twemoji 解析后 textContent 也不等于原文, 用变量记忆比较)
+  if (status !== lastJobText) {
+    lastJobText = status;
+    node.textContent = status;
+  }
   node.classList.toggle("busy", busy);
   updateTitle(busy);
 }
