@@ -4,17 +4,17 @@
 //   右上角: 排序方式 (名称/修改时间/大小) + 递归展示复选框 + 正序/倒序
 //   悬停突出显示; 双击打开应用内全屏查看器 (图片居中偏左, 右侧按钮:
 //   "使用该图片参数" / "发送到图片生成" / "发送到法术解析" / "删除 (移到回收站)")
-//   浏览期间每 5 秒轮询目录变化, 内容有变自动增量刷新 (temp_ 文件已排除)
+//   浏览期间每 3 秒轮询目录变化 + 生成完成 (job:done/failed) 即时刷新, 内容有变增量更新 (temp_ 文件已排除)
 // 性能优化 (大量图片时不再卡顿):
 //   - 网格加载 360px WebP 缩略图 (/api/browse/thumb, 后端磁盘缓存), 不再加载原图
 //   - 滚动加载: 每批渲染 100 张, 滚动到底自动续载 (IntersectionObserver 哨兵)
 //   - 轮询增量刷新: 可见窗口未变时只更新计数/哨兵, 不再销毁重建整个网格
 // ============================================================
-import { $, el, clear, toast, confirmDialog } from "../ui.js";
+import { $, el, clear, toast, confirmDialog, bus } from "../ui.js";
 import { get, post, imageUrl } from "../api.js";
 import { showView } from "../app.js";
 import { setGenerateState, sendToImg2img } from "./generate.js";
-import { pnginfoPicker } from "./pnginfo.js";
+import { openWithImage as pnginfoOpenWithImage } from "./pnginfo.js";
 
 let S = null;
 const state = {
@@ -139,10 +139,8 @@ async function handleViewerAction(action, path) {
     if (ok) toast("已发送到图片生成 (图生图基础图片) 🌸", "success");
   } else if (action === "to-pnginfo") {
     await showView("pnginfo");
-    if (pnginfoPicker?.set) {
-      pnginfoPicker.set(path);
-      if (pnginfoPicker.onChange) pnginfoPicker.onChange(path);
-    }
+    // 强制切到"读取信息"页签再载入: 停留在反推/抹除页签时不会看到旧图残留
+    pnginfoOpenWithImage(path);
     // 同时把完整参数 (含角色分区) 发到图片生成, 与法术解析视图中"发送到图片生成"逻辑一致
     // silent: 用户只是查看解析结果, 后台表单更新不必弹提示 (与下方"已发送到法术解析"重复)
     try {
@@ -268,13 +266,17 @@ function sortedImages() {
 
 const PAGE_SIZE = 100;            // 滚动加载: 每批渲染张数
 let renderedCount = 0;            // 已渲染张数
-let renderedPaths = new Set();    // 已渲染图片路径集合 (增量刷新比对用)
+let renderedSigs = new Set();     // 已渲染项签名 path:mtime:size (增量刷新比对用, 同名覆盖也能察觉)
 let gridObserver = null;          // 滚动加载哨兵观察器
 let sentinelEl = null;            // 哨兵元素
 
-/** 缩略图 URL (后端 360px WebP 磁盘缓存; 生成失败时 onerror 回退原图) */
-function thumbUrl(path) {
-  return `/api/browse/thumb?path=${encodeURIComponent(path)}`;
+/** 单个图片的变化签名: 路径 + 修改时间 + 大小 */
+const sigOf = (img) => `${img.path}:${img.mtime}:${img.size}`;
+
+/** 缩略图 URL (后端 360px WebP 磁盘缓存; 生成失败时 onerror 回退原图)。
+ *  v 参数 = 文件 mtime+size: 同名覆盖生成后 URL 变化, 绕开浏览器对旧缩略图的 HTTP 缓存 */
+function thumbUrl(img) {
+  return `/api/browse/thumb?path=${encodeURIComponent(img.path)}&v=${Math.round(img.mtime)}_${img.size}`;
 }
 
 /** 构建单个网格项 (缩略图 + 删除/收藏按钮 + 点击全屏查看) */
@@ -291,7 +293,7 @@ function makeGridItem(img) {
       pic.src = imageUrl(full);
     }
   });
-  pic.src = thumbUrl(img.path);
+  pic.src = thumbUrl(img);
   item.append(pic);
   // 右上角收藏按钮 (星星) 与删除按钮 (🗑️)
   item.append(makeBrowseDelBtn(full, img.name));
@@ -339,7 +341,7 @@ function loadMore(list) {
   for (const img of next) frag.append(makeGridItem(img));
   detachGridObserver();          // 连同旧哨兵一起移除
   grid.append(frag);
-  for (const img of next) renderedPaths.add(img.path);
+  for (const img of next) renderedSigs.add(sigOf(img));
   renderedCount += next.length;
   if (renderedCount < list.length) attachGridObserver(list);
 }
@@ -356,7 +358,7 @@ function renderGrid() {
   if (count) count.textContent = favMode ? `共 ${list.length} 张收藏` : `共 ${list.length} 张图片`;
   if (!list.length) {
     renderedCount = 0;
-    renderedPaths = new Set();
+    renderedSigs = new Set();
     grid.append(el("div", { class: "browse-empty", text: favMode ? "还没有收藏的图片 — 点击图片右上角 ☆ 即可收藏" : "该目录下没有图片" }));
     return;
   }
@@ -366,7 +368,7 @@ function renderGrid() {
   for (const img of list.slice(0, page)) frag.append(makeGridItem(img));
   grid.append(frag);
   renderedCount = page;
-  renderedPaths = new Set(list.slice(0, page).map((i) => i.path));
+  renderedSigs = new Set(list.slice(0, page).map(sigOf));
   if (renderedCount < list.length) attachGridObserver(list);
 }
 
@@ -380,11 +382,11 @@ function syncGrid() {
     renderGrid();   // 全部删光 / 本来就空: 重渲染显示空态
     return;
   }
-  // 新列表的前 renderedCount 项与已渲染集合一致 = 可见窗口内容未变
-  const newWindow = list.slice(0, renderedCount).map((i) => i.path);
+  // 前 renderedCount 项的签名集合与已渲染一致 = 可见窗口内容未变 (含同名覆盖检测)
+  const newSigs = list.slice(0, renderedCount).map(sigOf);
   const sameWindow =
-    newWindow.length === renderedPaths.size &&
-    newWindow.every((p) => renderedPaths.has(p));
+    newSigs.length === renderedSigs.size &&
+    newSigs.every((s) => renderedSigs.has(s));
   if (sameWindow) {
     // 新增/删除都发生在窗口之外: 不动 DOM, 只用新列表续载 (重建哨兵闭包)
     detachGridObserver();
@@ -499,7 +501,7 @@ async function loadImages() {
 // ---------------- 自动刷新: 浏览期间轮询目录变化 ----------------
 
 const imagesSig = (images) => images.map((i) => `${i.path}:${i.mtime}:${i.size}`).join("|");
-const POLL_MS = 5000;
+const POLL_MS = 3000;
 let pollTimer = null;
 
 function browseVisible() {
@@ -515,15 +517,18 @@ async function pollOnce() {
       get("/api/browse/folders"),
       get(`/api/browse/images?dir=${encodeURIComponent(state.dir)}&recursive=${state.recursive}`),
     ]);
-    // 文件夹树变化 (如新生成产生了日期子目录)
+    // 文件夹树变化 (如新生成产生了日期子目录): 只重绘左树, 图片用本次并行取回的 iRes 走下方增量,
+    // 不再清屏重进 loadImages (生成一张图就整屏闪一次"正在加载"的根因); 仅当前目录消失时才重载
     const folders = fRes.folders || [];
     if (folders.join("|") !== state.folderSig) {
       state.folders = folders;
       state.folderSig = folders.join("|");
-      if (!folders.includes(state.dir)) state.dir = "";
       renderFolders();
-      await loadImages();
-      return;
+      if (!folders.includes(state.dir)) {
+        state.dir = "";
+        await loadImages();
+        return;
+      }
     }
     // 当前目录图片变化 (新增/删除生成结果): 增量刷新, 不再销毁重建整个网格
     const images = iRes.images || [];
@@ -539,6 +544,21 @@ function startPolling() {
   if (pollTimer) return;
   pollTimer = setInterval(pollOnce, POLL_MS);
 }
+
+/** 🔄 刷新按钮: 文件夹树 + 图片网格一起重载 (收藏模式下刷新收藏列表) */
+async function refreshAll() {
+  if (state.favMode) {
+    await loadFavorites();
+    renderGrid();
+    return;
+  }
+  await Promise.all([loadFolders(), loadImages()]);
+}
+
+// 生成任务结束 (成功/失败都可能已写出文件): 正在浏览时立即刷新, 不等轮询间隔。
+// 模块级订阅: ESM 只执行一次, 不会随视图重复进入而叠加
+bus.on("job:done", () => { if (browseVisible()) pollOnce(); });
+bus.on("job:failed", () => { if (browseVisible()) pollOnce(); });
 
 // ---------------- 视图渲染 ----------------
 
@@ -557,7 +577,7 @@ export async function render(container, ctx) {
     el("div", { class: "wc-browse-head browse-left-head" }, [
       el("div", { class: "card-title", text: "📂 文件夹" }),
       el("span", { class: "spacer" }),
-      el("button", { class: "btn btn-sm", text: "🔄 刷新", onclick: loadFolders }),
+      el("button", { class: "btn btn-sm", text: "🔄 刷新", onclick: refreshAll }),
       el("button", {
         class: "btn btn-sm",
         text: "◀",
