@@ -3,7 +3,9 @@
 // ============================================================
 
 export async function request(method, url, body) {
-  const opts = { method, headers: {} };
+  // 本地 API 一律取最新: 禁用 HTTP 缓存, 否则 URL 固定的 GET (如 /api/hitokoto 一言)
+  // 会被浏览器缓存, 点击换一句拿到的还是旧响应
+  const opts = { method, headers: {}, cache: "no-store" };
   if (body !== undefined) {
     opts.headers["Content-Type"] = "application/json";
     opts.body = JSON.stringify(body);
