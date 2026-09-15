@@ -1487,6 +1487,12 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
 .bg-folder-row input[type="text"] { flex: 1; }
 .bg-folder-info { margin-top: 2px; font-size: 12px; }
 .bg-actions { margin-top: 4px; }
+/* 背景弹层选项卡: 图片 / 在线 / 文件夹 */
+.bg-tabs { display: flex; gap: 4px; margin-bottom: 12px; background: var(--panel-solid); border: 1px solid var(--border); border-radius: 999px; padding: 3px; }
+.bg-tab { flex: 1; border: none; background: transparent; color: var(--text-2); font-size: 12.5px; font-weight: 600; padding: 5px 8px; border-radius: 999px; cursor: pointer; white-space: nowrap; }
+.bg-tab:hover { color: var(--text); background: var(--hover); }
+.bg-tab.active { color: var(--primary); background: color-mix(in srgb, var(--primary) 14%, transparent); }
+.bg-api-info { margin-top: 6px; font-size: 12px; }
 
 /* ------- 外观设置弹层 (颜色 + 模糊) ------- */
 .appearance-popover { width: 340px; }
@@ -1716,6 +1722,8 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
 .spell-sec { margin-bottom: 14px; }
 .spell-sec.grow { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .spell-sec.grow textarea { flex: 1; min-height: 90px; resize: vertical; }
+/* 标题行右侧按钮 (展开/收起) 保持靠右 */
+.spell-sec-title > .mini-btn { margin-left: auto; }
 /* 法术解析内所有文本域占满整行宽度, 不留右侧空白 */
 .spell-sec textarea { width: 100%; }
 
@@ -1791,7 +1799,8 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
 .spell-sec-title {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  /* 不用 space-between: twemoji 会把标题里的 emoji 换成 <img>, emoji 与文字成为两个 flex 项后会被拉向两端 */
+  justify-content: flex-start;
   gap: 8px;
   font-size: 13px;
   font-weight: 700;
@@ -1955,7 +1964,11 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
   background: var(--surface-2);
 }
 .wc-create-row .field { margin-bottom: 0; }
-.wc-types { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.wc-types { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; }
+.wc-types::before { content: "🏷️ 分类"; flex-shrink: 0; margin-right: 2px; font-size: 12.5px; font-weight: 700; color: var(--text-2); opacity: 0.8; }
+.wc-types .tab-btn { padding: 3px 11px; font-size: 12.5px; font-weight: 700; /* 与提示词库分类名 (.wc-pl-group-name) 字号一致 */ border-radius: 8px; background: transparent; border-color: var(--border); color: var(--text-2); }
+.wc-types .tab-btn:hover { border-color: var(--primary); color: var(--text); }
+.wc-types .tab-btn.active { background: var(--surface-3); border-color: var(--primary); color: var(--text); }
 .wc-search { width: 100%; margin-bottom: 10px; }
 .wc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
 
@@ -2350,7 +2363,11 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
 
 
 /* ------- Wildcards 素材库页签 + 提示词库 ------- */
-.wc-lib-tabs { display: flex; gap: 6px; margin-bottom: 10px; }
+/* 素材库切换: 分段开关样式 (明显区别于下方分类小胶囊, 一眼看出是"大级"切换) */
+.wc-lib-tabs { display: flex; gap: 4px; width: fit-content; margin-bottom: 12px; padding: 4px; background: var(--panel-solid); border: 1px solid var(--border); border-radius: 999px; }
+.wc-lib-tabs .tab-btn { flex: none; min-width: 132px; text-align: center; border: none; background: transparent; padding: 7px 22px; font-size: 14px; font-weight: 600; color: var(--text-2); }
+.wc-lib-tabs .tab-btn:hover { border-color: transparent; background: var(--hover); color: var(--text); }
+.wc-lib-tabs .tab-btn.active { border: none; background: color-mix(in srgb, var(--primary) 16%, transparent); color: var(--primary); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary) 45%, transparent); }
 .wc-pl-list { display: flex; flex-direction: column; gap: 6px; max-height: 62vh; overflow-y: auto; }
 .wc-pl-item {
   display: flex;
