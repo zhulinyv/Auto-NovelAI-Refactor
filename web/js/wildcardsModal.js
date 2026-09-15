@@ -196,7 +196,8 @@ export function openWildcardsModal(source, { title = "提示词" } = {}) {
     clear(chipsView);
     const tags = splitTags(ta.value);
     if (!tags.length) {
-      chipsView.append(el("div", { class: "p-chips-empty", text: "提示词为空 — 双击此处或点右上角 ✏️ 直接输入; 也可从下方卡片库点选 / 拖拽 / 点 \"添加选中\"" }));
+      chipsView.append(el("div", { class: "p-chips-empty", text: "提示词为空 — 点下方 ＋标签 直接输入 (回车添加); 双击空白切文本输入; 也可从卡片库点选 / 拖拽 / 点 \"添加选中\"" }));
+      chipsView.append(makeAddChip());   // 空提示词时也要能在标签视图里直接添加标签
       return;
     }
     tags.forEach((raw, i) => chipsView.append(makeChip(raw, i)));

@@ -182,17 +182,19 @@ export async function renderPanel(container, ctx, opts = {}) {
   layout.append(browseCard, editCard);
   container.append(layout);
 
-  // 弹窗批量添加完成后会清空共享选择, 这里同步面板本地的选中 UI
+  // 弹窗批量添加完成/清除选择后会把共享选择清空, 这里同步面板本地的选中 UI。
+  // 注意: 当前分类的选中存在 selection 里, 只有切换过分类的旧桶才在 selectionStore 里,
+  // 所以判断"是否还有本地选中"必须两者都看, 否则单分类下点"添加选中"后卡片不会取消高亮。
   cardSelection.onChange((map) => {
     if (!container.isConnected) return;
     let total = 0;
     for (const s of Object.values(map || {})) total += s?.length || 0;
-    if (!total && selectionStore.size) {
-      selectionStore.clear();
-      selection = new Set();
-      state.lastIdx = -1;
-      syncSelectionClasses();
-    }
+    if (total) return;                                             // 仍有选中: 不动本地状态
+    if (!selectionStore.size && !selection.size && state.lastIdx < 0) return;  // 本地本来就干净
+    selectionStore.clear();
+    selection = new Set();
+    state.lastIdx = -1;
+    syncSelectionClasses();
   });
 
   // ---------------- 提示词库 (参考 PAI 关键词库: 收藏关键词, 点击加入提示词) ----------------
