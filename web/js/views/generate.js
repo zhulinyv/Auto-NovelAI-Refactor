@@ -189,6 +189,46 @@ function stripUCPresetFromStart(text, model) {
   return { text: t, preset: null };
 }
 
+/**
+ * 检测提示词中是否"含有"某预设的完整标签串 (按逗号段整体匹配, 大小写/空格不敏感, 可出现在任意位置),
+ * 命中则把这些标签从文本中删除并返回 { text: 剥离后文本, preset: 预设名 }; 未命中返回 { text: 原文.trim(), preset: null }。
+ * tableKey: "quality_preset_tags" | "uc_preset_tags"; 长预设优先匹配, 避免前缀重叠误判;
+ * 并兼容 remove_nsfw (预设以 nsfw 开头而实际文本缺失该段) 的情况。
+ */
+function extractPresetTags(text, model, tableKey) {
+  const map = (S && S.app && S.app[tableKey]) ? (S.app[tableKey][model] || {}) : {};
+  const entries = Object.entries(map).filter(([, tags]) => tags);
+  entries.sort((a, b) => b[1].length - a[1].length); // 长标签优先
+  const norm = (s) => String(s).trim().toLowerCase().replace(/\s+/g, " ");
+  const parts = String(text ?? "").split(",");
+  const segs = parts.map(norm);
+  for (const [preset, tagsStr] of entries) {
+    const want = tagsStr.split(",").map(norm).filter(Boolean);
+    const variants = [want];
+    if (want[0] === "nsfw" && want.length > 1) variants.push(want.slice(1));
+    for (const w of variants) {
+      if (!w.length) continue;
+      for (let i = 0; i + w.length <= segs.length; i++) {
+        let hit = true;
+        for (let k = 0; k < w.length; k++) { if (segs[i + k] !== w[k]) { hit = false; break; } }
+        if (!hit) continue;
+        const rest = parts.slice(0, i).concat(parts.slice(i + w.length));
+        return { text: rest.map((s) => s.trim()).filter(Boolean).join(", "), preset };
+      }
+    }
+  }
+  return { text: String(text ?? "").trim(), preset: null };
+}
+
+/** 把预设下拉切到指定预设: 仅当该预设在当前可选列表中时才切换, 返回是否切换成功 */
+function applyPresetOption(sel, preset) {
+  if (!preset || !sel || typeof sel.set !== "function") return false;
+  const opts = sel.input && sel.input.options ? Array.from(sel.input.options).map((o) => o.value) : null;
+  if (opts && !opts.includes(preset)) return false;
+  sel.set(preset);
+  return true;
+}
+
 function gridNearest(v) {
   const opts = [0.1, 0.3, 0.5, 0.7, 0.9];
   let best = 0, bestD = Infinity;
@@ -392,9 +432,13 @@ function buildPromptCard(saved) {
   card.append(C.negative.node);
   return card;
 }
+/** 当前输出查看器的键盘翻页监听器 (每次重建查看器时先摘掉上一个, 避免多代监听器同时触发) */
+let outputViewerOnKey = null;
+
 /** 构建输出图片查看器: 单图显示 + 左右切换 + 下方缩略图导航 */
 function buildOutputViewer(container, images) {
   clear(container);
+  if (outputViewerOnKey) { document.removeEventListener("keydown", outputViewerOnKey); outputViewerOnKey = null; }
   container.classList.remove("gallery", "count-1", "count-2", "count-3", "count-4");
   container.classList.add("output-viewer");
   if (!images || images.length === 0) {
@@ -478,12 +522,23 @@ function buildOutputViewer(container, images) {
     setOutputSelection(path);
   }
 
-  // 键盘左右键切换
-  document.addEventListener("keydown", function onKey(e) {
-    if (!container.isConnected) { document.removeEventListener("keydown", onKey); return; }
+  // 键盘左右键切换输出图片:
+  //   - 焦点在输入框/文本域/下拉/富文本内时完全不拦截, 保留光标移动与选择 (修复: 生成多图后提示词里方向键变成翻页)
+  //   - Ctrl/Alt/Meta 组合键与已被其它处理器消费的事件也放行
+  const onKey = (e) => {
+    if (!container.isConnected) {
+      document.removeEventListener("keydown", onKey);
+      if (outputViewerOnKey === onKey) outputViewerOnKey = null;
+      return;
+    }
+    if (e.ctrlKey || e.altKey || e.metaKey || e.defaultPrevented) return;
+    const t = e.target;
+    if (t instanceof Element && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
     if (e.key === "ArrowLeft") { idx = (idx - 1 + images.length) % images.length; updateView(); e.preventDefault(); }
-    if (e.key === "ArrowRight") { idx = (idx + 1) % images.length; updateView(); e.preventDefault(); }
-  });
+    else if (e.key === "ArrowRight") { idx = (idx + 1) % images.length; updateView(); e.preventDefault(); }
+  };
+  outputViewerOnKey = onKey;
+  document.addEventListener("keydown", onKey);
 
   // 单击主图放大 (单图时不设热区; 多图时左右 30% 翻页热区仍交给 mainWrap 翻页, 避免放大与翻页同时触发)
   mainImg.addEventListener("click", async (e) => {
@@ -965,12 +1020,17 @@ async function updateAnlasBadge() {
 function wireOutputActions() {
   sendPnginfoBtn.addEventListener("click", async () => {
     if (!lastOutputPath) return;
+    const path = lastOutputPath;
     const { showView } = await import("../app.js");
-    const { pnginfoPicker } = await import("./pnginfo.js");
+    const pnginfoMod = await import("./pnginfo.js");
     await showView("pnginfo");
-    if (pnginfoPicker && pnginfoPicker.set) {
-      pnginfoPicker.set(lastOutputPath);
-      if (pnginfoPicker.onChange) pnginfoPicker.onChange(lastOutputPath);
+    // 必须在渲染完成后通过命名空间对象读 pnginfoPicker (实时绑定):
+    // pnginfo.js 的 pnginfoPicker 是 export let, 首次渲染视图时才赋值;
+    // 若像以前那样 import 时解构成 const, 首次点击捕获到的是渲染前的 null → 跳转过去但没图片
+    const picker = pnginfoMod.pnginfoPicker;
+    if (picker && picker.set) {
+      picker.set(path);
+      if (picker.onChange) picker.onChange(path);
     }
   });
   sendBtn.addEventListener("click", () => sendToImg2img(lastOutputPath));
@@ -1351,8 +1411,29 @@ export function getCurrentOutputImage() {
 
 export function getC() { return C; }
 export function setGenerateState(state) {
-  if (state.positive_prompt != null) C.positive.set(state.positive_prompt);
-  if (state.negative_prompt != null) C.negative.set(state.negative_prompt);
+  // 法术解析/画廊"发送到图片生成": 元数据里的正/负面提示词带有预设标签
+  // (生成时后端会追加质量预设、前置 UC 预设), 这里检测并剥离这些标签, 自动切换到对应预设
+  const switched = [];
+  const model = C.model.get();
+  if (state.positive_prompt != null) {
+    const hit = extractPresetTags(state.positive_prompt, model, "quality_preset_tags");
+    if (hit.preset && applyPresetOption(C.quality, hit.preset)) {
+      C.positive.set(hit.text);
+      switched.push(`正面预设 → ${hit.preset}`);
+    } else {
+      C.positive.set(state.positive_prompt);
+    }
+  }
+  if (state.negative_prompt != null) {
+    const hit = extractPresetTags(state.negative_prompt, model, "uc_preset_tags");
+    if (hit.preset && applyPresetOption(C.uc, hit.preset)) {
+      C.negative.set(hit.text);
+      switched.push(`负面预设 → ${hit.preset}`);
+    } else {
+      C.negative.set(state.negative_prompt);
+    }
+  }
+  if (switched.length) toast(`已剥离预设标签并自动切换: ${switched.join("，")} ⭐`, "info");
   if (state.width != null) C.width.set(state.width);
   if (state.height != null) C.height.set(state.height);
   if (state.steps != null) C.steps.set(state.steps);
