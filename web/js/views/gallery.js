@@ -144,9 +144,10 @@ async function handleViewerAction(action, path) {
       if (pnginfoPicker.onChange) pnginfoPicker.onChange(path);
     }
     // 同时把完整参数 (含角色分区) 发到图片生成, 与法术解析视图中"发送到图片生成"逻辑一致
+    // silent: 用户只是查看解析结果, 后台表单更新不必弹提示 (与下方"已发送到法术解析"重复)
     try {
       const params = await post("/api/pnginfo/to-generate", { image_path: path });
-      setGenerateState(params);
+      setGenerateState(params, { silent: true });
     } catch (e) {
       // 参数解析失败不阻塞法术解析页面打开
     }

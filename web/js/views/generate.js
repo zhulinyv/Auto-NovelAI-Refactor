@@ -31,6 +31,8 @@ let refSection = null;
 let enhanceRow = null;
 let furryBtn = null;
 let furryMode = false; // 显式状态, 避免因 Twemoji 替换 DOM 后 textContent 不含 emoji 导致检测失败
+let tbBtn = null;          // "Transparent BG" 开关按钮 (正面提示词头部, 仅 v5 模型显示)
+let transparentBg = false; // 开启后生成时在用户提示词末尾追加 , transparent background
 let lastOutputPath = null;
 let selectedOutputPath = null; // 多张结果中当前选中的图片 (再次单击取消)
 let lastGeneratedImages = []; // 最近一次生成的全部图片 (供 wildcards 取最后一张做封面)
@@ -190,34 +192,49 @@ function stripUCPresetFromStart(text, model) {
 }
 
 /**
- * 检测提示词中是否"含有"某预设的完整标签串 (按逗号段整体匹配, 大小写/空格不敏感, 可出现在任意位置),
- * 命中则把这些标签从文本中删除并返回 { text: 剥离后文本, preset: 预设名 }; 未命中返回 { text: 原文.trim(), preset: null }。
- * tableKey: "quality_preset_tags" | "uc_preset_tags"; 长预设优先匹配, 避免前缀重叠误判;
- * 并兼容 remove_nsfw (预设以 nsfw 开头而实际文本缺失该段) 的情况。
+ * 检测预设完整标签串是否出现在提示词的"添加位置", 是则从那里剥离一次。
+ * 后端生成时: 正面质量预设追加 (append) 在提示词末尾, 负面 UC 预设前置 (prepend) 在开头,
+ * 故 position: "tail" = 只允许文本末尾整段命中 (末尾只剥一次, 前面再重复出现也不动);
+ *             "head" = 只允许文本开头整段命中 (同理)。非锚定位置出现相同标签不再视为命中。
+ * 按逗号段整体匹配, 大小写/空格不敏感; 长预设优先, 避免前缀重叠误判;
+ * 兼容 remove_nsfw (预设以 nsfw 开头而实际文本缺失该段)。
+ * 剥离时按字符偏移从原文裁掉命中的那一段 (连同紧邻的逗号/空白/换行分隔符),
+ * 其余文字保持读取时的原样 —— 换行、空格、权重符号等一概不重排、不重组。
+ * 命中返回 { text: 剥离后原文, preset: 预设名 }; 未命中返回 { text: 原文.trim(), preset: null }。
  */
-function extractPresetTags(text, model, tableKey) {
+function extractPresetTags(text, model, tableKey, position) {
   const map = (S && S.app && S.app[tableKey]) ? (S.app[tableKey][model] || {}) : {};
   const entries = Object.entries(map).filter(([, tags]) => tags);
   entries.sort((a, b) => b[1].length - a[1].length); // 长标签优先
   const norm = (s) => String(s).trim().toLowerCase().replace(/\s+/g, " ");
-  const parts = String(text ?? "").split(",");
-  const segs = parts.map(norm);
+  const src = String(text ?? "");
+  // 逗号切段并记录每段在原文中的字符区间; n 归一化用于匹配, 空段剔除但不影响锚定判断
+  const parts = [];
+  let cur = 0;
+  for (const seg of src.split(",")) { parts.push({ s: cur, e: cur + seg.length }); cur += seg.length + 1; }
+  const items = [];
+  for (const p of parts) { const n = norm(src.slice(p.s, p.e)); if (n) items.push({ s: p.s, e: p.e, n }); }
+  const isSep = (ch) => ch === "," || ch === " " || ch === "\t" || ch === "\n" || ch === "\r";
   for (const [preset, tagsStr] of entries) {
     const want = tagsStr.split(",").map(norm).filter(Boolean);
+    if (!want.length) continue;
     const variants = [want];
     if (want[0] === "nsfw" && want.length > 1) variants.push(want.slice(1));
     for (const w of variants) {
-      if (!w.length) continue;
-      for (let i = 0; i + w.length <= segs.length; i++) {
-        let hit = true;
-        for (let k = 0; k < w.length; k++) { if (segs[i + k] !== w[k]) { hit = false; break; } }
-        if (!hit) continue;
-        const rest = parts.slice(0, i).concat(parts.slice(i + w.length));
-        return { text: rest.map((s) => s.trim()).filter(Boolean).join(", "), preset };
-      }
+      if (w.length > items.length) continue;
+      const start = position === "head" ? 0 : items.length - w.length;
+      let hit = true;
+      for (let k = 0; k < w.length; k++) { if (items[start + k].n !== w[k]) { hit = false; break; } }
+      if (!hit) continue;
+      // 双向吃掉紧邻分隔符 (逗号+空白/换行), 剩余原文逐字符保留
+      let cutStart = items[start].s;
+      while (cutStart > 0 && isSep(src[cutStart - 1])) cutStart--;
+      let cutEnd = items[start + w.length - 1].e;
+      while (cutEnd < src.length && isSep(src[cutEnd])) cutEnd++;
+      return { text: src.slice(0, cutStart) + src.slice(cutEnd), preset };
     }
   }
-  return { text: String(text ?? "").trim(), preset: null };
+  return { text: src.trim(), preset: null };
 }
 
 /** 把预设下拉切到指定预设: 仅当该预设在当前可选列表中时才切换, 返回是否切换成功 */
@@ -288,6 +305,7 @@ function buildSavedState() {
     uc: negative.preset || (negative.text ? "None" : "Heavy"),
     quantity: stored.quantity ?? 1,
     furry_mode: stored.furry_mode ?? false,
+    transparent_bg: stored.transparent_bg ?? false,
     ai_choice: p.use_coords != null ? !p.use_coords : (stored.ai_choice ?? true),
     variety: p.skip_cfg_above_sigma != null ? true : (stored.variety ?? false),
     decrisp: p.dynamic_thresholding ?? stored.decrisp ?? false,
@@ -375,6 +393,7 @@ function promptField(title, presetCtl, opts) {
     el("div", { class: "prompt-head-right" }, [
       opts.loadBtn || null,
       wildcardsButton(ta, { title, text: "🃏 Wildcards" }),
+      opts.tbBtn || null,
       presetCtl.node,
     ]),
   ]);
@@ -407,7 +426,11 @@ function buildPromptCard(saved) {
       else toast("没有找到上次的正面提示词", "warning");
     } catch (e) { toast(e.message, "error"); }
   });
-  C.positive = promptField("✨ 正面提示词", C.quality, { value: saved.positive_prompt ?? "", placeholder: "在此输入正面提示词...", rows: 6, loadBtn: loadPosBtn });
+  transparentBg = !!saved.transparent_bg;
+  tbBtn = el("button", { class: "mini-btn tb-btn", type: "button", text: "🪟 Transparent BG", title: "仅 v5 模型可用: 开启后生成时在提示词末尾追加 transparent background (质量预设之前)" });
+  tbBtn.addEventListener("click", () => { transparentBg = !transparentBg; updateTbBtn(); });
+  updateTbBtn();
+  C.positive = promptField("✨ 正面提示词", C.quality, { value: saved.positive_prompt ?? "", placeholder: "在此输入正面提示词...", rows: 6, loadBtn: loadPosBtn, tbBtn });
   card.append(C.positive.node);
 
   C.uc = cornerSelect("🚫 负面预设", S.app.uc_presets || []);
@@ -574,6 +597,39 @@ function buildOutputViewer(container, images) {
 /** 更新 furry 按钮文本 (用显式状态, 不依赖 textContent: Twemoji 会把 emoji 换成 <img>) */
 function updateFurryBtn() {
   furryBtn.textContent = furryMode ? "🐾 Mode: Furry" : "🌸 Mode: Anime";
+}
+
+/** Transparent BG 按钮状态: 文案固定, 仅用激活样式 (.tb-on 主色高亮) 表示开/关 */
+function updateTbBtn() {
+  if (!tbBtn) return;
+  tbBtn.classList.toggle("tb-on", transparentBg);
+}
+
+/** 生成请求专用: 开关开启且当前为 v5 模型时, 在用户提示词末尾追加 transparent background
+ *  (后端随后才拼质量预设, 最终顺序 = furry 前缀 + 用户输入 + transparent background + 预设) */
+function promptWithTransparent() {
+  const base = String((C.positive && C.positive.get()) || "");
+  if (!transparentBg || !isNai5(C.model.get())) return base;
+  const norm = base.trimEnd();
+  if (!norm.trim()) return "transparent background";
+  if (/(?:transparency|transparent background)\s*$/i.test(norm)) return norm; // 末尾已有同类标签则不重复追加
+  return norm + ", transparent background";
+}
+
+/** 导入正面提示词时反向同步: 含有 transparent background 标签 (生成时由 Transparent BG 开关写入)
+ *  → 从文本剥离并开启开关; 不含 → 关闭开关。整段精确匹配 (大小写/首尾空格不敏感),
+ *  其余分段逐字保留 (含换行), 重组时只吸掉被删段自己的逗号 */
+function syncTransparentBg(text) {
+  const parts = String(text ?? "").split(",");
+  const keep = [];
+  let found = false;
+  for (const p of parts) {
+    if (p.trim().toLowerCase() === "transparent background") found = true;
+    else keep.push(p);
+  }
+  transparentBg = found;
+  updateTbBtn();
+  return found ? keep.join(",").trim() : String(text ?? "").trim();
 }
 
 function buildModelBar(bar, saved) {
@@ -1110,6 +1166,9 @@ async function applyModelChange(initial = false) {
   const nai5 = isNai5(model);
   const nai45 = isNai45(model);
 
+  // Transparent BG 按钮仅 v5 系列模型显示; 非 v5 时追加逻辑也自动失效 (promptWithTransparent 内有双重判断)
+  if (tbBtn) tbBtn.style.display = nai5 ? "" : "none";
+
   // 采样器: nai3 保留 ddim_v3, 其余移除
   const samplers = nai3 ? S.app.samplers : S.app.samplers.filter((s) => s !== "ddim_v3");
   C.sampler.setOptions?.(samplers);
@@ -1272,7 +1331,7 @@ async function collectRequest() {
 
   return {
     model: C.model.get(),
-    positive_prompt: C.positive.get(),
+    positive_prompt: promptWithTransparent(),
     negative_prompt: C.negative.get(),
     furry_mode: furryMode,
     quality_preset: C.quality.get(),
@@ -1332,7 +1391,7 @@ async function onGenerate() {
     const state = {
       model: C.model.get(), positive_prompt: C.positive.get(), negative_prompt: C.negative.get(),
       width: C.width.get(), height: C.height.get(), steps: C.steps.get(), scale: C.scale.get(),
-      cfg_rescale: C.cfgRescale.get(), seed: C.seed.get(), quantity: C.quantity.get(), furry_mode: furryMode,
+      cfg_rescale: C.cfgRescale.get(), seed: C.seed.get(), quantity: C.quantity.get(), furry_mode: furryMode, transparent_bg: transparentBg,
       enhance: { enabled: C.enhance.get(), amount: C.enhanceAmount.get(), magnitude: C.magnitude.get() },
     };
     S.store.save(state);
@@ -1410,22 +1469,23 @@ export function getCurrentOutputImage() {
 }
 
 export function getC() { return C; }
-export function setGenerateState(state) {
+export function setGenerateState(state, opts = {}) {
   // 法术解析/画廊"发送到图片生成": 元数据里的正/负面提示词带有预设标签
   // (生成时后端会追加质量预设、前置 UC 预设), 这里检测并剥离这些标签, 自动切换到对应预设
   const switched = [];
   const model = C.model.get();
   if (state.positive_prompt != null) {
-    const hit = extractPresetTags(state.positive_prompt, model, "quality_preset_tags");
+    const hit = extractPresetTags(state.positive_prompt, model, "quality_preset_tags", "tail"); // 质量预设追加在末尾, 只从末尾剥离一次
+    let posText = state.positive_prompt;
     if (hit.preset && applyPresetOption(C.quality, hit.preset)) {
-      C.positive.set(hit.text);
+      posText = hit.text;
       switched.push(`正面预设 → ${hit.preset}`);
-    } else {
-      C.positive.set(state.positive_prompt);
     }
+    // 预设剥离后再处理 transparent background (生成时顺序: 用户输入+TB+预设, 剥离顺序相反); 同步开关为图片真实状态
+    C.positive.set(syncTransparentBg(posText));
   }
   if (state.negative_prompt != null) {
-    const hit = extractPresetTags(state.negative_prompt, model, "uc_preset_tags");
+    const hit = extractPresetTags(state.negative_prompt, model, "uc_preset_tags", "head"); // UC 预设前置在开头, 只从开头剥离一次
     if (hit.preset && applyPresetOption(C.uc, hit.preset)) {
       C.negative.set(hit.text);
       switched.push(`负面预设 → ${hit.preset}`);
@@ -1433,7 +1493,9 @@ export function setGenerateState(state) {
       C.negative.set(state.negative_prompt);
     }
   }
-  if (switched.length) toast(`已剥离预设标签并自动切换: ${switched.join("，")} ⭐`, "info");
+  // opts.silent: 后台同步路径 (画廊"发送到法术解析"顺带更新图片生成表单) 不弹提示;
+  // 预设剥离与切换照常执行, 保证后续生成不会把元数据里的预设原文再重复拼一遍
+  if (switched.length && !opts.silent) toast(`已剥离预设标签并自动切换: ${switched.join("，")} ⭐`, "info");
   if (state.width != null) C.width.set(state.width);
   if (state.height != null) C.height.set(state.height);
   if (state.steps != null) C.steps.set(state.steps);

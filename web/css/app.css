@@ -1862,6 +1862,11 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
    ============================================================ */
 /* 提示词标题行右侧按钮组: [加载上次] [🃏 Wildcards] [预设▾] */
 .prompt-head-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; min-width: 0; }
+/* 加载上次 / Transparent BG 悬停变化与 .wc-text-btn:hover 一致: 边框+文字变主色 (wildcards 按钮自带同款) */
+.prompt-head-right .mini-btn:hover { border-color: var(--primary); color: var(--primary); }
+/* Transparent BG 开关 (v5 限定): 未激活与同行 .mini-btn 完全同款, 激活态在原底色上叠主色 */
+.tb-btn.tb-on { border-color: var(--primary); color: var(--primary); background: color-mix(in srgb, var(--primary) 14%, var(--surface-2)); font-weight: 600; }
+.tb-btn.tb-on:hover { background: color-mix(in srgb, var(--primary) 22%, var(--surface-2)); }
 
 /* 小输入框用图标按钮 (角色分区 / 插件 / 导演工具等) */
 .wc-icon-btn {
