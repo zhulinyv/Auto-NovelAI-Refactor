@@ -242,6 +242,41 @@ function getPopover() {
   const pop = el("div", { class: "bg-popover hidden", id: "bg-popover" });
 
   const title = el("div", { class: "bg-title", text: "🖼️ 自定义背景" });
+  pop.append(title);
+
+  // ---- 选项卡: 图片 / 在线 / 文件夹 (三种背景方式互斥; 打开时默认停在当前生效方式所在页) ----
+  const tabImg = el("button", { class: "bg-tab", type: "button", text: "🖼️ 图片" });
+  const tabApi = el("button", { class: "bg-tab", type: "button", text: "🌐 在线" });
+  const tabFolder = el("button", { class: "bg-tab", type: "button", text: "📁 文件夹" });
+  const tabBar = el("div", { class: "bg-tabs" }, [tabImg, tabApi, tabFolder]);
+  const panelImg = el("div", { class: "bg-panel" });
+  const panelApi = el("div", { class: "bg-panel hidden" });
+  const panelFolder = el("div", { class: "bg-panel hidden" });
+  pop.append(tabBar, panelImg, panelApi, panelFolder);
+  function switchTab(which) {
+    tabImg.classList.toggle("active", which === "img");
+    tabApi.classList.toggle("active", which === "api");
+    tabFolder.classList.toggle("active", which === "folder");
+    panelImg.classList.toggle("hidden", which !== "img");
+    panelApi.classList.toggle("hidden", which !== "api");
+    panelFolder.classList.toggle("hidden", which !== "folder");
+    intBox.classList.toggle("hidden", which === "img"); // 单张图片不轮播, 无需切换间隔
+  }
+  // 点页签 = 立即切换到该背景方式并生效 (未设置内容时仅提示, 不动当前背景)
+  function activateTab(which) {
+    switchTab(which);
+    if (which === "api") { fetchApiWallpaper(); return; }
+    if (which === "img") {
+      if (bgState.single) applySingleMode();
+      else toast("尚未设置单张背景图片 🖼️", "warning");
+      return;
+    }
+    if (bgState.folder && bgState.folder.length) setFolder(bgState.folder);
+    else toast("尚未选择背景图片文件夹 📁", "warning");
+  }
+  tabImg.addEventListener("click", () => activateTab("img"));
+  tabApi.addEventListener("click", () => activateTab("api"));
+  tabFolder.addEventListener("click", () => activateTab("folder"));
 
   // ---- 单张图片 ----
   const singleBox = el("div", { class: "field" }, [el("label", { text: "🖼️ 单张图片 (拖入即替换)" })]);
@@ -266,6 +301,7 @@ function getPopover() {
       await saveState();
       applyBackground();
       refreshPopoverState(pop);
+      switchTab("img");
       toast("背景已更新 🖼️", "success");
     } catch (e) {
       toast("背景上传失败: " + e.message, "error");
@@ -287,6 +323,7 @@ function getPopover() {
         await saveState();
         applyBackground();
         refreshPopoverState(pop);
+        switchTab("img");
         toast("背景已更新 🖼️", "success");
       }
     } catch (e) { toast("选择文件失败: " + e.message, "error"); }
@@ -302,19 +339,32 @@ function getPopover() {
   singleFile.addEventListener("change", () => singleUpload(singleFile.files));
   enableDrop(pop, { onFiles: (f) => singleUpload(f) });
   singleBox.append(el("div", { class: "file-pick-row" }, [singleName, singleBtn, singleClear]), singleFile);
-  pop.append(singleBox);
+  panelImg.append(singleBox);
+  // 切换到"图片"页签: 立即以当前单张图为背景 (停掉文件夹轮播与在线轮换)
+  async function applySingleMode() {
+    bgState.folder = null;
+    bgState.api = false;
+    rotationList = [];
+    stopRotation();
+    stopApiRotation();
+    bgState.art = null;
+    updatePidBadge();
+    await saveState();
+    applyBackground();
+    refreshPopoverState(pop);
+    toast("背景已切换为单张图片 🖼️", "success");
+  }
 
-  // ---- 在线壁纸 (API 随机换图): Bing 每日精选 / Picsum, 后端代理下载 ----
-  const apiBox = el("div", { class: "field bg-api-auto" }, [el("label", { text: "🌐 在线壁纸 (选择图片来源)" })]);
-  // 壁纸源选择: Bing 每日精选 / ACG 随机动漫
+  // ---- 在线: 两个来源选项 (Bing 每日精选 / Lolicon 动漫), 后端代理下载 ----
+  const apiBox = el("div", { class: "field" }, [el("label", { text: "🌐 图片来源" })]);
   const srcGroup = el("div", { class: "opt-group bg-api-src" }, [
-    el("label", { class: "opt-item" + (bgState.apiSource !== "acg" ? " selected" : ""), text: "Bing 每日精选" }),
-    el("label", { class: "opt-item" + (bgState.apiSource === "acg" ? " selected" : ""), text: "Lolicon 动漫" }),
+    el("label", { class: "opt-item" + (bgState.apiSource !== "acg" ? " selected" : ""), text: "Bing 每日精选", "data-src": "bing" }),
+    el("label", { class: "opt-item" + (bgState.apiSource === "acg" ? " selected" : ""), text: "Lolicon 动漫", "data-src": "acg" }),
   ]);
   srcGroup.addEventListener("click", (e) => {
     const item = e.target instanceof Element ? e.target.closest(".opt-item") : null;
     if (!item) return;
-    bgState.apiSource = item.textContent.includes("Lolicon") ? "acg" : "bing";
+    bgState.apiSource = item.dataset.src === "acg" ? "acg" : "bing";
     [...srcGroup.children].forEach((x) => x.classList.toggle("selected", x === item));
     saveState();
     toast(`壁纸来源已切换: ${item.textContent} 🖼️`, "info");
@@ -338,8 +388,9 @@ function getPopover() {
     refreshPopoverState(pop);
     if (ok) toast(`在线壁纸自动轮换已开启 (每 ${savedInterval()} 秒) 🎠`, "success");
   });
-  apiBox.append(srcGroup, apiBtn);
-  pop.append(apiBox);
+  const apiInfo = el("div", { class: "muted bg-api-info" });
+  apiBox.append(srcGroup, apiBtn, apiInfo);
+  panelApi.append(apiBox);
 
   // ---- 文件夹轮播: 选择后立即展示一张, 之后按间隔自动切换 ----
   const folderBox = el("div", { class: "field" }, [el("label", { text: "📁 文件夹轮播 (选择后立即生效)" })]);
@@ -356,11 +407,23 @@ function getPopover() {
       stopApiRotation();
       setFolder(res.files);
       refreshPopoverState(pop);
+      switchTab("folder");
       toast(`已载入 ${res.files.length} 张图片, 立即生效并按间隔轮播 🎠`, "success");
     } catch (e) { toast("选择文件夹失败: " + e.message, "error"); }
   });
-  folderBox.append(folderPick, folderInfo);
-  pop.append(folderBox);
+  const folderShuffleBtn = el("button", { class: "btn btn-sm", type: "button", text: "🎲 立即随机换一张" });
+  folderShuffleBtn.style.marginTop = "8px";
+  folderShuffleBtn.addEventListener("click", () => {
+    const list = bgState.folder || [];
+    if (!list.length) { toast("尚未选择背景图片文件夹 📁", "warning"); return; }
+    currentIdx = Math.floor(Math.random() * list.length);
+    applyBackground(list[currentIdx]);
+    stopRotation();
+    startRotation();   // 从这张开始按间隔继续轮播
+    toast("已随机换了一张文件夹壁纸 🎲", "info");
+  });
+  folderBox.append(folderPick, folderInfo, folderShuffleBtn);
+  panelFolder.append(folderBox);
 
   // ---- 切换间隔 ----
   const intBox = el("div", { class: "field" }, [el("label", { text: "⏱️ 切换间隔 (秒)" })]);
@@ -392,9 +455,14 @@ function getPopover() {
     await saveState();
     applyBackground();
     refreshPopoverState(pop);
+    switchTab("img");
     toast("已恢复默认背景", "info");
   });
   pop.append(el("div", { class: "bg-actions" }, [resetBtn]));
+
+  // 初始页签 = 当前生效方式 (放在末尾: switchTab 依赖 intBox 已声明)
+  switchTab(bgState.api ? "api" : (bgState.folder && bgState.folder.length ? "folder" : "img"));
+  refreshPopoverState(pop);
 
   popoverEl = pop;
   document.body.append(pop);
@@ -404,19 +472,22 @@ function getPopover() {
 function refreshPopoverState(pop) {
   const singleName = pop.querySelector(".file-chip");
   const folderInfo = pop.querySelector(".bg-folder-info");
-  const pathInput = pop.querySelector('input[type="text"]');
-  singleName.textContent = bgState.single ? bgState.single.split("/").pop() : "未设置";
-  singleName.title = bgState.single || "";
-  if (bgState.api) {
-    folderInfo.textContent = `当前: 在线壁纸自动轮换 (每 ${savedInterval()} 秒)`;
-  } else if (bgState.folder && bgState.folder.length) {
-    folderInfo.textContent = `轮播中: ${bgState.folder.length} 张, 间隔 ${savedInterval()} 秒`;
-  } else {
-    folderInfo.textContent = bgState.single ? "当前: 单张背景" : "未设置背景";
+  const apiInfo = pop.querySelector(".bg-api-info");
+  const srcName = bgState.apiSource === "acg" ? "Lolicon 动漫" : "Bing 每日精选";
+  if (singleName) {
+    singleName.textContent = bgState.single ? bgState.single.split("/").pop() : "未设置";
+    singleName.title = bgState.single || "";
   }
-  if (pathInput && !pathInput.value) pathInput.value = "";
+  if (apiInfo) {
+    apiInfo.textContent = bgState.api
+      ? `自动轮换中: ${srcName}, 每 ${savedInterval()} 秒换一张 🎠`
+      : `未开启 · 当前来源: ${srcName}, 点上方按钮立即换一张并开始自动轮换`;
+  }
+  if (folderInfo) {
+    folderInfo.textContent = (bgState.folder && bgState.folder.length)
+      ? `轮播中: ${bgState.folder.length} 张, 间隔 ${savedInterval()} 秒 🎠`
+      : "未选择文件夹";
+  }
   const intervalInput = pop.querySelector('input[type="number"]');
   if (intervalInput) intervalInput.value = savedInterval();
-  const apiAuto = pop.querySelector(".bg-api-auto input[type='checkbox']");
-  if (apiAuto) apiAuto.checked = !!bgState.api;
 }
