@@ -1,11 +1,15 @@
 // ============================================================
 // 一言 (数据来源 hitokoto.cn): 标题栏随机句子
-//   每 30 分钟自动切换; 点击立即换一句; 获取失败静默保留当前句子
+//   自动切换时间与背景图片切换间隔同步 (background.effectiveIntervalSec):
+//   轮播中 (文件夹/在线) = 用户设置的切换间隔; 单张/默认背景 = 默认间隔
+//   间隔变化经 bus("bg-interval") 即时重排程; 点击立即换一句; 获取失败静默保留当前句
 // ============================================================
 import { get } from "./api.js";
+import { bus } from "./ui.js";
+import { effectiveIntervalSec } from "./background.js";
 
-const REFRESH_MS = 30 * 60 * 1000;
 let box = null;
+let timer = null;
 
 /** 拉取一句话并渲染 (成功时带入场动画, 悬停显示出处) */
 async function refresh() {
@@ -23,10 +27,20 @@ async function refresh() {
   } catch { /* 网络失败静默, 保留当前句子 */ }
 }
 
+/** 按当前生效的图片切换间隔排下一次切换 (自重排 setTimeout, 每次取最新值) */
+function schedule() {
+  if (timer) clearTimeout(timer);
+  const sec = Math.max(10, Number(effectiveIntervalSec()) || 120);
+  timer = setTimeout(() => { refresh().then(schedule); }, sec * 1000);
+}
+
 export function initHitokoto() {
   box = document.getElementById("hitokoto");
   if (!box) return;
-  box.addEventListener("click", refresh);
+  // 手动点击换一句后重置排程, 避免刚换完又紧跟一次自动切换
+  box.addEventListener("click", () => { refresh().then(schedule); });
   refresh();
-  setInterval(refresh, REFRESH_MS);
+  schedule();
+  // 背景开始/停止轮播、切换间隔修改 → 立即跟随重排
+  bus.on("bg-interval", schedule);
 }

@@ -2,7 +2,7 @@
 // 自定义背景: 单张图片 / 文件夹轮播 (跨端口/浏览器持久化)
 //   状态保存在后端 outputs/bg_state.json, 首次启动时自动从 localStorage 迁移
 // ============================================================
-import { el, toast, enableDrop } from "./ui.js";
+import { el, toast, enableDrop, bus } from "./ui.js";
 import { imageUrl, uploadFiles, get, post } from "./api.js";
 
 const KEY_SINGLE = "anr-bg";
@@ -16,9 +16,20 @@ let popoverEl = null;
 let pidBadge = null;
 let bgState = { single: null, folder: null, interval: 120, api: false, apiSource: "bing", art: null };
 
+export const DEFAULT_INTERVAL_SEC = 120;
+
 function savedInterval() {
-  return Number.isFinite(bgState.interval) && bgState.interval >= 10 ? bgState.interval : 120;
+  return Number.isFinite(bgState.interval) && bgState.interval >= 10 ? bgState.interval : DEFAULT_INTERVAL_SEC;
 }
+
+/** 对外: 当前实际生效的图片切换间隔 (秒) ——
+ *  文件夹轮播 / 在线自动轮换进行中用用户设置值; 单张图片与默认背景无轮播, 用默认值 */
+export function effectiveIntervalSec() {
+  return (rotationTimer || apiTimer) ? savedInterval() : DEFAULT_INTERVAL_SEC;
+}
+
+/** 轮播启停/间隔变化后广播, 供一言等跟随者重新排程 */
+function notifyInterval() { bus.emit("bg-interval", effectiveIntervalSec()); }
 
 export function applyBackground() {
   const body = document.body;
@@ -40,10 +51,11 @@ function startRotation() {
     rotationIdx = (rotationIdx + 1) % rotationList.length;
     applyBackground();
   }, savedInterval() * 1000);
+  notifyInterval();
 }
 
 function stopRotation() {
-  if (rotationTimer) { clearInterval(rotationTimer); rotationTimer = null; }
+  if (rotationTimer) { clearInterval(rotationTimer); rotationTimer = null; notifyInterval(); }
 }
 
 function setFolder(files) {
@@ -158,7 +170,7 @@ export async function initBackground() {
 let apiTimer = null;
 
 function stopApiRotation() {
-  if (apiTimer) { clearInterval(apiTimer); apiTimer = null; }
+  if (apiTimer) { clearInterval(apiTimer); apiTimer = null; notifyInterval(); }
 }
 
 function startApiRotation() {
@@ -167,6 +179,7 @@ function startApiRotation() {
   apiTimer = setInterval(async () => {
     await fetchApiWallpaper({ silent: true });
   }, Math.max(10, savedInterval()) * 1000);
+  notifyInterval();
 }
 
 /** 从 /api/bg/random 获取一张在线壁纸并应用; silent=true 时不弹通知 (自动轮换) */
@@ -414,10 +427,11 @@ function getPopover() {
   const folderShuffleBtn = el("button", { class: "btn btn-sm", type: "button", text: "🎲 立即随机换一张" });
   folderShuffleBtn.style.marginTop = "8px";
   folderShuffleBtn.addEventListener("click", () => {
-    const list = bgState.folder || [];
+    const list = rotationList.length ? rotationList : (bgState.folder || []);
     if (!list.length) { toast("尚未选择背景图片文件夹 📁", "warning"); return; }
-    currentIdx = Math.floor(Math.random() * list.length);
-    applyBackground(list[currentIdx]);
+    if (!rotationList.length) setFolder(list); // 已保存过文件夹但列表未装载 (如当前为在线模式) → 先装载进入轮播
+    rotationIdx = Math.floor(Math.random() * rotationList.length);
+    applyBackground();
     stopRotation();
     startRotation();   // 从这张开始按间隔继续轮播
     toast("已随机换了一张文件夹壁纸 🎲", "info");
