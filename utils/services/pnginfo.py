@@ -59,7 +59,9 @@ def pnginfo_to_generate(image_path: str) -> dict:
             {
                 "prompt": cap.get("char_caption", ""),
                 "negative_prompt": neg,
+                # 网格标签 (v4/v4.5 grid 模式); 原始浮点坐标一并给出 (v5 free 模式不丢精度)
                 "position": float_to_position(x, y),
+                "xy": [round(float(x), 4), round(float(y), 4)],
                 "enabled": True,
             }
         )

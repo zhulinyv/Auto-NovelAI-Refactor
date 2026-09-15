@@ -400,7 +400,7 @@ function promptField(title, presetCtl, opts) {
   const taBox = el("div", { class: "ta-box" }, [ta]);
   wrap.append(head, taBox);
   wireAutocomplete(ta, taBox);
-  return { node: wrap, input: ta, get: () => ta.value, set: (v) => { ta.value = v; fit(); } };
+  return { node: wrap, input: ta, get: () => ta.value, set: (v) => { ta.value = v; fit(); }, refit: fit };
 }
 
 function buildPromptCard(saved) {
@@ -1080,14 +1080,9 @@ function wireOutputActions() {
     const { showView } = await import("../app.js");
     const pnginfoMod = await import("./pnginfo.js");
     await showView("pnginfo");
-    // 必须在渲染完成后通过命名空间对象读 pnginfoPicker (实时绑定):
-    // pnginfo.js 的 pnginfoPicker 是 export let, 首次渲染视图时才赋值;
-    // 若像以前那样 import 时解构成 const, 首次点击捕获到的是渲染前的 null → 跳转过去但没图片
-    const picker = pnginfoMod.pnginfoPicker;
-    if (picker && picker.set) {
-      picker.set(path);
-      if (picker.onChange) picker.onChange(path);
-    }
+    // openWithImage: 渲染完成后经模块命名空间实时取用 (pnginfoPicker 是 export let, 首渲染才赋值),
+    // 并强制切回"读取信息"页签 —— 否则上次停留的反推/抹除页签会一直显示旧图片, 看起来像"发送了以前的图"
+    pnginfoMod.openWithImage(path);
   });
   sendBtn.addEventListener("click", () => sendToImg2img(lastOutputPath));
   openDirBtn.addEventListener("click", async () => {
@@ -1428,7 +1423,12 @@ function onJobFailed(ev) {
 
 // ---------------- 对外接口 ----------------
 
-export function onShow() {}
+export function onShow() {
+  // "发送到图片生成"等外部 set 发生在视图隐藏期间 (scrollHeight=0 量不到真实高度, 只会停在最小行数);
+  // 每次进入视图补一次自适应: 仍受 autosizeRows 的 6~15 行上下限约束, 超长自动出滚动条
+  C.positive?.refit?.();
+  C.negative?.refit?.();
+}
 
 /** 把图片载入图生图基础图片区, 并切到参数设置页签 (供输出区/图片浏览查看器调用) */
 export async function sendToImg2img(path) {
@@ -1511,6 +1511,13 @@ export function setGenerateState(state, opts = {}) {
       enabled: !!c.enabled,
     })));
     charRegion.setCount(state.characters.length);
-    charRegion.restore(state.characters.map((c) => c.position ?? "A1"));
+    // 元数据导出的 position 是 5x5 网格标签 (自由坐标被吸附到 A1-E5 格心);
+    // v5 且后端给出原始 xy 时优先用 xy, 与 "加载上次" 的 toFixed(2) 精度一致, 切换模型时组件自会网格↔自由换算
+    const rawXy = isNai5(C.model.get());
+    charRegion.restore(state.characters.map((c) =>
+      (rawXy && Array.isArray(c.xy) && Number.isFinite(c.xy[0]) && Number.isFinite(c.xy[1]))
+        ? c.xy[0] + "," + c.xy[1]
+        : (c.position ?? "A1"),
+    ));
   }
 }

@@ -10,6 +10,7 @@ import { showView } from "../app.js";
 let S = null;
 
 export let pnginfoPicker = null;
+let readTabBtn = null;
 
 export async function render(container, ctx) {
   S = ctx;
@@ -25,6 +26,18 @@ export async function render(container, ctx) {
     { title: "🏷️ 图片反推", render: renderTagger },
     { title: "🧼 抹除数据", render: renderRemove },
   ], tabsWrap);
+  // "读取信息"页签按钮: 外部发送图片时强制切回本页签 (视图 DOM 常驻, 上次可能停在反推/抹除页签)
+  readTabBtn = container.querySelector(".tabs .tab-btn");
+}
+
+/** 供其他视图"发送到法术解析"调用: 激活读取信息页签并载入图片。
+ *  否则新图只进隐藏的读取页签, 用户停留在旧页签上看到的还是上次那张旧图 */
+export function openWithImage(path) {
+  if (readTabBtn) readTabBtn.click();
+  if (pnginfoPicker?.set) {
+    pnginfoPicker.set(path);
+    if (pnginfoPicker.onChange) pnginfoPicker.onChange(path);
+  }
 }
 
 // ---------------- 读取信息 ----------------
