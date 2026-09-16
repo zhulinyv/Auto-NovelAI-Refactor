@@ -1,7 +1,7 @@
 // ============================================================
 // 导演工具视图
 // ============================================================
-import { $, el, clear, toast, bus, imageDropZone, showResult, wildcardsButton } from "../ui.js";
+import { $, el, clear, toast, bus, imageDropZone, showResult, wildcardsButton, folderPickButton } from "../ui.js";
 import { post, get, imageUrl, uploadFiles } from "../api.js";
 import { gallery, renderTabs } from "../components.js";
 import { snapPixels } from "../pixelsnap.js";
@@ -33,14 +33,7 @@ export async function render(container, ctx) {
     el("label", { text: "批处理路径" }),
   ]);
   const pathCtlInput = el("input", { type: "text", placeholder: "例如: D:/images" });
-  const pathBtn = el("button", { class: "btn btn-sm btn-file", type: "button", text: "📁 选择文件夹" });
-  pathBtn.addEventListener("click", async () => {
-    try {
-      const { pickFolder } = await import("../api.js");
-      const p = await pickFolder();
-      if (p) { pathCtlInput.value = p; toast(`已选择目录: ${p} 📂`, "success"); }
-    } catch (e) { toast("选择目录失败: " + e.message, "error"); }
-  });
+  const pathBtn = folderPickButton(pathCtlInput);
   pathCtl = pathCtlInput;
   pathField.append(el("div", { class: "file-pick-row" }, [pathCtlInput, pathBtn]));
   picker = imageDropZone({ label: "单张图片", placeholder: "点击选择或拖入图片", native: true });

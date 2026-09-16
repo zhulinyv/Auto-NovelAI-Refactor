@@ -2,7 +2,7 @@
 // 配置设置视图
 // ============================================================
 import { $, el, clear, toast, confirmDialog, sliderRow } from "../ui.js";
-import { post, get } from "../api.js";
+import { post, get, waitBackendBack } from "../api.js";
 
 
 let S = null;
@@ -253,15 +253,7 @@ export async function render(container, ctx) {
     toast("🔄 正在重启 WebUI... 连接将短暂断开", "warning");
     try { await post("/api/settings/restart"); } catch { /* 连接断开即重启成功 */ }
     // 等待后端恢复后刷新原窗口 (不再打开新窗口)
-    let back = false;
-    for (let i = 0; i < 30; i++) {
-      await new Promise((r) => setTimeout(r, 400));
-      try {
-        const r = await fetch("/api/state");
-        if (r.ok) { back = true; break; }
-      } catch { /* 后端重启中 */ }
-    }
-    if (!back) toast("后端未响应, 请检查服务状态", "error");
+    if (!(await waitBackendBack())) toast("后端未响应, 请检查服务状态", "error");
     location.reload();
   });
 

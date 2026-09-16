@@ -108,10 +108,11 @@ export function initLogConsole() {
   if (logActions) logActions.prepend(autoScroll);
 
   // ---- 系统状态行: 系统版本 + CPU/内存/GPU 占用 ----
-  // 刷新间隔 10 秒: 采样 (尤其 nvidia-smi 子进程) 有开销, 不宜过短
+  // 刷新间隔 10 秒: GPU 那路要 fork nvidia-smi 子进程, 不宜过密;
+  // 后端 _gpu_stats 另有 8 秒 TTL 去重 (server/routes/misc.py), 二者不要互相"对齐"成同一个数
   const sysStats = el("span", { class: "sys-stats", id: "sys-stats", title: "系统资源占用" });
   document.querySelector(".log-header span")?.after(sysStats);
-  const STATS_MS = 1 * 1000;
+  const STATS_MS = 10 * 1000;
   const fmtGb = (mb) => (mb >= 1024 ? (mb / 1024).toFixed(1) + "G" : Math.round(mb) + "M");
   async function refreshStats() {
     try {

@@ -63,6 +63,11 @@ export const activeLib = {
   onChange(fn) { this._listeners.add(fn); },
 };
 
+// "点击空白关闭分类下拉" 的 document 级处理器: renderPanel/showCreate 每次执行都会重建面板,
+// 挂新前先摘旧, 保证 document 上同类监听至多 1 个 (否则残留闭包钉住已脱离 DOM 的整棵面板, 且每次 click 多跑一遍)
+let closePlCatDdRef = null;
+let closeTypeDdRef = null;
+
 export async function renderPanel(container, ctx, opts = {}) {
   S = ctx;
   clear(container);
@@ -274,10 +279,12 @@ export async function renderPanel(container, ctx, opts = {}) {
     if (!cats.length) list.append(el("div", { class: "muted", style: "padding:10px;text-align:center;", text: "暂无已有分类, 直接输入即新建" }));
     plCatWrap.append(list);
   }
+  if (closePlCatDdRef) document.removeEventListener("click", closePlCatDdRef);
   const closePlCatDd = (e) => {
     if (e.target instanceof Element && !plCatWrap.contains(e.target)) plCatWrap.querySelector(".wc-type-dd")?.remove();
   };
   document.addEventListener("click", closePlCatDd);
+  closePlCatDdRef = closePlCatDd;
 
   async function translatePromptLib(texts) {
     const missing = texts.filter((t) => !plZh.has(plKey(t)));
@@ -907,11 +914,13 @@ export async function renderPanel(container, ctx, opts = {}) {
       if (!(allTypes || []).length) list.append(el("div", { class: "muted", style: "padding:10px;text-align:center;", text: "暂无已有分类" }));
       wrap.append(list);
     }
+    if (closeTypeDdRef) document.removeEventListener("click", closeTypeDdRef);
     const closeTypeDd = (e) => {
       const wrap = editCard.querySelector(".wc-type-wrap");
       if (wrap && e.target instanceof Element && !wrap.contains(e.target)) wrap.querySelector(".wc-type-dd")?.remove();
     };
     document.addEventListener("click", closeTypeDd);
+    closeTypeDdRef = closeTypeDd;
   }
 
   async function createCard(typeInput, nameInput, tagsInput) {

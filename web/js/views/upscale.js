@@ -1,7 +1,7 @@
 // ============================================================
 // 超分降噪视图
 // ============================================================
-import { $, el, clear, toast, bus, sliderRow, showResult, imageDropZone, edgeScroll } from "../ui.js";
+import { $, el, clear, toast, bus, sliderRow, showResult, imageDropZone, edgeScroll, folderPickButton } from "../ui.js";
 import { post } from "../api.js";
 import { gallery } from "../components.js";
 
@@ -28,14 +28,7 @@ export async function render(container, ctx) {
     el("label", { text: "批处理路径" }),
   ]);
   const pathCtlInput = el("input", { type: "text", placeholder: "例如: D:/images" });
-  const pathBtn = el("button", { class: "btn btn-sm btn-file", type: "button", text: "📁 选择文件夹" });
-  pathBtn.addEventListener("click", async () => {
-    try {
-      const { pickFolder } = await import("../api.js");
-      const p = await pickFolder();
-      if (p) { pathCtlInput.value = p; toast(`已选择目录: ${p} 📂`, "success"); }
-    } catch (e) { toast("选择目录失败: " + e.message, "error"); }
-  });
+  const pathBtn = folderPickButton(pathCtlInput);
   pathCtl = pathCtlInput;
   pathField.append(el("div", { class: "file-pick-row" }, [pathCtlInput, pathBtn]));
 

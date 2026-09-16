@@ -19,7 +19,8 @@
       <div class="topbar-left">
         <img src="/assets/logo.ico" class="app-logo" alt="ANR Logo" />
         <a class="app-title" href="https://github.com/zhulinyv/Auto-NovelAI-Refactor" target="_blank" rel="noopener">Auto-NovelAI-Refactor</a>
-        <span class="version-badge" id="version-badge">v2.1.15</span>
+        <!-- 版本不在 HTML 写死: 由 app.js 取 /api/state 的 version 填充 (真源 utils/variable.VERSION, 方案 P1-6) -->
+        <span class="version-badge" id="version-badge"></span>
         <span class="hitokoto" id="hitokoto" title="一言"></span>
       </div>
       <div class="topbar-right">
@@ -27,6 +28,8 @@
         <button id="bg-toggle" class="icon-btn" title="自定义背景" aria-label="自定义背景">🖼️</button>
         <button id="appearance-toggle" class="icon-btn" title="外观设置 (颜色/模糊)" aria-label="外观设置">🎨</button>
         <button id="theme-toggle" class="icon-btn" title="切换深浅色主题" aria-label="切换主题">🌙</button>
+        <button id="fullscreen-toggle" class="icon-btn" title="全屏显示" aria-label="全屏显示"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg></button>
+        <button id="copy-link" class="icon-btn" title="复制访问链接 (共享开启时自动复制可共享的外链)" aria-label="复制访问链接"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></button>
         <button id="app-close" class="icon-btn" title="退出程序: 结束后端进程并关闭页面" aria-label="退出程序"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><path d="M12 2v10"/></svg></button>
       </div>
     </header>

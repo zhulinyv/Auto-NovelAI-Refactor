@@ -1,7 +1,7 @@
 // ============================================================
 // 图片筛选视图
 // ============================================================
-import { $, el, clear, toast } from "../ui.js";
+import { $, el, clear, toast, folderPickButton } from "../ui.js";
 import { post, imageUrl } from "../api.js";
 import { openLightbox } from "../components.js";
 
@@ -22,27 +22,12 @@ export async function render(container, ctx) {
     el("div", { class: "card-title" }, ["📂 输入"]),
   ]);
   const pathInput = el("input", { type: "text", placeholder: "图片目录路径, 例如: D:/images", style: "flex:1;min-width:0;" });
-  const pathBtn = el("button", { class: "btn btn-sm btn-file", type: "button", text: "📁 选择文件夹" });
-  pathBtn.addEventListener("click", async () => {
-    try {
-      const res = await post("/api/pick-folder", {});
-      if (res.path) {
-        pathInput.value = res.path;
-        toast("已选择目录: " + res.path + " 📂", "success");
-        // 选择目录后自动加载图片
-        await selectorAction("/api/selector/load", { path: res.path });
-      }
-    } catch (e) { toast(e.message, "error"); }
-  });
+  const pathBtn = folderPickButton(pathInput, { onPicked: (p) => selectorAction("/api/selector/load", { path: p }) });
   loadBtn = el("button", { class: "btn btn-primary btn-sm", text: "🔄 加载图片" });
   const dir1 = el("input", { type: "text", placeholder: "目录1 (移动/复制到此)", style: "flex:1;min-width:0;" });
   const dir2 = el("input", { type: "text", placeholder: "目录2 (移动/复制到此)", style: "flex:1;min-width:0;" });
-  const dir1Btn = el("button", { class: "btn btn-sm btn-file", type: "button", text: "📁" });
-  dir1Btn.title = "选择目录1";
-  dir1Btn.addEventListener("click", () => pickFolder(dir1));
-  const dir2Btn = el("button", { class: "btn btn-sm btn-file", type: "button", text: "📁" });
-  dir2Btn.title = "选择目录2";
-  dir2Btn.addEventListener("click", () => pickFolder(dir2));
+  const dir1Btn = folderPickButton(dir1, { text: "📁", title: "选择目录1" });
+  const dir2Btn = folderPickButton(dir2, { text: "📁", title: "选择目录2" });
   inCard.append(
     el("div", { style: "display:flex;gap:8px;margin-bottom:10px;" }, [pathInput, pathBtn, loadBtn]),
     el("div", { class: "grid grid-2" }, [
@@ -91,14 +76,6 @@ export async function render(container, ctx) {
     if (!pathInput.value.trim()) { toast("请输入图片目录", "warning"); return; }
     await selectorAction("/api/selector/load", { path: pathInput.value.trim() });
   });
-}
-
-/** 弹出系统原生目录选择, 把真实路径填入输入框 (后端直接读取, 不上传)。 */
-async function pickFolder(input) {
-  try {
-    const res = await post("/api/pick-folder", {});
-    if (res.path) { input.value = res.path; toast(`已选择目录: ${res.path} 📂`, "success"); }
-  } catch (e) { toast(e.message, "error"); }
 }
 
 /** 放大查看当前正在筛选的图片 (共享 Lightbox: 单击图片切换原始大小/适应窗口, 点空白或 Esc 关闭) */

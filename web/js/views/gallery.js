@@ -10,7 +10,7 @@
 //   - 滚动加载: 每批渲染 100 张, 滚动到底自动续载 (IntersectionObserver 哨兵)
 //   - 轮询增量刷新: 可见窗口未变时只更新计数/哨兵, 不再销毁重建整个网格
 // ============================================================
-import { $, el, clear, toast, confirmDialog, bus } from "../ui.js";
+import { $, el, elSvg, clear, toast, confirmDialog, bus } from "../ui.js";
 import { get, post, imageUrl } from "../api.js";
 import { showView } from "../app.js";
 import { setGenerateState, sendToImg2img } from "./generate.js";
@@ -104,7 +104,7 @@ function makeBrowseDelBtn(path, name) {
     type: "button",
     title: "把图片移动到系统回收站",
   });
-  btn.textContent = "🗑️";
+  btn.append(iconTrash());
   btn.addEventListener("click", async (e) => {
     e.stopPropagation();
     const ok = await confirmDialog(`确定将图片「${name}」移动到回收站吗？`, { danger: true });
@@ -118,6 +118,46 @@ function makeBrowseDelBtn(path, name) {
     } catch (e) {
       toast("删除失败: " + e.message, "error");
     }
+  });
+  return btn;
+}
+
+/** 在文件管理器中定位图片 (小图角标与查看器共用): 失败才 toast, 成功由资源管理器弹出即反馈 */
+async function revealInFolder(path) {
+  try {
+    await post("/api/browse/reveal", { path });
+  } catch (e) {
+    toast("打开文件夹失败: " + e.message, "error");
+  }
+}
+
+/** 角标矢量图标 (feather 描边风, 同顶栏按钮): emoji 在固定高度 button 内被字体行框压扁, 矢量图标无此问题 */
+const badgeSvg = (children) =>
+  elSvg(
+    "svg",
+    { viewBox: "0 0 24 24", width: 15, height: 15, fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round" },
+    children,
+  );
+const iconFolder = () => badgeSvg([elSvg("path", { d: "M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" })]);
+const iconTrash = () =>
+  badgeSvg([
+    elSvg("polyline", { points: "3 6 5 6 21 6" }),
+    elSvg("path", { d: "M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" }),
+    elSvg("line", { x1: 10, y1: 11, x2: 10, y2: 17 }),
+    elSvg("line", { x1: 14, y1: 11, x2: 14, y2: 17 }),
+  ]);
+
+/** 网格内每个图片右上角的"在文件夹中显示"按钮 (删除按钮左侧) */
+function makeRevealBtn(path) {
+  const btn = el("button", {
+    class: "browse-reveal-btn",
+    type: "button",
+    title: "在文件夹中显示",
+  });
+  btn.append(iconFolder());
+  btn.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    await revealInFolder(path);
   });
   return btn;
 }
@@ -221,6 +261,11 @@ function openViewer(path, name) {
     }
   });
 
+  // 在文件夹中显示: 不关闭查看器 (文件管理器弹出在当前窗口之后, 切回来仍在看图)
+  const revealBtn = el("button", { class: "btn", type: "button", text: "📂 在文件夹中显示" });
+  revealBtn.title = "在系统文件管理器中打开所在文件夹并选中该图片";
+  revealBtn.addEventListener("click", () => revealInFolder(path));
+
   viewerEl.append(
     el("div", { class: "img-viewer-head" }, [
       el("span", { class: "img-viewer-name", text: name || "" }),
@@ -229,10 +274,11 @@ function openViewer(path, name) {
     el("div", { class: "img-viewer-body" }, [
       el("div", { class: "img-viewer-img-wrap" }, [img]),
       el("div", { class: "img-viewer-side" }, [
-        el("div", { class: "img-viewer-tip", text: "操作在主界面完成: 导入生成参数 / 载入图生图基础图片 / 打开法术解析 / 删除 (移到回收站)。点击图片可切换原始大小。" }),
+        el("div", { class: "img-viewer-tip", text: "操作在主界面完成: 导入生成参数 / 载入图生图基础图片 / 打开法术解析 / 在文件夹中显示 / 删除 (移到回收站)。点击图片可切换原始大小。" }),
         mkBtn("🎯 使用该图片参数", "use-params"),
         mkBtn("🖼️ 发送到图片生成", "to-img2img"),
         mkBtn("🔮 发送到法术解析", "to-pnginfo"),
+        revealBtn,
         delBtn,
         favBtn,
       ]),
@@ -295,7 +341,8 @@ function makeGridItem(img) {
   });
   pic.src = thumbUrl(img);
   item.append(pic);
-  // 右上角收藏按钮 (星星) 与删除按钮 (🗑️)
+  // 右上角: 在文件夹中显示 (📂) / 删除 (🗑️) / 收藏 (★)
+  item.append(makeRevealBtn(full));
   item.append(makeBrowseDelBtn(full, img.name));
   item.append(makeFavStar(full, img.name));
   item.addEventListener("click", () => openViewer(full, img.name));

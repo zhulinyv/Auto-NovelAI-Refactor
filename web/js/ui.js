@@ -23,6 +23,20 @@ export function el(tag, attrs = {}, children = []) {
   return node;
 }
 
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+/** 创建 SVG 元素: <svg>/<path> 等必须经 createElementNS 才有 SVG 命名空间 (el() 的 createElement 不识别, 会渲染为空白) */
+export function elSvg(tag, attrs = {}, children = []) {
+  const node = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (v !== undefined && v !== null) node.setAttribute(k, v);
+  }
+  for (const c of [].concat(children)) {
+    if (c != null) node.append(c.nodeType ? c : document.createTextNode(c));
+  }
+  return node;
+}
+
 export function clear(node) {
   while (node.firstChild) node.removeChild(node.firstChild);
 }
@@ -97,6 +111,55 @@ export function filePicker({ accept = "*", placeholder = "未选择文件", labe
       nameBox.title = v || "";
     },
   };
+}
+
+// ---------------- 剪贴板 (顶栏复制链接等共用) ----------------
+
+/** 复制文本: 安全上下文 (localhost/127.x/https) 走 Clipboard API; http://局域网IP 等非安全上下文兜底隐藏 textarea + execCommand。返回是否成功。 */
+export function copyText(text) {
+  if (navigator.clipboard?.writeText) {
+    return navigator.clipboard.writeText(text).then(() => true, () => legacyCopy(text));
+  }
+  return Promise.resolve(legacyCopy(text));
+}
+
+function legacyCopy(text) {
+  try {
+    const ta = el("textarea", { style: "position:fixed;top:-9999px;opacity:0;" });
+    ta.value = text;
+    document.body.append(ta);
+    ta.select();
+    const ok = document.execCommand("copy");
+    ta.remove();
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+// ---------------- 原生目录选择按钮 (多个视图共用) ----------------
+
+/**
+ * "📁 选择文件夹" 按钮: 弹系统原生目录框, 把真实路径回填 input (不上传), 成功 toast 后回调 onPicked(path)。
+ * director / upscale / pnginfo / selector 四个视图共用这一份实现。
+ * @param {HTMLInputElement} input 回填目标输入框
+ * @param {object} opts { text: 按钮文字, title: 悬停提示, onPicked: 选择成功后的回调 }
+ */
+export function folderPickButton(input, { text = "📁 选择文件夹", title = "", onPicked = null } = {}) {
+  const btn = el("button", { class: "btn btn-sm btn-file", type: "button", text });
+  if (title) btn.title = title;
+  btn.addEventListener("click", async () => {
+    try {
+      const { pickFolder } = await import("./api.js");
+      const p = await pickFolder();
+      if (p) {
+        input.value = p;
+        toast(`已选择目录: ${p} 📂`, "success");
+        if (onPicked) onPicked(p);
+      }
+    } catch (e) { toast("选择目录失败: " + e.message, "error"); }
+  });
+  return btn;
 }
 
 // ---------------- 矩形拖拽上传区 (单张图片) ----------------
@@ -629,21 +692,30 @@ export function wireAutocomplete(textarea, wrap, opts = {}) {
   // 每个输入框独立计时器: 共享计时器会被其它输入框的 input 事件清除,
   // 导致补全列表不出现或在他处自发弹出
   let suggestTimer = null;
+  let suggestCtl = null; // 进行中的 /api/suggest: 新输入进来即取消旧请求 (慢响应后到不许覆盖新结果)
   textarea.addEventListener("input", () => {
     clearTimeout(suggestTimer);
+    if (suggestCtl) { suggestCtl.abort(); suggestCtl = null; }
     suggestTimer = setTimeout(async () => {
       // 焦点已不在本输入框时不弹出, 避免干扰其它参数操作
       if (document.activeElement !== textarea) { hide(); return; }
       const text = textarea.value;
       const kw = text.split(",").pop().trim();
       if (!kw) { hide(); return; }
+      const ctl = new AbortController();
+      suggestCtl = ctl;
       try {
         const { post } = await import("./api.js");
-        const res = await post("/api/suggest", { text });
+        const res = await post("/api/suggest", { text }, { signal: ctl.signal });
+        if (ctl.signal.aborted) return; // 等待期间已有更新的输入: 丢弃本次过期结果
         if (!res.items?.length) { hide(); return; }
         renderItems(res.items, res.keyword || kw);
-      } catch { hide(); }
-    }, 250);
+      } catch {
+        if (!ctl.signal.aborted) hide(); // 主动取消不算失败, 不要把新列表收起
+      } finally {
+        if (suggestCtl === ctl) suggestCtl = null;
+      }
+    }, 400); // 防抖 400ms: 补全不需要 250ms 那么跟手, 也减少后端查询次数
   });
 
   textarea.addEventListener("blur", () => setTimeout(hide, 200));

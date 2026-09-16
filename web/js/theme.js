@@ -2,7 +2,7 @@
 // 主题管理: 亮色/暗色切换 + 自定义主题色 + 模糊度调节
 // 持久化到后端 outputs/bg_state.json (跨浏览器保留), localStorage 作兜底
 // ============================================================
-import { el, toast } from "./ui.js";
+import { copyText, el, toast } from "./ui.js";
 import { get, post } from "./api.js";
 
 const KEY = "anr-theme";
@@ -64,11 +64,10 @@ function applyColor(color) {
   localStorage.setItem(COLOR_KEY, JSON.stringify(color));
 }
 
-function applyBlur(bg, panel) {
+function applyBlur(bg) {
   const root = document.documentElement;
   root.style.setProperty("--bg-blur", bg + "px");
-  root.style.setProperty("--panel-blur", panel + "px");
-  localStorage.setItem(BLUR_KEY, JSON.stringify({ bg, panel }));
+  localStorage.setItem(BLUR_KEY, JSON.stringify({ bg }));
 }
 
 // ---------------- 服务器端持久化 (跨浏览器) ----------------
@@ -120,7 +119,7 @@ async function loadSaved() {
     } catch { /* ignore */ }
   }
   if (blur && Number.isFinite(blur.bg)) {
-    applyBlur(blur.bg, Number.isFinite(blur.panel) ? blur.panel : 12);
+    applyBlur(blur.bg);
   }
 
   // 服务器缺少但本地有旧值时, 迁移到服务器 (换浏览器后不再丢失)
@@ -152,6 +151,61 @@ export function initTheme() {
 
   loadSaved();
   initAppearanceUI();
+  initFullscreenUI();
+  initCopyLinkUI();
+}
+
+// ---------------- 全屏切换 (Fullscreen API: 托管 app 窗口与普通标签页通用) ----------------
+
+const FS_ICON_EXPAND = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>';
+const FS_ICON_SHRINK = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14h6v6"/><path d="M20 10h-6V4"/><path d="M14 10l7-7"/><path d="M3 21l7-7"/></svg>';
+
+export function initFullscreenUI() {
+  const btn = document.getElementById("fullscreen-toggle");
+  if (!btn) return;
+  const sync = () => {
+    const on = !!document.fullscreenElement;
+    btn.innerHTML = on ? FS_ICON_SHRINK : FS_ICON_EXPAND;
+    btn.title = on ? "退出全屏" : "全屏显示";
+    btn.setAttribute("aria-label", btn.title);
+  };
+  btn.addEventListener("click", () => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+      return;
+    }
+    // localhost 属安全上下文, requestFullscreen 基本不会被策略拦截; 失败时静默 (F11 仍可用)
+    document.documentElement.requestFullscreen({ navigationUI: "hide" }).catch(() => {});
+  });
+  document.addEventListener("fullscreenchange", sync);  // 覆盖 F11/Esc 等其他进出路径
+  sync();
+}
+
+// ---------------- 复制访问链接 (共享链接开启且就绪时自动给可对外访问的隧道地址) ----------------
+
+export function initCopyLinkUI() {
+  const btn = document.getElementById("copy-link");
+  if (!btn) return;
+  btn.addEventListener("click", async () => {
+    if (btn.disabled) return;
+    btn.disabled = true;
+    try {
+      let url = location.origin;
+      let shared = false;
+      try {
+        // 真源在后端 (utils/tunnel.get_share_info): url 仅在隧道注册且端到端确认可达后才非空
+        const s = await get("/api/share");
+        shared = !!(s.share && s.url);
+        if (shared) url = s.url;
+      } catch { /* 状态查询失败按未共享处理, 至少复制本地地址 */ }
+      if (!(await copyText(url))) throw new Error("浏览器拒绝了剪贴板写入");
+      toast(shared ? "可共享链接已复制 📋" : "本地地址已复制 📋 (设置页开启共享链接后可复制对外访问的链接)", "success");
+    } catch (e) {
+      toast("复制失败: " + e.message, "error");
+    } finally {
+      btn.disabled = false;
+    }
+  });
 }
 
 // ---------------- 外观弹层 (颜色 + 模糊) ----------------
@@ -223,10 +277,10 @@ function getPopover() {
   });
   accentInput.addEventListener("change", () => scheduleSave());
 
-  // ---- 模糊度 (组件模糊已随毛玻璃移除, 仅保留背景模糊) ----
+  // ---- 模糊度 (组件模糊已随毛玻璃移除, 仅保留背景模糊; --panel-blur 管线已删) ----
   const blurBgWrap = sliderRow("背景模糊度", "blur-bg", 0, 40, 4);
   blurBgWrap.input.addEventListener("input", () => {
-    applyBlur(Number(blurBgWrap.input.value), 0);
+    applyBlur(Number(blurBgWrap.input.value));
     syncPopover(pop);
   });
   blurBgWrap.input.addEventListener("change", () => scheduleSave());
@@ -236,7 +290,7 @@ function getPopover() {
   const resetBtn = el("button", { class: "btn btn-sm btn-danger", text: "♻️ 恢复默认外观" });
   resetBtn.addEventListener("click", () => {
     applyColor(null);
-    applyBlur(4, 12);
+    applyBlur(4);
     syncPopover(pop);
     scheduleSave();
     toast("已恢复默认外观", "info");
@@ -272,11 +326,8 @@ function syncPopover(pop) {
   if (accentInput) accentInput.value = toHex(curAccent) || "#ec4899";
 
   const bgInput = pop.querySelector("#blur-bg");
-  const panelInput = pop.querySelector("#blur-panel");
   const bgBlur = parseFloat(rootStyle.getPropertyValue("--bg-blur")) || 4;
-  const panelBlur = parseFloat(rootStyle.getPropertyValue("--panel-blur")) || 12;
   if (bgInput) { bgInput.value = String(bgBlur); const v = bgInput.parentElement.querySelector(".blur-val"); if (v) v.textContent = bgBlur + "px"; }
-  if (panelInput) { panelInput.value = String(panelBlur); const v = panelInput.parentElement.querySelector(".blur-val"); if (v) v.textContent = panelBlur + "px"; }
 
   // 高亮当前预设
   const swatches = pop.querySelectorAll(".color-swatch[data-index]");

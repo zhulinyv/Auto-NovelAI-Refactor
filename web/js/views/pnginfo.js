@@ -1,7 +1,7 @@
 // ============================================================
 // 法术解析视图: 读取信息 / 图片反推 / 抹除数据
 // ============================================================
-import { $, el, clear, toast, imageDropZone } from "../ui.js";
+import { $, el, clear, toast, imageDropZone, folderPickButton } from "../ui.js";
 import { post } from "../api.js";
 import { renderTabs } from "../components.js";
 import { setGenerateState, getC } from "./generate.js";
@@ -349,14 +349,7 @@ function renderTagger(body) {
 function renderRemove(body) {
   const picker = imageDropZone({ label: "🖼️ 单张处理", placeholder: "点击选择图片", native: true, dropNative: true });
   const batchPath = el("input", { type: "text", placeholder: "批处理路径 (可选, 可手动输入)", style: "flex:1;min-width:0;" });
-  const dirBtn = el("button", { class: "btn btn-sm btn-file", type: "button", text: "📁 选择文件夹" });
-  dirBtn.addEventListener("click", async () => {
-    try {
-      const { pickFolder } = await import("../api.js");
-      const p = await pickFolder();
-      if (p) { batchPath.value = p; toast(`已选择目录: ${p} 📂`, "success"); }
-    } catch (e) { toast("选择目录失败: " + e.message, "error"); }
-  });
+  const dirBtn = folderPickButton(batchPath);
   const info = el("input", { type: "text", placeholder: "添加自定义信息 (可选)" });
   const choices = ["Title","Description","Software","Source","Generation time","Comment","dpi","parameters","prompt"];
   const choiceWrap = el("div", { class: "opt-group" });

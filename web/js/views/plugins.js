@@ -2,7 +2,7 @@
 // 插件视图: 插件商店 + 单个插件的独立页面
 // ============================================================
 import { $, $$, el, clear, toast, bus, makeField, closeToastNode } from "../ui.js";
-import { get, post, imageUrl, openDir } from "../api.js";
+import { get, post, imageUrl, openDir, waitBackendBack } from "../api.js";
 import { gallery } from "../components.js";
 import { drawBetaChart } from "../dist_chart.js";
 
@@ -280,16 +280,10 @@ export async function render(container, ctx) {
     } catch (e) {
       outBox.textContent = "❌ " + e.message;
       toast(e.message, "error");
+      // 后端明确回了 HTTP 错误 = 没在重启: 不再盲目刷新, 让错误留在页面上 (旧代码 ~400ms 后 reload 会把提示冲掉)
+      if (!(e instanceof TypeError)) return;
     }
-    let back = false;
-    for (let i = 0; i < 30; i++) {
-      await new Promise((r) => setTimeout(r, 400));
-      try {
-        const r = await fetch("/api/state");
-        if (r.ok) { back = true; break; }
-      } catch { /* 等待后端重启完成 */ }
-    }
-    if (!back) toast("后端未响应, 请检查服务状态", "error");
+    if (!(await waitBackendBack())) toast("后端未响应, 请检查服务状态", "error");
     location.reload();
   }
 
@@ -362,18 +356,12 @@ async function storeAction(url, name, outBox) {
   } catch (e) {
     outBox.textContent = "❌ " + e.message;
     toast(e.message, "error");
+    // 同上: HTTP 层错误不 reload; 连接被掐断 (TypeError, 后端可能已在重启) 才继续等待+刷新
+    if (!(e instanceof TypeError)) return;
   }
   // 插件增删/启停后后端可能重启: 等待后端恢复后刷新前端
   toast("后端正在处理, 即将刷新界面...", "info");
-  let back = false;
-  for (let i = 0; i < 30; i++) {
-    await new Promise((r) => setTimeout(r, 400));
-    try {
-      const r = await fetch("/api/state");
-      if (r.ok) { back = true; break; }
-    } catch { /* 等待重启完成 */ }
-  }
-  if (!back) toast("后端未响应, 请检查服务状态", "error");
+  if (!(await waitBackendBack())) toast("后端未响应, 请检查服务状态", "error");
   location.reload();
 }
 

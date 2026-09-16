@@ -23,7 +23,6 @@
   --shadow-lg: 0 10px 40px rgba(0, 0, 0, 0.12);
   --radius: 14px;
   --radius-sm: 9px;
-  --panel-blur: 12px;
   --bg-blur: 4px;
   --font: system-ui, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   --mono: "Cascadia Code", Consolas, "Courier New", monospace;
@@ -56,8 +55,6 @@
   --input: rgba(255, 255, 255, 0.08);
   --shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
   --shadow-lg: 0 10px 40px rgba(0, 0, 0, 0.5);
-  --panel-blur: 12px;
-  --bg-blur: 4px;
   /* Danbooru 标签分类配色 (暗色主题用亮色变体) */
   --tag-general: #d4d4d8;
   --tag-artist: #d8b4fe;
@@ -116,6 +113,8 @@ select {
   background-repeat: no-repeat;
   background-position: right 13px center;
   padding-right: 36px;
+  min-height: 33px;
+  cursor: pointer;
   transition: border-color 0.2s, box-shadow 0.2s, background-color 0.2s;
 }
 [data-theme="dark"] select {
@@ -123,8 +122,7 @@ select {
 }
 select:hover { border-color: color-mix(in srgb, var(--primary) 60%, var(--border)); background-color: var(--panel-solid); }
 /* 统一单行控件高度, 避免按钮/输入框忽大忽小 */
-input[type="text"], input[type="number"], input[type="password"], input[type="email"], select { min-height: 33px; }
-select { cursor: pointer; }
+input[type="text"], input[type="number"], input[type="password"], input[type="email"] { min-height: 33px; }
 
 /* ------- 自定义复选框/单选 (无伪元素, 用背景图, 稳健) ------- */
 input[type="checkbox"] {
@@ -252,9 +250,4 @@ img.twemoji {
 @keyframes pop-in {
   from { opacity: 0; transform: translateY(8px) scale(0.98); }
   to { opacity: 1; transform: translateY(0) scale(1); }
-}
-@keyframes wiggle {
-  0%, 100% { transform: rotate(0); }
-  25% { transform: rotate(-6deg); }
-  75% { transform: rotate(6deg); }
 }
