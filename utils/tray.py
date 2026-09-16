@@ -30,7 +30,15 @@ PROFILE_DIR = BASE_DIR / ".webui-browser"
 PID_FILE = PROFILE_DIR / "pid"
 
 # 支持 --app 无地址栏窗口的 Chromium 系浏览器 (未命中则退回普通标签页)
-_CHROMIUM_EXES = {"msedge.exe", "chrome.exe", "chromium.exe", "chromium-browser.exe", "vivaldi.exe", "brave.exe", "opera.exe"}
+_CHROMIUM_EXES = {
+    "msedge.exe",
+    "chrome.exe",
+    "chromium.exe",
+    "chromium-browser.exe",
+    "vivaldi.exe",
+    "brave.exe",
+    "opera.exe",
+}
 _WINDOW_MARK = "--anr-webui"  # 自有标记: 供 _managed_pid 校验窗口归属, Chromium 忽略未知开关
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
