@@ -158,6 +158,183 @@ def _activate_windows(pid: int) -> int:
 
 # ---------------------------------------------------------------- 打开 / 强杀
 
+# ---------------------------------------------------------------- AUMID 快捷方式注册 (Win11 任务栏强制 ANR 图标)
+
+# 托管窗口专属 AppUserModelID。Win11 任务栏按钮按 AUMID 注册快捷方式绘制图标 (无视窗口自身
+# 图标); 在开始菜单放一个带 logo 图标 + 该 AUMID 属性的快捷方式后, 按钮图标/悬停名都归 ANR。
+# Win10 与「注册失败」时退路是 --app-icon/favicon 的窗口图标; 浏览器 exe 或参数变化自动重建。
+WEBUI_AUMID = "AutoNovelAI.WebUI"
+WAKE_SCRIPT = BASE_DIR / "utils" / "wake.py"  # 唤醒快捷方式的脚本目标 (pythonw 直跑, 无控制台)
+
+
+def _start_menu_shortcut_path() -> Path | None:
+    """开始菜单里 AUMID 快捷方式的路径 (无 APPDATA 时 None)。"""
+    appdata = os.environ.get("APPDATA")
+    if not appdata:
+        return None
+    return (
+        Path(appdata)
+        / "Microsoft"
+        / "Windows"
+        / "Start Menu"
+        / "Programs"
+        / "Auto-NovelAI-Refactor"
+        / "Auto-NovelAI-Refactor WebUI.lnk"
+    )
+
+
+def _wake_shortcut_path() -> Path | None:
+    """开始菜单里可见的唤醒入口 (点它保证到界面; 后端没跑时由 wake.py 自动拉起)。"""
+    base = _start_menu_shortcut_path()
+    if base is None:
+        return None
+    return base.with_name("Auto-NovelAI-Refactor.lnk")
+
+
+def _scan_managed_pid(timeout_s: float = 8.0) -> int | None:
+    """轮询找带窗口标记的浏览器主进程 (排除 --type= 子进程)。
+
+    explorer 通道是异步拉起, Popen 返回的 pid 不可用; .pid 丢失但托管浏览器仍活着
+    (handoff 复用) 时这里也能把它认领回来。
+    """
+    try:
+        import psutil
+    except ImportError:
+        return None
+    deadline = time.monotonic() + timeout_s
+    while True:
+        for p in psutil.process_iter(["pid", "name", "cmdline"]):
+            try:
+                name = (p.info["name"] or "").lower()
+                cl = " ".join(p.info["cmdline"] or [])
+                if name in ("msedge.exe", "chrome.exe") and _WINDOW_MARK in cl and "--type=" not in cl:
+                    return int(p.info["pid"])
+            except Exception:  # noqa: BLE001 - 进程枚举竞争窗口, 下个周期再来
+                pass
+        if time.monotonic() >= deadline:
+            return None
+        time.sleep(0.4)
+
+
+def _lnk_args_str(args: list[str]) -> str:
+    """Popen 参数列表 -> 快捷方式 Arguments 字符串 (含空格的值加引号, 供手动从开始菜单打开时同样生效)。"""
+    out = []
+    for a in args:
+        if " " not in a:
+            out.append(a)
+        elif "=" in a:
+            k, _, v = a.partition("=")
+            out.append(f'{k}"{v}"')
+        else:
+            out.append(f'"{a}"')
+    return " ".join(out)
+
+
+def _psq(s: object) -> str:
+    """PowerShell 单引号字符串转义 (双单引号)。"""
+    return str(s).replace("'", "''")
+
+
+def _ensure_aumid_shortcut(exe: str, args_str: str) -> None:
+    """确保开始菜单存在带 ANR 图标与 AUMID 属性的 WebUI 快捷方式; 一切失败只降级不抛错。"""
+    lnk = _start_menu_shortcut_path()
+    if lnk is None:
+        return
+    stamp = PROFILE_DIR / "aumid-shortcut.stamp"
+    pythonw = next(
+        (
+            c
+            for c in (BASE_DIR / "venv" / "Scripts" / "pythonw.exe", BASE_DIR / "Python" / "pythonw.exe")
+            if c.is_file()
+        ),
+        None,
+    )
+    wake_lnk = _wake_shortcut_path()
+    wake_fp = f"{pythonw or ''}|{wake_lnk or ''}"
+    fingerprint = f"{exe}|{args_str}|{ICON_PATH}|{wake_fp}"
+    try:
+        if lnk.is_file() and stamp.read_text(encoding="utf-8") == fingerprint:
+            return  # 已是最新: 不反复动开始菜单
+    except OSError:
+        pass
+    # '@ 结束符必须独占行首 (曾被字符串隐式拼接并进 Add-Type 一行, 教训), CRLF 双保险
+    ps = "\r\n".join(
+        [
+            "$ErrorActionPreference = 'Stop'",
+            f"$lnkObj = (New-Object -ComObject WScript.Shell).CreateShortcut('{_psq(lnk)}')",
+            f"$lnkObj.TargetPath = '{_psq(exe)}'",
+            f"$lnkObj.Arguments = '{_psq(args_str)}'",
+            f"$lnkObj.WorkingDirectory = '{_psq(BASE_DIR)}'",
+            f"$lnkObj.IconLocation = '{_psq(ICON_PATH)},0'",
+            "$lnkObj.Description = 'Auto-NovelAI-Refactor WebUI'",
+            "$lnkObj.Save()",
+            # WScript.Shell 不支持 AUMID; Shell.Application 的 ExtendedProperty 在 PowerShell
+            # 延迟绑定下只能读不能 put (实测报无二参方法) -> 经 shell32 IPropertyStore 直写快捷方式属性存储
+            "$code = @'",
+            "using System;",
+            "using System.Runtime.InteropServices;",
+            "public static class ShortcutAumid {",
+            "  [StructLayout(LayoutKind.Sequential)] struct PropertyKey { public Guid fmtid; public int pid; }",
+            "  [StructLayout(LayoutKind.Sequential)] struct PropVariant { public ushort vt; public ushort r1; public ushort r2; public ushort r3; public IntPtr p; }",
+            '  [ComImport, Guid("886d8eeb-8cf2-4446-8d02-cdba1dbdcf99"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]',
+            "  interface IPropertyStore { int GetCount(out int c); int GetAt(int i, out PropertyKey k); int GetValue(ref PropertyKey k, out PropVariant v); int SetValue(ref PropertyKey k, ref PropVariant v); int Commit(); }",
+            '  [ComImport, Guid("0000010c-0000-0000-C000-000000000046"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]',
+            "  interface IPersistFile { int GetClassID(out Guid c); [PreserveSig] int IsDirty(); int Load([MarshalAs(UnmanagedType.LPWStr)] string f, int m); int Save(string a, bool b); int SaveCompleted(string a); int GetCurFile(out string a); }",
+            "  public static int Set(string lnkPath, string aumid) {",
+            '    object link = Activator.CreateInstance(Type.GetTypeFromCLSID(new Guid("00021401-0000-0000-C000-000000000046")));',
+            "    int hr = ((IPersistFile)link).Load(lnkPath, 2); if (hr != 0) return hr;",
+            "    IPropertyStore store = (IPropertyStore)link;  // CShellLink 原生实现 IPropertyStore",
+            '    PropertyKey key = new PropertyKey(); key.fmtid = new Guid("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3"); key.pid = 5;',
+            "    PropVariant v = new PropVariant(); v.vt = 31; v.p = Marshal.StringToHGlobalUni(aumid);",
+            "    hr = store.SetValue(ref key, ref v); if (hr == 0) hr = store.Commit(); Marshal.FreeHGlobal(v.p);",
+            "    if (hr != 0) return hr;",
+            "    // 属性存储只是内存态, Commit 不落盘: 必须再 IPersistFile::Save 才写进 .lnk 文件",
+            "    return ((IPersistFile)link).Save(lnkPath, true);",
+            "  }",
+            "}",
+            "'@",
+            "Add-Type -TypeDefinition $code",
+            f"$hr = [ShortcutAumid]::Set('{_psq(lnk)}', '{_psq(WEBUI_AUMID)}')",
+            'if ($hr -ne 0) { throw ("AUMID 写入失败 hr=0x{0:X8}" -f $hr) }',
+        ]
+    )
+    wake_lines = []
+    if pythonw is not None and wake_lnk is not None:
+        # 可见唤醒条目: pythonw 跑 wake.py (带引号防路径空格); 图标同源 logo
+        wake_lines = [
+            f"$wake = (New-Object -ComObject WScript.Shell).CreateShortcut('{_psq(wake_lnk)}')",
+            f"$wake.TargetPath = '{_psq(pythonw)}'",
+            f"$wake.Arguments = '\"{_psq(WAKE_SCRIPT)}\"'",
+            f"$wake.WorkingDirectory = '{_psq(BASE_DIR)}'",
+            f"$wake.IconLocation = '{_psq(ICON_PATH)},0'",
+            "$wake.Description = 'Auto-NovelAI-Refactor (未运行时自动拉起后端)'",
+            "$wake.Save()",
+        ]
+        ps += "\r\n" + "\r\n".join(wake_lines)
+    try:
+        lnk.parent.mkdir(parents=True, exist_ok=True)
+        r = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
+            capture_output=True,
+            timeout=60,
+            creationflags=_NO_WINDOW,
+        )
+        if r.returncode == 0:
+            if wake_lines:
+                # 唤醒入口就位后, 身份载体快捷方式设为隐藏 (hidden 不影响任务栏 AUMID 图标解析,
+                # Electron 同款做法); 开始菜单里只留唤醒条目, 不再出现两个入口
+                try:
+                    import ctypes
+
+                    ctypes.windll.kernel32.SetFileAttributesW(str(lnk), 0x00000002)  # FILE_ATTRIBUTE_HIDDEN
+                except Exception:
+                    pass
+            stamp.write_text(fingerprint, encoding="utf-8")  # 成功才落指纹, 失败下次拉起自愈重试
+        else:
+            logger.debug(f"AUMID 快捷方式注册失败 (退回窗口图标): {r.stderr.decode('utf-8', 'ignore').strip()[:200]}")
+    except Exception as e:
+        logger.debug(f"AUMID 快捷方式注册异常 (退回窗口图标): {e}")
+
 
 def open_webui() -> bool:
     """在默认浏览器中打开 webui; 优先激活/拉起可托管的 --app 窗口。
@@ -173,17 +350,41 @@ def open_webui() -> bool:
         _activate_windows(pid)
         return True
     PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+    launch_args = [
+        f"--app={webui_url()}",
+        f"--app-icon={ICON_PATH}",  # 窗口自身图标 (标题栏/Win10 任务栏/Win11 注册失败时的退路), 与 favicon/托盘同源
+        f"--app-user-model-id={WEBUI_AUMID}",  # 脱离 Edge 分组; 配合下方快捷方式注册出独立 ANR 图标
+        _WINDOW_MARK,
+        f"--user-data-dir={PROFILE_DIR}",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--start-maximized",  # 托管窗口默认最大化启动
+    ]
+    _ensure_aumid_shortcut(exe, _lnk_args_str(launch_args))
+    lnk = _start_menu_shortcut_path()
+    if lnk is not None and lnk.is_file():
+        # 主通道: explorer 拉起带 AUMID 的快捷方式。Win11 任务栏身份只在「shell 启动带
+        # System.AppUserModel.ID 的快捷方式」时继承; python 直接 Popen 的进程不带身份,
+        # --app-user-model-id 开关对 Edge 的 --app 窗口被忽略 (实测), 图标停留在 Edge。
+        # explorer 同步返回、真 pid 拿不到, 用 _WINDOW_MARK 反查浏览器主进程再落 .pid。
+        try:
+            subprocess.Popen(
+                ["explorer.exe", str(lnk)],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=_NO_WINDOW,
+            )
+            pid = _scan_managed_pid()
+            if pid:
+                _write_pid(pid)
+                return True
+        except OSError:
+            pass
+    # 兜底: 直启浏览器 (窗口照常; 仅 Win11 任务栏图标退回浏览器默认)
     try:
         p = subprocess.Popen(
-            [
-                exe,
-                f"--app={webui_url()}",
-                _WINDOW_MARK,
-                f"--user-data-dir={PROFILE_DIR}",
-                "--no-first-run",
-                "--no-default-browser-check",
-                "--start-maximized",  # 托管窗口默认最大化启动
-            ],
+            [exe, *launch_args],
             cwd=str(BASE_DIR),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
