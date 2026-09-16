@@ -16,6 +16,7 @@ from utils.events import broker
 from utils.gen_queue import gen_queue
 from utils.logger import logger
 from utils.services import plugins_store
+from utils.variable import VERSION
 
 # 注意: 不能把路由模块导入为裸名 "queue", 否则会遮蔽标准库 queue,
 # 导致 /api/events 的 except queue.Empty 抛 AttributeError, SSE 事件流整体失效
@@ -24,13 +25,21 @@ from .routes import queue as queue_routes
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Auto-NovelAI-Refactor", version="2.1.15")
+    # version 取自 utils/variable.VERSION (发布唯一真源, main.py 横幅同用它);
+    # 别再在这里写死号, 否则 openapi.json 与页面/终端三处会各说各话 (方案 P1-6)
+    app = FastAPI(title="Auto-NovelAI-Refactor", version=VERSION)
 
     # 后台预热常用缓存: 插件商店数据 (含 git 检查) 与提示词补全标签词典,
     # 避免打开商店页 / 首次输入提示词时的首次加载等待
     def _warm_caches():
-        # 启动查询剩余点数/用量放在最前: 输出区右上角徽标依赖该数据,
-        # 查完立即通过 anlas:update 事件让已打开的页面刷新徽标
+        # 顺序: 先本地必用的 (标签词典 ~2.5s 纯 CPU, 提示词补全第一输入就依赖),
+        # 再排慢的网络/外部进程 (点数查询最坏 N×45s、插件商店含 git)。
+        # 原先最慢的网络调用排在最前, 把标签预热挤到几十秒后 (方案 P1-1 配套)。
+        # 点数查完仍会通过 anlas:update 事件刷新输出区右上角徽标, 只是晚于词典就绪。
+        try:
+            misc._get_tag_cache()
+        except Exception as e:
+            logger.warning(f"标签词典预热失败: {e}")
         try:
             from utils.generator import inquire_all_anlas
 
@@ -41,12 +50,6 @@ def create_app() -> FastAPI:
             plugins_store.list_plugins()
         except Exception as e:
             logger.warning(f"插件商店数据预热失败: {e}")
-        try:
-            from .routes import misc
-
-            misc._get_tag_cache()
-        except Exception as e:
-            logger.warning(f"标签词典预热失败: {e}")
         # 在线翻译多源引擎: 后台预导入 translators 库 (首次在线翻译不再卡几秒)
         try:
             from utils.translate import _get_tss

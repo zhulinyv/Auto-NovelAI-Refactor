@@ -35,9 +35,11 @@ def tagger(image_path, model_repo, general_thresh, general_mcut, character_thres
     logger.info("正在尝试反推...")
     times = 0
     result = None
+    # Client 移出重试循环: 构造会拉取远端 API 信息 (每次阻塞约 1 秒+),
+    # 原实现每轮重试都重建一遍; 只重试 predict 即可
+    client = Client("SmilingWolf/wd-tagger", verbose=False)
     while times < 5:
         try:
-            client = Client("SmilingWolf/wd-tagger", verbose=False)
             result = client.predict(
                 image=handle_file(image_path),
                 model_repo=model_repo,

@@ -139,7 +139,8 @@ async def remove_pnginfo(payload: dict):
 
 
 @router.post("/tagger")
-async def run_tagger(payload: dict):
+def run_tagger(payload: dict):
+    """反推 (同步 def: tagger 内 gradio_client 为阻塞网络 IO, FastAPI 会在线程池执行)。"""
     image_path = payload.get("image_path")
     if not image_path:
         raise HTTPException(status_code=400, detail="请先上传图片")

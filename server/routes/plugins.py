@@ -50,8 +50,12 @@ async def plugin_rows():
 
 
 @router.post("/plugins/check-updates")
-async def check_updates():
-    """手动联网检查全部已安装插件的更新 (插件列表不再自动检查, 仅点击按钮时联网)。"""
+def check_updates():
+    """手动联网检查全部已安装插件的更新 (插件列表不再自动检查, 仅点击按钮时联网)。
+
+    同步 def: 逐插件 git ls-remote 是阻塞子进程 (每个最长 25 秒),
+    FastAPI 会在线程池执行, 不再冻结事件循环。
+    """
     return plugins_store.check_updates()
 
 

@@ -136,6 +136,8 @@ def get_anlas_extra() -> dict[str, tuple]:
 
 def inquire_anlas(token: str | None = None):
     """查询剩余点数与用量 (token 缺省时用当前线程绑定的 Token), 并写入按 Token 缓存。"""
+    if token is None:
+        token = current_token()  # 与 _set_last_anlas / build_headers 同源, 保证两个缓存键一致
     if env.skip_inquire_anlas:
         return "skipped", "skipped"
     try:

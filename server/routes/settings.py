@@ -42,6 +42,7 @@ async def restart_server():
 
 
 @router.post("/settings/update-repo")
-async def update_anr():
+def update_anr():
+    """执行 git pull (同步 def: 阻塞网络操作放线程池; update_repo 已带超时, 不会永久占线程)。"""
     message = update_repo("./")
     return {"message": message}

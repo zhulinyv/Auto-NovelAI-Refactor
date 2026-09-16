@@ -8,6 +8,7 @@ import os
 import platform
 import re
 import subprocess
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -285,6 +286,28 @@ def browse_delete(payload: dict):
 _THUMB_SIZE = 360  # 网格缩略图最长边 (px), 兼容高分屏
 _THUMB_DIR = BASE_DIR / "outputs" / ".thumb_cache"  # "." 开头目录不会出现在图片浏览中
 _THUMB_CAP = 20000  # 缓存文件数上限, 超过后按最旧优先清理一半
+
+
+@router.post("/browse/reveal")
+def browse_reveal(payload: dict):
+    """在系统文件管理器中定位显示某张生成图。
+
+    Windows 用 explorer /select, 高亮选中文件本身; 其他平台无对应参数, 退回打开所在目录。
+    同步 def: 拉起 explorer 属阻塞操作, FastAPI 会在线程池执行。
+    """
+    target = _resolve_allowed(str(payload.get("path") or "").strip())
+    if target is None or not target.is_file():
+        raise HTTPException(404, "文件不存在")
+    if os.name == "nt":
+        # explorer.exe 不走标准 argv, 自己解析命令行字符串: "/select," 与路径之间有空格会解析失败
+        # (只开文件夹不选中); 必须用无空格、路径整体加引号的单参数形态。成功时也返回非零码, 不校验结果
+        subprocess.Popen(f'explorer /select,"{target}"')
+    else:
+        try:
+            os.startfile(str(target.parent))
+        except AttributeError:
+            subprocess.Popen(["xdg-open", str(target.parent)])
+    return {"ok": True}
 
 
 @router.get("/browse/thumb")
@@ -836,12 +859,18 @@ def hitokoto():
 psutil.cpu_percent(interval=None)
 
 _GPU_CACHE = {"t": 0.0, "data": None}
+# 采样节流 (与前端刷新间隔解耦, 不要互相"对齐": 之前 TTL 与轮询同为 1 秒, 缓存吸收不到任何请求,
+# 等于每秒 fork 一次 nvidia-smi)。成功结果最多复用 _GPU_TTL_OK 秒 (兜住多标签页/并发重复采样);
+# 取不到 (无独显 / 驱动异常 / 超时) 则退避 _GPU_TTL_FAIL 秒, 避免每次都真去起进程。前端见 web/js/components.js
+_GPU_TTL_OK = 8.0
+_GPU_TTL_FAIL = 60.0
 
 
 def _gpu_stats():
-    """通过 nvidia-smi 查询 GPU 占用; 结果缓存 1 秒 (与前端刷新频率一致)。"""
+    """通过 nvidia-smi 查询 GPU 占用; 结果按 _GPU_TTL_OK 缓存, 失败时保留上一次的有效值。"""
     now = time.time()
-    if now - _GPU_CACHE["t"] < 1:
+    ttl = _GPU_TTL_OK if _GPU_CACHE["data"] is not None else _GPU_TTL_FAIL
+    if now - _GPU_CACHE["t"] < ttl:
         return _GPU_CACHE["data"]
     try:
         out = subprocess.run(
@@ -852,7 +881,7 @@ def _gpu_stats():
             ],
             capture_output=True,
             text=True,
-            timeout=4,
+            timeout=1.5,
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
         )
         line = out.stdout.strip().splitlines()[0]
@@ -863,8 +892,9 @@ def _gpu_stats():
             "mem_used": float(mem_used),
             "mem_total": float(mem_total),
         }
-    except Exception:
-        _GPU_CACHE["data"] = None  # 无独立显卡或 nvidia-smi 不可用
+    except Exception as e:
+        # 无独立显卡 / nvidia-smi 不可用 / 超时: 保留上一次的有效值, 首次就失败则维持 None
+        logger.debug(f"nvidia-smi 采样失败: {e}")
     _GPU_CACHE["t"] = now
     return _GPU_CACHE["data"]
 
@@ -881,12 +911,16 @@ def _os_name():
 
 
 @router.get("/system/stats")
-async def system_stats():
-    """系统版本与资源占用 (CPU / 内存 / GPU): 运行日志栏展示, 前端每 1 秒轮询。"""
+def system_stats():
+    """系统版本与资源占用 (CPU / 内存 / GPU): 运行日志栏展示, 前端每 10 秒轮询。
+
+    同步 def: _gpu_stats 里的 nvidia-smi 是阻塞子进程, 放线程池执行,
+    不再周期性占用事件循环 (同 browse_images / hitokoto 的处理方式)。
+    """
     mem = psutil.virtual_memory()
     gpu = _gpu_stats()
     return {
-        "app_version": VERSION,
+        # 应用版本不在此重复返回: 前端统一读 /api/state 的 version (真源同为 utils/variable.VERSION)
         "os": _os_name(),
         "arch": platform.machine(),
         "cpu_percent": psutil.cpu_percent(interval=None),
@@ -1032,15 +1066,65 @@ def _load_tags(csv_filename: str = "./assets/danbooru_tags_full_zh.csv"):
 
 _TAGS_CACHE: dict | None = None
 _ZH_MAP: dict | None = None
+_TAGS_LOCK = threading.Lock()
+
+
+def _tags_fingerprint() -> tuple | None:
+    """词典文件指纹 (mtime, size): 变化即自动重建缓存, 换词典不必重启进程。"""
+    try:
+        st = os.stat("./assets/danbooru_tags_full_zh.csv")
+        return (st.st_mtime_ns, st.st_size)
+    except OSError:
+        return None
+
+
+def _build_tag_cache() -> dict:
+    """解析全词典为热度降序行表, 并构建「前 2 字符 -> 行号」倒排前缀桶。
+
+    桶内行号天然保持热度序; /api/suggest 的前缀层按 kw[:2] 取桶即可,
+    不再每次线性扫满 32.7 万行 (原实测单次 143-153ms)。
+    """
+    rows = [(tag.lower(), tag, cat, count, aliases, zh) for tag, cat, count, aliases, zh in _load_tags()]
+    exact2: dict = {}
+    alias2: dict = {}
+    for idx, row in enumerate(rows):
+        tag_l, aliases = row[0], row[4]
+        if len(tag_l) >= 2:
+            exact2.setdefault(tag_l[:2], []).append(idx)
+        for a in aliases:
+            if len(a) >= 2:
+                alias2.setdefault(a[:2], []).append(idx)
+    return {"rows": rows, "exact2": exact2, "alias2": alias2, "fp": _tags_fingerprint()}
 
 
 def _get_tag_cache() -> dict:
-    global _TAGS_CACHE
-    if _TAGS_CACHE is None:
-        _TAGS_CACHE = {
-            "rows": [(tag.lower(), tag, cat, count, aliases, zh) for tag, cat, count, aliases, zh in _load_tags()]
-        }
-    return _TAGS_CACHE
+    """标签缓存 (行表 + 前缀桶): 懒加载; 词典文件 mtime/大小变化时自动重建。
+
+    线程安全: suggest 等同步接口现在跑在线程池, 可能并发进来;
+    双检锁保证重建只发生一次, 重建期间旧缓存照常可用 (整体替换引用)。
+    """
+    global _TAGS_CACHE, _ZH_MAP
+    cache = _TAGS_CACHE
+    if cache is not None and cache["fp"] == _tags_fingerprint():
+        return cache
+    with _TAGS_LOCK:
+        cache = _TAGS_CACHE
+        if cache is None or cache["fp"] != _tags_fingerprint():
+            cache = _build_tag_cache()
+            _TAGS_CACHE = cache
+            _ZH_MAP = None  # 中文映射派生自行表, 必须一并失效
+        return cache
+
+
+def _reset_tag_cache() -> None:
+    """强制清空标签缓存与中文映射 (下次访问重建)。
+
+    词典文件 mtime/大小变化已由 _get_tag_cache 自动感知, 这里是显式入口:
+    替换词典但刻意保留原 mtime (如还原备份) 等场景下调用。
+    """
+    global _TAGS_CACHE, _ZH_MAP
+    _TAGS_CACHE = None
+    _ZH_MAP = None
 
 
 def _get_zh_map() -> dict:
@@ -1058,11 +1142,22 @@ def _get_zh_map() -> dict:
 
 
 _SUGGEST_LIMIT = 20
+_SUGGEST_LAYER_CAP = 40  # 每层独立上限 (与原实现一致)
+_SUGGEST_SCAN_MAX_ROWS = 150_000  # 兜底线扫预算·行数 (原实现每次扫满 326,790 行)
+_SUGGEST_SCAN_MAX_MS = 100.0  # 兜底线扫预算·毫秒
 
 
 @router.post("/suggest")
-async def suggest_tags(payload: dict):
-    rows = _get_tag_cache()["rows"]
+def suggest_tags(payload: dict):
+    """提示词补全 (同步 def: FastAPI 会在线程池执行, 慢查询不再冻结 SSE 与生成提交)。
+
+    匹配优先级与原实现一致: 标签前缀 > 别名前缀 > 标签包含 > 别名包含 > 中文翻译包含。
+    前两层按 kw 前 2 字符从倒排前缀桶直接取 (桶内已热度序, 不再全表扫);
+    后三层是任意子串匹配, 保留线性扫但受行数/耗时双预算, 且凑满 20 条候选即提前退出。
+    (方案 P1-1: 深位次结果的排序手感可能与旧实现不同, 需拿常用词校准。)
+    """
+    cache = _get_tag_cache()
+    rows = cache["rows"]
     input_text = (payload.get("text") or "").strip().lower()
     keyword = input_text.split(",")[-1].strip().rstrip(",")
     if not keyword:
@@ -1075,23 +1170,58 @@ async def suggest_tags(payload: dict):
     t_contains: list = []
     t_alias_sub: list = []
     t_zh: list = []
-    for tag_l, tag, cat, count, aliases, zh in rows:
-        if tag_l.startswith(kw_tag):
-            t_exact.append((tag, cat, count, "", zh))
-        else:
+    used: set = set()  # 已由前缀桶命中的行号: 扫描时跳过, 保持原实现的「一行只进一个层级」
+
+    if len(kw_tag) >= 2:
+        b = kw_tag[:2]
+        bucket = sorted(set(cache["exact2"].get(b, ())) | set(cache["alias2"].get(b, ())))
+        for idx in bucket:
+            if len(t_exact) >= _SUGGEST_LAYER_CAP:
+                break
+            tag_l, tag, cat, count, aliases, zh = rows[idx]
+            if tag_l.startswith(kw_tag):
+                t_exact.append((tag, cat, count, "", zh))
+                used.add(idx)
+            else:
+                hit = next((a for a in aliases if a.startswith(kw_tag)), None)
+                if hit is not None:
+                    t_exact.append((tag, cat, count, hit, zh))
+                    used.add(idx)
+
+    sealed = len(kw_tag) >= 2  # kw 满 2 字符时前缀层已被桶穷尽 (前缀命中必然同前 2 字符)
+    if len(t_exact) < _SUGGEST_LIMIT:
+        deadline = time.monotonic() + _SUGGEST_SCAN_MAX_MS / 1000.0
+        for idx, (tag_l, tag, cat, count, aliases, zh) in enumerate(rows):
+            if idx >= _SUGGEST_SCAN_MAX_ROWS or (idx % 512 == 0 and time.monotonic() > deadline):
+                break  # 扫描预算耗尽: 有多少回多少
+            if idx in used:
+                continue
+            # sealed 时以下前缀分支天然不触发 (全部前缀命中已在桶里处理);
+            # 1 字符 kw 没有桶可取, 前缀层同样靠这条扫描兜底
+            if tag_l.startswith(kw_tag):
+                if len(t_exact) < _SUGGEST_LAYER_CAP:
+                    t_exact.append((tag, cat, count, "", zh))
+                continue  # 本行归属前缀层: 即使被上限截断, 也不许降级进后面的层
             hit = next((a for a in aliases if a.startswith(kw_tag)), None)
             if hit is not None:
-                t_exact.append((tag, cat, count, hit, zh))
-            elif kw_tag in tag_l:
-                t_contains.append((tag, cat, count, "", zh))
+                if len(t_exact) < _SUGGEST_LAYER_CAP:
+                    t_exact.append((tag, cat, count, hit, zh))
+                continue
+            if kw_tag in tag_l:
+                if len(t_contains) < _SUGGEST_LAYER_CAP:
+                    t_contains.append((tag, cat, count, "", zh))
             else:
                 hit2 = next((a for a in aliases if kw_tag in a), None)
                 if hit2 is not None:
-                    t_alias_sub.append((tag, cat, count, hit2, zh))
+                    if len(t_alias_sub) < _SUGGEST_LAYER_CAP:
+                        t_alias_sub.append((tag, cat, count, hit2, zh))
                 elif zh and kw_zh in zh:
-                    t_zh.append((tag, cat, count, "", zh))
-        if len(t_exact) >= 40 and len(t_contains) >= 40 and len(t_alias_sub) >= 40 and len(t_zh) >= 40:
-            break
+                    if len(t_zh) < _SUGGEST_LAYER_CAP:
+                        t_zh.append((tag, cat, count, "", zh))
+            if len(t_exact) >= _SUGGEST_LIMIT:
+                break  # 前缀层自身凑满 20 条: 之后追加的都是更低热度项, 进不了前 20
+            if sealed and len(t_exact) + len(t_contains) >= _SUGGEST_LIMIT:
+                break  # 前缀层已被桶封板, 包含层又凑满窗口: 别名包含/中文层只会排在这两者之后, 不必再扫
     items = (t_exact + t_contains + t_alias_sub + t_zh)[:_SUGGEST_LIMIT]
     return {
         "keyword": keyword,

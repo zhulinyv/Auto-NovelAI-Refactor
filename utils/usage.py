@@ -8,7 +8,7 @@ from __future__ import annotations
 
 
 def tokens_with_no_usage() -> list[str]:
-    """返回剩余用量 <= 0 的 Token 列表 (按配置顺序; 无查询记录 / 查询失败的 Token 视为有用量)。"""
+    """返回剩余用量 == 0 的 Token 列表 (按配置顺序; 无查询记录 / 查询失败的 Token 视为有用量)。"""
     from utils.generator import get_anlas_snapshot
     from utils.tokens import get_tokens
 
@@ -23,7 +23,8 @@ def tokens_with_no_usage() -> list[str]:
             remains_num = float(remains)
         except (TypeError, ValueError):
             continue
-        if 0 <= remains_num <= 100 and remains_num <= 0:
+        # 仅恰为 0 视为无用量; -1 等查询失败哨兵值不参与跳过判断
+        if remains_num == 0:
             empty.append(token)
     return empty
 
