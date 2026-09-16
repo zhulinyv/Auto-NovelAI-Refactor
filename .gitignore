@@ -15,6 +15,7 @@ tests/
 settings.json
 outputs/
 last.json
+.webui-browser/
 
 # ================= 运行时生成 (插件 / 通配符 / 超分模型) =================
 plugins/

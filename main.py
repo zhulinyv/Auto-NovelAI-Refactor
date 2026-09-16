@@ -21,7 +21,7 @@ sys.path.insert(0, str(BASE_DIR))
 from utils.config import env  # noqa: E402
 from utils.helpers import apply_console_visibility, check_update, playsound  # noqa: E402
 from utils.logger import logger, loguru_to_rich  # noqa: E402
-from utils.plugins import load_plugins  # noqa: E402
+from utils.plugins import load_plugins, mark_plugins_reloading  # noqa: E402
 from utils.variable import VERSION  # noqa: E402
 
 if env.proxy:
@@ -55,9 +55,20 @@ logger.success(
 if env.start_sound:
     threading.Thread(target=playsound, args=("./assets/llss.mp3",), daemon=True).start()
 
-logger.info("正在加载插件...")
-load_plugins()
-logger.info("插件加载完成")
+
+def _load_plugins_bg():
+    try:
+        load_plugins()
+        logger.info("插件加载完成")
+    except Exception as e:
+        logger.error(f"插件后台加载失败 (不影响核心服务): {e}")
+
+
+# 插件在后台线程加载: 先同步标记"正在加载" (早于 create_app/端口绑定, 无竞态窗口)。
+# 前端 /api/state 读到 plugins_reload.reloading=true 后走已有的 800ms 轮询 +
+# 完成自动整页刷新通道, 端口绑定不再被插件 pip 安装与 import 期重活拖住。
+mark_plugins_reloading()
+threading.Thread(target=_load_plugins_bg, daemon=True, name="plugin-load").start()
 
 import uvicorn  # noqa: E402
 
@@ -67,6 +78,15 @@ app = create_app()
 
 
 def _open_browser():
+    # 优先走 utils.tray 的托管窗口 (默认浏览器的 --app 独立窗口, 托盘可置前/强杀);
+    # 默认浏览器非 Chromium 系或启动失败时退回 webbrowser 普通标签页
+    try:
+        from utils.tray import open_webui
+
+        if open_webui():
+            return
+    except Exception as e:
+        logger.debug(f"托管窗口打开失败, 退回普通标签页: {e}")
     webbrowser.open(f"http://127.0.0.1:{env.port}")
 
 
@@ -87,4 +107,11 @@ if __name__ == "__main__":
         threading.Timer(1.5, _open_browser).start()
     # 启动后在终端打印一次访问地址 (只保留一条, 不再输出带版本号的 INFO 日志)
     print(f"WebUI 已启动: http://127.0.0.1:{env.port}")
+    # 系统托盘: 右键 打开/重启/关闭; 依赖缺失自动降级, 不影响服务启动
+    try:
+        from utils.tray import start_tray
+
+        start_tray()
+    except Exception as e:
+        logger.debug(f"系统托盘不可用: {e}")
     uvicorn.run(app, host="127.0.0.1", port=env.port, log_level="warning")

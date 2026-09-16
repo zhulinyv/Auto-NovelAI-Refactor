@@ -389,9 +389,20 @@ def get_update_status() -> dict:
 def update_repo(path: str) -> str:
     logger.info("正在尝试更新...")
     try:
-        repo = Repo(path)
-        repo.git.pull()
-        repo.close()
+        Repo(path).close()  # 仅校验是 git 仓库 (非仓库路径抛错, 与原行为一致)
+        # 用 subprocess 自带超时执行 pull: GitPython 的 kill_after_timeout 不支持 Windows,
+        # 裸 repo.git.pull() 无超时, 网络挂起会把线程池工作线程永久占住
+        # (同 plugins_store._check_update_online 的处理方式)
+        proc = subprocess.run(
+            ["git", "pull"],
+            cwd=path,
+            capture_output=True,
+            text=True,
+            timeout=300,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+        )
+        if proc.returncode != 0:
+            raise RuntimeError((proc.stderr or proc.stdout or "").strip() or f"git pull 退出码 {proc.returncode}")
         logger.success("更新完成, 重启后生效!")
         return "更新完成, 重启后生效!"
     except Exception as e:
@@ -447,10 +458,32 @@ def extract(file_path: str, otp_path: str) -> None:
     os.remove(file_path)
 
 
+def _deps_fingerprint(path: str) -> str:
+    """requirements.txt 内容 + 解释器指纹 (换 venv / 换 Python / 改依赖清单即失效)。"""
+    h = hashlib.sha1()
+    h.update(Path(path).read_bytes())
+    h.update(f"|{sys.version}|{sys.prefix}".encode("utf-8"))
+    return h.hexdigest()
+
+
 def install_requirements(path: str) -> None:
     if env.share:
         logger.warning("共享模式下已跳过插件依赖安装")
         return
+    # 指纹守卫: 依赖清单没变则跳过 pip (装 6 个插件时省掉每次启动 6 次 pip 解析, 方案 C-F1)
+    stamp = Path(str(path) + ".installed")
+    try:
+        fp = _deps_fingerprint(path)
+    except OSError as e:
+        logger.warning(f"读取依赖清单失败, 仍尝试安装: {path} ({e})")
+        fp = None
+    if fp:
+        try:
+            if stamp.read_text(encoding="utf-8").strip() == fp:
+                logger.debug(f"插件依赖指纹未变, 跳过安装: {path}")
+                return
+        except OSError:
+            pass
     logger.debug(f"正在安装插件依赖: {path}")
     in_venv = sys.prefix != getattr(sys, "base_prefix", sys.prefix)
     cmd = [sys.executable, "-X", "utf8", "-m", "pip", "install", "-r", path]
@@ -465,6 +498,11 @@ def install_requirements(path: str) -> None:
         timeout=600,
     )
     if proc.returncode == 0:
+        if fp:
+            try:
+                stamp.write_text(fp, encoding="utf-8")  # 只在安装成功后落指纹; 失败不写, 下次启动自动重试
+            except OSError:
+                pass
         logger.success(f"插件依赖安装完成: {Path(path).name}")
     else:
         tail = (proc.stdout or b"").decode("utf-8", errors="ignore").strip().splitlines()[-5:]

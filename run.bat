@@ -1,29 +1,30 @@
 @echo off
-if "%~1" == "max" goto begin
-if "%~1" == "hidden" goto begin
-start /max "" "%~f0" max & exit
-
-:begin
-
 chcp 65001 >nul
-title Auto-NovelAI-Refactor
-cd /d "%~dp0"
 
-rem ---- 读取配置: hide_terminal (通过 run.bat 启动时隐藏终端窗口, 兼容 Windows Terminal) ----
+rem ---- 自跳转只走一跳: 首次进入按 hide_terminal 二选一转起 (旧版先最大化再隐藏双跳, 多弹一个窗口 + 固定 ping 等待 1 秒)
+if not "%~1"=="" goto begin
+cd /d "%~dp0"
 set "HIDE="
 for /f "tokens=2 delims=:{," %%A in ('findstr /i /c:"hide_terminal" settings.json 2^>nul') do set "HIDE=%%A"
 if defined HIDE set "HIDE=%HIDE: =%"
-if /i "%HIDE%"=="true" if /i not "%~1"=="hidden" (
-    echo [ANR] 检测到隐藏终端启动: 服务转入后台运行, 当前窗口即将关闭, 请耐心等待...
-    powershell -NoProfile -Command "try { Start-Process -FilePath '%~f0' -ArgumentList 'hidden' -WorkingDirectory '%~dp0' -WindowStyle Hidden -ErrorAction Stop } catch { exit 1 }"
-    if errorlevel 1 (
-        echo [ANR] 警告: 隐藏启动失败, 改为普通窗口启动...
-    ) else (
-        ping -n 2 127.0.0.1 >nul
-        rem 用 exit（不带 /b）直接结束宿主 cmd, 终端窗口随之关闭
-        exit
-    )
+if /i not "%HIDE%"=="true" (
+    start /max "" "%~f0" max
+    exit
 )
+echo [ANR] 隐藏终端启动 (hide_terminal): 服务转入后台, 本窗口即将关闭...
+powershell -NoProfile -Command "try { Start-Process -FilePath '%~f0' -ArgumentList 'hidden' -WorkingDirectory '%~dp0' -WindowStyle Hidden -ErrorAction Stop } catch { exit 1 }"
+if errorlevel 1 (
+    echo [ANR] 警告: 隐藏启动失败, 改为普通窗口启动...
+    goto begin
+)
+rem Start-Process 同步返回、后台实例已独立运行, 下面两秒只是让提示语停留片刻方便读完 (按任意键可提前关)
+timeout /t 2 >nul || ping -n 3 127.0.0.1 >nul
+exit
+
+:begin
+
+title Auto-NovelAI-Refactor
+cd /d "%~dp0"
 
 rem ---- 把内置 Git 加入 PATH, 供 gitpython 使用 (整合包) ----
 if exist "Git\cmd\git.exe" (
@@ -62,8 +63,9 @@ set "PYTHON=venv\Scripts\python.exe"
 :got_python
 echo [ANR] 使用解释器: %PYTHON%
 
-rem ---- 缺少关键依赖时自动安装: 克隆仓库后直接运行 run.bat 即可 ----
-"%PYTHON%" -X utf8 -c "import fastapi, uvicorn, requests, PIL, loguru, ujson, psutil" >nul 2>nul
+rem ---- 关键依赖检查 (find_spec 只查包元数据不真正加载, 旧版全量 import 每次白付 0.7~3 秒):
+rem      极端情况"半安装"包被误判就绪时, main.py 导入即报错, 再跑一次会触发下面的安装 ----
+"%PYTHON%" -X utf8 -c "import importlib.util as u, sys; sys.exit(1 if any(u.find_spec(m) is None for m in ('fastapi','uvicorn','requests','PIL','loguru','ujson','psutil','pystray')) else 0)" >nul 2>nul
 if errorlevel 1 (
     echo [ANR] 正在检查/安装依赖, 首次运行可能需要几分钟...
     "%PYTHON%" -X utf8 -s -m pip install -r requirements.txt -q --disable-pip-version-check
