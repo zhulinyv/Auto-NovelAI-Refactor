@@ -83,6 +83,8 @@ echo [ANR] 正在启动 Auto-NovelAI-Refactor ...
 
 echo.
 echo [ANR] 进程已结束。
+rem hidden instance has nobody to press a key - a plain pause there would hang the cmd forever
+if /i "%~1"=="hidden" exit /b 0
 pause
 exit /b 0
 

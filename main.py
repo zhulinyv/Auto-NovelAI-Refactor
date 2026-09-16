@@ -91,6 +91,22 @@ def _open_browser():
 
 
 if __name__ == "__main__":
+    # 双开幂等: 端口已有活的 ANR 实例 (/api/state 应答且带 version 字段, P1-6 真源) 时,
+    # 不再起第二个服务也不再炸 bind 错误: 开/激活现成窗口后安静退出。
+    # 端口被无关程序占用时探测不通过, 照旧走到 uvicorn.bind 把真冲突暴露出来。
+    try:
+        import requests
+
+        _resp = requests.get(f"http://127.0.0.1:{env.port}/api/state", timeout=1)
+        _alive = _resp.ok and "version" in _resp.json()
+    except Exception:
+        _alive = False
+    if _alive:
+        print(f"检测到 ANR 已在运行 (http://127.0.0.1:{env.port}), 直接打开界面...")
+        if os.environ.get("ANR_SKIP_BROWSER") != "1":
+            _open_browser()
+        sys.exit(0)
+
     if env.share:
         # 共享模式: 启动时自动建立外网访问隧道; 首次启动隧道就绪后自动打开共享链接,
         # 重启 (ANR_SKIP_BROWSER=1) 时沿用旧隧道进程, 由前端刷新原窗口即可恢复
