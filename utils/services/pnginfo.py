@@ -1,18 +1,14 @@
-"""法术解析服务: 读取 / 应用 / 抹除图片元数据。"""
+"""法术解析服务: 读取 / 还原图片元数据。
+
+抹除功能已迁移到「图片工具」插件的「清除元数据」面板, 本模块只负责读取与还原生成参数。
+"""
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
-
 import ujson
-from PIL import Image
-from PIL.PngImagePlugin import PngInfo
 
-from utils.helpers import float_to_position, playsound
+from utils.helpers import float_to_position
 from utils.image_tools import get_image_information
-from utils.logger import logger
-from utils.naimeta import inject_data
 
 
 def get_pnginfo(image_path: str | None):
@@ -85,41 +81,3 @@ def pnginfo_to_generate(image_path: str) -> dict:
         "ai_choice": not comment.get("v4_prompt", {}).get("use_coords", False),
         "characters": characters,
     }
-
-
-def remove_pnginfo(image_path: str | None, batch_path: str | None, choices: list[str], info: str) -> str:
-    """清除图片元数据 (单张和批处理可同时提供, 先处理单张再处理目录), 可追加自定义信息。"""
-    file_list = []
-    if image_path:
-        file_list.append(image_path)
-    if batch_path:
-        _dir = Path(batch_path)
-        if not _dir.is_dir():
-            raise ValueError("批处理路径无效")
-        file_list.extend(str(_dir / f) for f in os.listdir(_dir) if f.lower().endswith((".png", ".jpg", ".jpeg")))
-    if not file_list:
-        raise ValueError("请提供图片或批处理路径")
-    # 去重 (保留顺序: 先单张图片, 再目录)
-    seen = set()
-    unique = []
-    for file in file_list:
-        key = os.path.abspath(file)
-        if key not in seen:
-            seen.add(key)
-            unique.append(file)
-    file_list = unique
-
-    metadata = PngInfo()
-    if info:
-        metadata.add_text("Auto-NovelAI-Refactor", info)
-
-    last_path = ""
-    for file in file_list:
-        logger.info(f"正在清除 {os.path.basename(file)} 的元数据...")
-        with Image.open(file) as img:
-            img = inject_data(img, metadata, choices)
-            img.save(last_path := str(Path(file)))
-        logger.success("清除成功!")
-
-    playsound("./assets/finish.mp3")
-    return f"清除成功! 图片已保存到 {os.path.dirname(os.path.abspath(last_path))}"

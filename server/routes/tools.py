@@ -120,21 +120,6 @@ async def pnginfo_to_generate(payload: dict):
         raise HTTPException(status_code=400, detail=f"解析失败: {e}")
 
 
-@router.post("/pnginfo/remove")
-async def remove_pnginfo(payload: dict):
-    try:
-        message = pnginfo_service.remove_pnginfo(
-            payload.get("image_path"),
-            payload.get("batch_path"),
-            payload.get("choices", []),
-            payload.get("info", ""),
-        )
-        return {"message": message}
-    except Exception as e:
-        logger.error(f"清除元数据失败: {e}")
-        raise HTTPException(status_code=400, detail=f"清除失败: {e}")
-
-
 # ---------------------------------------------------------------- 反推
 
 

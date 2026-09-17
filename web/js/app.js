@@ -311,10 +311,12 @@ export function showView(name) {
   if (name.startsWith("plugin-")) {
     const pluginName = name.slice("plugin-".length);
     const target = document.getElementById("view-plugin-page");
-    if (!target) return;
+    if (!target) return Promise.resolve();
     target.style.display = "block";
-    pluginsView.renderPluginPage(pluginName, target, { app: appState });
-    return;
+    // renderPluginPage 内部先 flushPendingSaves 再清空容器重建 DOM, 是异步的。
+    // 把 Promise 返回出去, 让"跳转到某个插件面板"的调用方能 await 完再操作目标 DOM,
+    // 否则会在重建前的残留 DOM 上操作 (点了旧页签, 重建后又回到第一个面板)。
+    return pluginsView.renderPluginPage(pluginName, target, { app: appState });
   }
 
   const target = document.getElementById(`view-${name}`);

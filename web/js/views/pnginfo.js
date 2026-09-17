@@ -1,7 +1,7 @@
 // ============================================================
-// 法术解析视图: 读取信息 / 图片反推 / 抹除数据
+// 法术解析视图: 读取信息 / 图片反推 / 抹除数据 (已迁移到「图片工具」插件)
 // ============================================================
-import { $, el, clear, toast, imageDropZone, folderPickButton } from "../ui.js";
+import { el, clear, toast, imageDropZone } from "../ui.js";
 import { post } from "../api.js";
 import { renderTabs } from "../components.js";
 import { setGenerateState, getC } from "./generate.js";
@@ -16,7 +16,7 @@ export async function render(container, ctx) {
   S = ctx;
   clear(container);
   container.append(
-    el("h2", {}, ["🔮 法术解析", el("span", { class: "sub", text: "读取 / 反推 / 抹除图片信息" })]),
+    el("h2", {}, ["🔮 法术解析", el("span", { class: "sub", text: "读取 / 反推图片信息" })]),
   );
   const tabsWrap = el("div");
   container.append(tabsWrap);
@@ -24,7 +24,7 @@ export async function render(container, ctx) {
   renderTabs([
     { title: "📖 读取信息", render: renderRead },
     { title: "🏷️ 图片反推", render: renderTagger },
-    { title: "🧼 抹除数据", render: renderRemove },
+    { title: "🧼 抹除数据", render: renderRemoveNotice },
   ], tabsWrap);
   // "读取信息"页签按钮: 外部发送图片时强制切回本页签 (视图 DOM 常驻, 上次可能停在反推/抹除页签)
   readTabBtn = container.querySelector(".tabs .tab-btn");
@@ -344,60 +344,63 @@ function renderTagger(body) {
   body.prepend(el("div", { class: "view-head" }, [submitBtn]));
 }
 
-// ---------------- 抹除数据 ----------------
+// ---------------- 抹除数据 (已并入「图片工具」插件) ----------------
 
-function renderRemove(body) {
-  const picker = imageDropZone({ label: "🖼️ 单张处理", placeholder: "点击选择图片", native: true, dropNative: true });
-  const batchPath = el("input", { type: "text", placeholder: "批处理路径 (可选, 可手动输入)", style: "flex:1;min-width:0;" });
-  const dirBtn = folderPickButton(batchPath);
-  const info = el("input", { type: "text", placeholder: "添加自定义信息 (可选)" });
-  const choices = ["Title","Description","Software","Source","Generation time","Comment","dpi","parameters","prompt"];
-  const choiceWrap = el("div", { class: "opt-group" });
-  const selected = new Set(choices);
-  choices.forEach((c) => {
-    const item = el("label", { class: "opt-item selected", text: c });
-    item.addEventListener("click", () => {
-      item.classList.toggle("selected");
-      if (selected.has(c)) selected.delete(c); else selected.add(c);
-    });
-    choiceWrap.append(item);
-  });
+const IMAGE_TOOLS_PLUGIN = "anr_plugin_image_tools";
+const IMAGE_TOOLS_CLEAR_TAB = "清除元数据";
+const IMAGE_TOOLS_CLEAR_PANEL = "meta_clear";
 
-  const infoBox = el("div", { class: "info-box", style: "margin-top:12px;" });
-  const runBtn = el("button", { class: "btn btn-primary", text: "🧼 开始处理" });
-  runBtn.addEventListener("click", async () => {
-    runBtn.disabled = true;
-    infoBox.textContent = "处理中...";
-    try {
-      const res = await post("/api/pnginfo/remove", {
-        image_path: picker.get() || null,
-        batch_path: batchPath.value.trim() || null,
-        choices: [...selected],
-        info: info.value.trim(),
-      });
-      infoBox.textContent = "✅ " + res.message;
-      toast(res.message, "success");
-    } catch (e) {
-      infoBox.textContent = "❌ " + e.message;
-      toast(e.message, "error");
-    } finally {
-      runBtn.disabled = false;
-    }
-  });
+/** 跳到「图片工具」插件的「清除元数据」面板。
+ *  插件页是异步渲染的 (renderPluginPage 先落盘上次表单值, 再清空容器重建 DOM), showView 会把
+ *  这个 Promise 返回出来, 必须 await 之后再操作: 否则查到的是上一次渲染残留的旧页签, 点它等于没点,
+ *  而新页面重建后又停在第一个面板 —— 表现为"只是跳到了图片工具, 没切到清除元数据"。 */
+async function openImageToolsClearPanel() {
+  if (!(S.app.plugins || []).some((p) => p.name === IMAGE_TOOLS_PLUGIN)) {
+    toast("未找到「图片工具」插件, 请先在插件商店安装并启用", "warning");
+    return;
+  }
+  await showView(`plugin-${IMAGE_TOOLS_PLUGIN}`);
+  const btns = [...document.querySelectorAll("#view-plugin-page .tabs .tab-btn")];
+  const panels = [...document.querySelectorAll("#view-plugin-page .tab-content[data-plugin]")];
+  // 页签按钮与面板同序: 优先按 data-panel 定位, 插件改了面板 id 时退回按标题匹配
+  let i = panels.findIndex((p) => p.dataset.panel === IMAGE_TOOLS_CLEAR_PANEL);
+  if (i === -1 || !btns[i]) i = btns.findIndex((b) => b.textContent.includes(IMAGE_TOOLS_CLEAR_TAB));
+  const btn = btns[i];
+  if (btn) {
+    btn.click();
+    // 点完确认目标面板真的激活了, 别静悄悄停在别的面板
+    if (panels[i]?.classList.contains("active")) return;
+  }
+  toast("未能定位「清除元数据」面板, 请在图片工具插件内手动切换页签", "warning");
+}
+
+/** 抹除数据页签的说明: 功能已迁移, 这里只提供入口 (原单张/批处理控件与后端接口已删除) */
+function renderRemoveNotice(body) {
+  const goBtn = el("button", { class: "btn btn-primary", text: "🧹 打开[图片工具•清除元数据]" });
+  goBtn.addEventListener("click", () => { openImageToolsClearPanel(); });
+
+  const items = [
+    "单张图片或整个目录批处理 (目录内图片按文件名自然排序, 支持随时停止);",
+    "按类别勾选清除项 (PNG 文本块 / NovelAI 隐写数据 / 自定义隐写数据 / EXIF / ICC / XMP), 也可只清除指定键, 例如仅删 Comment 而保留其余;",
+    "清除后写入自定义信息 (写入 Auto-NovelAI-Refactor 字段);",
+    "PNG / TIF / BMP 连藏在像素最低位里的隐写数据一并抹除;",
+    "可顺带转换格式与调整质量, 默认不覆盖原图 (输出为「原名 + 后缀」, 也可指定输出目录或覆盖原图)。",
+  ];
+  const list = el("ul", { style: "margin:6px 0 10px 20px;line-height:2;font-size:13px;color:var(--text-2);" });
+  items.forEach((t) => list.append(el("li", { text: t })));
 
   body.append(
-    el("div", { class: "view-head" }, [runBtn]),
-    el("div", { class: "grid", style: "grid-template-columns:1fr 1.4fr;" }, [
-      el("div", { class: "card", style: "margin:0;" }, [
-        picker.node,
-        el("div", { class: "field" }, [el("label", { text: "📂 批处理路径 (可选)" }), el("div", { class: "file-pick-row" }, [batchPath, dirBtn])]),
-      ]),
-      el("div", { class: "card", style: "margin:0;" }, [
-        el("div", { class: "field" }, [el("label", { text: "📝 要清除的内容" }), choiceWrap]),
-        el("div", { class: "field" }, [el("label", { text: "🔖 自定义信息" }), info]),
-        infoBox,
-      ]),
-    ])
+    el("div", { class: "card", style: "max-width:960px;" }, [
+      el("div", { class: "card-title", text: "🧼 抹除数据已迁移到「图片工具」插件" }),
+      el("p", {
+        class: "muted",
+        text: "本页原来的单张 / 批处理抹除入口已移除, 请改用「图片工具」插件的「🧹 清除元数据」面板 —— 它比这里更彻底, 也更安全:",
+      }),
+      list,
+      el("p", { class: "muted", text: "→ 只查看信息或把参数还原到图片生成, 用本页的「📖 读取信息」页签即可, 无需抹除。" }),
+      // 入口按钮: 放在说明的左下方
+      el("div", { style: "margin-top:14px;" }, [goBtn]),
+    ]),
   );
 }
 
