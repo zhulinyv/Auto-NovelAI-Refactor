@@ -344,7 +344,9 @@ function initSidebarResize() {
   const resizer = document.getElementById("sidebar-resizer");
   const collapseBtn = document.getElementById("sidebar-collapse");
   if (!sidebar) return;
-  const saved = localStorage.getItem("anr-sidebar-width");
+  // 键名带 -v2: 旧默认宽度(170px)在导航文字右侧留白过宽, 新默认收窄到 145px,
+  // 沿用旧键名会让历史保存值覆盖掉新默认值
+  const saved = localStorage.getItem("anr-sidebar-width-v2");
   if (saved) sidebar.style.width = saved + "px";
 
   // 恢复折叠状态
@@ -363,7 +365,7 @@ function initSidebarResize() {
       const startX = e.clientX;
       const startW = sidebar.offsetWidth;
       const onMove = (ev) => {
-        // 最小宽度与 CSS .sidebar min-width 保持一致 (132px), 拖到最小后仍留白是导航文字右侧的固有间距
+        // 最小宽度与 CSS .sidebar min-width / 默认宽度保持一致 (145px, 即导航文字右侧只留约一个汉字)
         const w = Math.min(340, Math.max(145, startW + (ev.clientX - startX)));
         sidebar.style.width = w + "px";
       };
@@ -371,7 +373,7 @@ function initSidebarResize() {
         document.removeEventListener("mousemove", onMove);
         document.removeEventListener("mouseup", onUp);
         resizer.classList.remove("active");
-        localStorage.setItem("anr-sidebar-width", String(sidebar.offsetWidth));
+        localStorage.setItem("anr-sidebar-width-v2", String(sidebar.offsetWidth));
       };
       document.addEventListener("mousemove", onMove);
       document.addEventListener("mouseup", onUp);
@@ -389,7 +391,7 @@ function initSidebarResize() {
         sidebar.style.minWidth = "50px";
         localStorage.setItem("anr-sidebar-collapsed", "1");
       } else {
-        const w = parseInt(sidebar.dataset.prevWidth, 10) || parseInt(saved, 10) || 170;
+        const w = parseInt(sidebar.dataset.prevWidth, 10) || parseInt(saved, 10) || 145;
         sidebar.style.width = w + "px";
         sidebar.style.minWidth = "";
         localStorage.setItem("anr-sidebar-collapsed", "0");

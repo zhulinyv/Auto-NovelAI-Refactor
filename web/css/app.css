@@ -62,8 +62,10 @@
 /* ------- 侧边栏 ------- */
 .sidebar {
   position: relative;
-  width: var(--sidebar-width, 170px);
-  min-width: 145px; /* 最小宽度: 容纳图标(16px)+间距(9px)+四字文本(56px)+padding, 避免换行 */
+  /* 默认宽度 = 最小宽度: 图标(18px)+间距(9px)+四字标题(56px)+左右 padding + 约一个汉字的右侧留白。
+     再宽就会在导航文字右侧留下一大片空白 (见 #sidebar-nav / .nav-item)。 */
+  width: var(--sidebar-width, 145px);
+  min-width: 145px;
   max-width: 340px;
   flex-shrink: 0;
   background: var(--panel);
@@ -148,7 +150,9 @@
 #plugin-nav-items { display: flex; flex-direction: column; gap: 4px; }
 
 /* ------- 主区域 ------- */
-.main { flex: 1; overflow-y: auto; padding: 20px 24px; border-radius: var(--radius); }
+/* 左右内边距压到 12px: 侧边栏到内容区的留白 = .layout 的 12px 间距 + 这里的 12px = 24px,
+   右侧到窗口边缘同理 (12px 内边距 + #app 的 12px), 两侧对称且比原来的 36px 紧凑。 */
+.main { flex: 1; overflow-y: auto; padding: 20px 12px; border-radius: var(--radius); }
 .view { animation: fade-in-up 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
 .view h2 { font-size: 20px; margin-bottom: 16px; display: flex; align-items: center; gap: 9px; }
 .view h2 .sub { font-size: 13px; color: var(--text-2); font-weight: 400; }
