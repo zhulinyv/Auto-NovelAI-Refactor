@@ -6,8 +6,9 @@ import base64
 from io import BytesIO
 from pathlib import Path
 
+import ujson
 import numpy as np
-from PIL import Image
+from PIL import Image, ExifTags
 from PIL.PngImagePlugin import PngInfo
 
 from utils.helpers import return_x64
@@ -148,16 +149,91 @@ def process_white_regions(image_path, output_path):
     return output_path
 
 
+def _extract_exif_metadata(image):
+    # 从 webp/jpeg 等格式的 EXIF 块读取 NovelAI 元数据。
+    # NAI 新版导出 (如 webp) 把参数写入 EXIF 而非 PNG 的 LSB:
+    #   ImageDescription (270) -> Description
+    #   Software (305)         -> Software (含模型哈希)
+    #   DocumentName (269)     -> Source/Title
+    #   UserComment (37510)    -> 一个 JSON 包装串 {"Comment": "<真实参数 JSON 串>", "Description":..., "Software":..., "Source":...}
+    #      其中的内层 "Comment" 才是法术解析需要的真实参数 JSON; 若顶层字段缺失则回退用包装串里的同名项。
+    # 任何一项缺失即视为不含 NAI 元数据 (返回 None)。
+    try:
+        exif = image.getexif()
+    except Exception:
+        return None
+    if not exif:
+        return None
+    # EXIF 标签整数 ID: ImageDescription=270, Software=305, DocumentName=269
+    # UserComment (37510, 含 Comment JSON) 在 Exif 子 IFD (0x8769) 中
+    desc = exif.get(270)
+    software = exif.get(305)
+    source = exif.get(269)
+    comment_raw = None
+    try:
+        for _tag, _val in exif.get_ifd(0x8769).items():
+            if _tag == 37510:
+                comment_raw = _val
+                break
+    except Exception:
+        comment_raw = None
+
+    comment = None
+    if isinstance(comment_raw, (bytes, bytearray)):
+        cb = bytes(comment_raw)
+        if cb.startswith(b"ASCII"):
+            cb = cb.split(b"ASCII", 1)[1].lstrip(b"\x00")
+        comment = cb.decode("utf-8", "replace")
+    elif isinstance(comment_raw, str):
+        comment = comment_raw
+
+    if not comment and desc is None and software is None:
+        return None
+
+    # 解析 EXIF UserComment 包装串, 取出内层真实参数 JSON
+    inner_comment = None
+    try:
+        parsed = ujson.loads(comment)
+        if isinstance(parsed, dict):
+            if "Comment" in parsed and isinstance(parsed["Comment"], str):
+                inner_comment = parsed["Comment"]
+            # 顶层字段缺失时, 用包装串里的同名项补
+            if desc is None and parsed.get("Description"):
+                desc = parsed["Description"]
+            if software is None and parsed.get("Software"):
+                software = parsed["Software"]
+            if source is None and parsed.get("Source"):
+                source = parsed["Source"]
+    except Exception:
+        inner_comment = comment
+
+    return {
+        "Description": desc.decode("utf-8", "replace") if isinstance(desc, bytes) else desc,
+        "Software": software.decode("utf-8", "replace") if isinstance(software, bytes) else software,
+        "Source": source.decode("utf-8", "replace") if isinstance(source, bytes) else source,
+        # 返回内层真实参数 JSON 串, 供 _parse_comment 继续解析
+        "Comment": inner_comment if inner_comment is not None else comment,
+    }
+
+
 def get_image_information(image):
-    """读取图片的全部元数据 (优先解析 NovelAI 的 LSB 隐藏数据)。"""
+    """读取图片的全部元数据 (优先解析 NovelAI 的 LSB 隐藏数据, 其次 EXIF)。"""
     if isinstance(image, (str, Path)):
         with Image.open(image) as opened_image:
             return get_image_information(opened_image)
+    # PNG 走 LSB 隐写; webp/jpeg 等可能把参数写在 EXIF 块
+    if image.format != "PNG":
+        exif_meta = _extract_exif_metadata(image)
+        if exif_meta is not None:
+            return exif_meta
     try:
         pnginfo = extract_data(image)
     except Exception:
         pnginfo = None
-    return pnginfo if pnginfo is not None else image.info
+    # 兜底返回 image.info, 但剔除不可 JSON 序列化的 bytes (避免接口 500)
+    if pnginfo is None:
+        pnginfo = {k: v for k, v in image.info.items() if not isinstance(v, (bytes, bytearray))}
+    return pnginfo
 
 
 def revert_image_info(image_path1, image_path2) -> bool:
