@@ -68,8 +68,10 @@ def create_app() -> FastAPI:
 
         removed = start_break_cleanup()
         if removed:
-            logger.info(f"已清理 {len(removed)} 个无用的停止信号文件: {', '.join(removed[:5])}"
-                        f"{' ...' if len(removed) > 5 else ''}")
+            logger.info(
+                f"已清理 {len(removed)} 个无用的停止信号文件: {', '.join(removed[:5])}"
+                f"{' ...' if len(removed) > 5 else ''}"
+            )
     except Exception as e:
         logger.debug(f"停止信号文件清理机制启动失败 (不影响任务): {e}")
 

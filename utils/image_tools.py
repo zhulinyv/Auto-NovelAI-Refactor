@@ -8,7 +8,7 @@ from pathlib import Path
 
 import ujson
 import numpy as np
-from PIL import Image, ExifTags
+from PIL import Image
 from PIL.PngImagePlugin import PngInfo
 
 from utils.helpers import return_x64
