@@ -85,6 +85,31 @@ def return_x64(num: int) -> int:
     return (num // 64) * 64
 
 
+def return_max_size(width: int, height: int, max_width: int = 1536, max_height: int = 2048) -> tuple[int, int]:
+    """保持纵横比缩放 (width, height), 使宽高乘积不超过 max_width * max_height, 返回均为 64 倍数的尺寸。
+
+    以 64 为最小网格换算: 面积上限 = (max_width // 64) * (max_height // 64) 格。
+    先按面积比开方得到理想放大倍数, 再整体等比缩小直到取整后的格子面积不超上限
+    (整体缩放而不是单边收缩, 这样纵横比最贴近原图, 且面积尽量顶到上限)。
+    """
+    budget = max(1, (max_width // 64) * (max_height // 64))
+    base_w = max(1, return_x64(width) // 64)
+    base_h = max(1, return_x64(height) // 64)
+    scale = (budget / (base_w * base_h)) ** 0.5
+    for _ in range(256):
+        grid_w, grid_h = max(1, round(base_w * scale)), max(1, round(base_h * scale))
+        if grid_w * grid_h <= budget:
+            return grid_w * 64, grid_h * 64
+        scale *= (budget / (grid_w * grid_h)) ** 0.5
+    # 兜底 (理论上不可达): 直接收缩较大的一边直到不超上限
+    while grid_w * grid_h > budget and max(grid_w, grid_h) > 1:
+        if grid_w >= grid_h:
+            grid_w -= 1
+        else:
+            grid_h -= 1
+    return grid_w * 64, grid_h * 64
+
+
 def read_txt(path) -> str:
     with open(path, "r", encoding="utf-8") as f:
         return f.read()

@@ -27,6 +27,7 @@ from utils.helpers import (
     read_json,
     reset_stop,
     return_last_value,
+    return_max_size,
     return_x64,
     send_mail,
     sleep_for_cool,
@@ -51,6 +52,9 @@ from utils.variable import (
 )
 
 image_generator = Generator("https://image.novelai.net/ai/generate-image")
+
+# Enhance "Max" 选项 (仅 v5 系列) 的分辨率上限: 宽高乘积不超过 1536 × 2048
+ENHANCE_MAX_SIZE = (1536, 2048)
 
 
 # ---------------------------------------------------------------- 辅助函数
@@ -97,6 +101,25 @@ def _generate_with_retry(generator, json_data, desc, max_retries=3):
 
 def _resize_editor_image(image, size):
     return image if image.size == size else image.resize(size, Image.Resampling.LANCZOS)
+
+
+def _enhance_target_size(model: str, amount, width: int, height: int) -> tuple[int, int]:
+    """Enhance 的目标分辨率。
+
+    - "Max" (仅 v5 系列): 保持纵横比缩放到宽高乘积不超过 1536×2048, 宽高均为 64 的倍数;
+    - 其余 (1x / 1.5x): 按倍数放大后对齐到 64 的倍数;
+    - 非 v5 模型收到 Max 时回退 1.5x (前端不会给出该选项, 只防御历史缓存/手写请求)。
+    """
+    amount = str(amount).strip()
+    if amount.lower() == "max":
+        if model in ("nai-diffusion-5-full", "nai-diffusion-5-curated"):
+            new_width, new_height = return_max_size(width, height, *ENHANCE_MAX_SIZE)
+            logger.info(f"Enhance Max: {return_x64(width)}×{return_x64(height)} → {new_width}×{new_height}")
+            return new_width, new_height
+        logger.warning(f"模型 {model} 不支持 Enhance 的 Max 选项, 已回退到 1.5x")
+        amount = "1.5x"
+    upscale_amount = float(amount.replace("x", ""))
+    return return_x64(int(width * upscale_amount)), return_x64(int(height * upscale_amount))
 
 
 def _prepare_inpaint_inputs(inpaint: dict | None, width: int, height: int):
@@ -476,9 +499,7 @@ def generate(request: dict) -> tuple[list[str], str]:
                 func = _model_function_map(model, "i2i")
                 if func is None:
                     raise NovelAIAPIError(f"该模型不支持 Enhance: {model}")
-                upscale_amount = float(str(enhance.get("amount", "1.5x")).replace("x", ""))
-                new_width = return_x64(int(width * upscale_amount))
-                new_height = return_x64(int(height * upscale_amount))
+                new_width, new_height = _enhance_target_size(model, enhance.get("amount", "1.5x"), width, height)
                 magnitude = int(enhance.get("magnitude", 1))
                 strength_map = {1: 0.2, 2: 0.4, 3: 0.5, 4: 0.6, 5: 0.7}
                 json_data = func(

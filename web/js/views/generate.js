@@ -24,6 +24,7 @@ let aiChoiceRow = null;
 let inpaintCtlRow = null;
 let vibeBundleRow = null;
 let nai3VibeRow = null;
+let resHintEl = null;
 let charSection = null;
 let tabBtns = {};
 let tabBodies = {};
@@ -857,6 +858,10 @@ function buildParamsTab(body, saved) {
   C.resolution.set(S.app.resolutions.includes(w0 + "x" + h0) ? w0 + "x" + h0 : "自定义");
   resRow.append(C.resolution.node, C.width.node, C.height.node);
   card.append(resRow);
+  // 像素数提示: 超过 1536×2048 时标红 (提交前仍会再拦一次)
+  resHintEl = el("div", { class: "muted", style: "margin:-6px 0 10px;font-size:12px;" });
+  card.append(resHintEl);
+  updateResHint();
 
   // 采样
   const samplerRow = el("div", { class: "field-row" });
@@ -903,7 +908,13 @@ function buildParamsTab(body, saved) {
   // Enhance
   enhanceRow = el("div", { style: "margin-top:12px;" }, [el("div", { class: "card-title", text: "✨ Enhance 增强" })]);
   C.enhance = field("启用 Enhance", "checkbox", { value: saved.enhance?.enabled ?? false });
-  C.enhanceAmount = field("放大倍数", "select", { options: ["1x", "1.5x", "2x"], value: saved.enhance?.amount ?? "1.5x" });
+  // 放大倍数: 1x / 1.5x; Max 仅 v5 系列 (保持纵横比放大到 1536×2048 面积上限)
+  const enhanceAmountOpts = enhanceAmounts(C.model.get());
+  C.enhanceAmount = field("放大倍数", "select", {
+    options: enhanceAmountOpts,
+    value: normalizeEnhanceAmount(saved.enhance?.amount, enhanceAmountOpts),
+  });
+  C.enhanceAmount.input.title = "Max 仅 v5 系列模型可选: 保持纵横比放大到 1536×2048 的面积上限 (宽高均为 64 的倍数)";
   C.magnitude = field("强度", "slider", { min: 1, max: 5, step: 1, value: saved.enhance?.magnitude ?? 1 });
   const enRow = el("div", { class: "field-row" });
   enRow.append(C.enhance.node, C.enhanceAmount.node, C.magnitude.node);
@@ -1101,6 +1112,16 @@ function isNai3(model) { return model === "nai-diffusion-3" || model === "nai-di
 function isNai5(model) { return model === "nai-diffusion-5-full" || model === "nai-diffusion-5-curated"; }
 function isNai45(model) { return model === "nai-diffusion-4-5-full" || model === "nai-diffusion-4-5-curated"; }
 
+/** Enhance 放大倍数选项: 1x / 1.5x; Max 仅 v5 系列 (保持纵横比放大到 1536×2048 面积上限) */
+function enhanceAmounts(model) {
+  return isNai5(model) ? ["1x", "1.5x", "Max"] : ["1x", "1.5x"];
+}
+
+/** 归一化缓存的放大倍数: 旧版 2x 或当前模型不支持的 Max 一律回退 1.5x */
+function normalizeEnhanceAmount(amount, options) {
+  return options.includes(amount) ? amount : "1.5x";
+}
+
 function setVisible(ctrl, visible) {
   ctrl.node.style.display = visible ? "" : "none";
 }
@@ -1203,6 +1224,13 @@ async function applyModelChange(initial = false) {
   setVisible(C.smDyn, nai3 && C.sm.get());
   setVisible(C.legacyUc, model === "nai-diffusion-4-full" || model === "nai-diffusion-4-curated-preview");
 
+  // Enhance 放大倍数: Max 仅在 v5 系列出现; 切换模型后当前值不可用则回退 1.5x
+  // (必须先取值: setOptions 重建 option 后, 失效的旧值会被浏览器重置成第一项)
+  const enhAmounts = enhanceAmounts(model);
+  const curEnhAmount = C.enhanceAmount.get();
+  C.enhanceAmount.setOptions?.(enhAmounts);
+  if (!enhAmounts.includes(curEnhAmount)) C.enhanceAmount.set("1.5x");
+
   // furry 按钮: nai3 隐藏并复位
   furryBtn.style.display = nai3 ? "none" : "";
   if (nai3) { furryMode = false; updateFurryBtn(); }
@@ -1253,6 +1281,45 @@ function round64(v) {
   return Number.isFinite(n) && n >= 64 ? n : 64;
 }
 
+// 分辨率上限: 宽高乘积不得大于 1536×2048 (与后端 ENHANCE_MAX_SIZE 一致, 提交前拦截)
+const MAX_RESOLUTION_LABEL = "1536×2048";
+const MAX_RESOLUTION_PIXELS = 1536 * 2048;
+const MIN_SIDE = 64;
+
+/** 校验分辨率是否合法, 合法返回 null, 否则返回给用户看的错误说明。
+ *  规则: 宽高均为不小于 64 的数, 且 宽 × 高 ≤ 1536 × 2048。 */
+function validateResolution(width, height) {
+  const w = Number(width);
+  const h = Number(height);
+  if (!Number.isFinite(w) || !Number.isFinite(h) || Math.round(w) < MIN_SIDE || Math.round(h) < MIN_SIDE) {
+    return `分辨率不合法: 宽高必须是不小于 ${MIN_SIDE} 的整数 (当前 ${width}×${height})`;
+  }
+  const pixels = Math.round(w) * Math.round(h);
+  if (pixels > MAX_RESOLUTION_PIXELS) {
+    return `分辨率 ${Math.round(w)}×${Math.round(h)} = ${pixels.toLocaleString()} 像素, 超过上限 ${MAX_RESOLUTION_LABEL} (${MAX_RESOLUTION_PIXELS.toLocaleString()} 像素), 请调低宽或高`;
+  }
+  return null;
+}
+
+/** 刷新分辨率行下方的像素数提示, 超上限时标红 */
+function updateResHint() {
+  if (!resHintEl) return;
+  const w = Number(C.width?.get());
+  const h = Number(C.height?.get());
+  if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) {
+    resHintEl.textContent = "";
+    resHintEl.className = "muted";
+    return;
+  }
+  const pixels = Math.round(w) * Math.round(h);
+  const over = pixels > MAX_RESOLUTION_PIXELS;
+  resHintEl.textContent = over
+    ? `⚠️ 像素 ${pixels.toLocaleString()} / 上限 ${MAX_RESOLUTION_PIXELS.toLocaleString()} — 超出 ${MAX_RESOLUTION_LABEL}, 无法生成`
+    : `像素 ${pixels.toLocaleString()} / 上限 ${MAX_RESOLUTION_PIXELS.toLocaleString()} (${MAX_RESOLUTION_LABEL})`;
+  resHintEl.className = "";
+  resHintEl.style.color = over ? "var(--danger)" : "var(--text-2)";
+}
+
 function bindEvents() {
   C.model.input?.addEventListener("change", () => applyModelChange());
   C.resolution.input?.addEventListener("change", () => {
@@ -1263,6 +1330,7 @@ function bindEvents() {
       C.height.set(h);
     }
     charRegion?.refresh?.();
+    updateResHint();
   });
   // 自定义分辨率: 失焦/回车后自动对齐到最接近的 64 的倍数 (round64 为模块级函数)
   const snap64 = (c, label) => {
@@ -1294,6 +1362,7 @@ function syncResolution() {
   const res = S.app.resolutions.includes(`${w}x${h}`) ? `${w}x${h}` : "自定义";
   C.resolution.set(res);
   charRegion?.refresh?.();
+  updateResHint();
 }
 
 function updateInpaintVisibility() {
@@ -1359,6 +1428,17 @@ async function collectRequest() {
 }
 
 async function onGenerate() {
+  // 先校验分辨率: 不合法 (超过 1536×2048) 直接拦下, 不发请求, 也不做 inpaint 导出等重活。
+  // 取值规则与 collectRequest 一致: 空值回落到 832×1216 (后端默认), 不把"留空"当成非法。
+  const gateW = Number(C.width.get()) || 832;
+  const gateH = Number(C.height.get()) || 1216;
+  const resError = validateResolution(gateW, gateH);
+  if (resError) {
+    infoEl.textContent = "❌ " + resError;
+    toast(resError, "error", 7000);
+    C.width.input?.focus?.();
+    return;
+  }
   let request;
   try {
     request = await collectRequest();
@@ -1498,6 +1578,8 @@ export function setGenerateState(state, opts = {}) {
   if (switched.length && !opts.silent) toast(`已剥离预设标签并自动切换: ${switched.join("，")} ⭐`, "info");
   if (state.width != null) C.width.set(state.width);
   if (state.height != null) C.height.set(state.height);
+  // 外部送入的尺寸可能超限 (如从大图反推后发送), 立刻刷新像素提示, 别让告警信息停在旧值
+  if (state.width != null || state.height != null) updateResHint();
   if (state.steps != null) C.steps.set(state.steps);
   if (state.scale != null) C.scale.set(state.scale);
   if (state.cfg_rescale != null) C.cfgRescale.set(state.cfg_rescale);
