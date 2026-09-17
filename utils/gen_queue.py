@@ -19,7 +19,14 @@ from typing import Any, Callable
 
 from utils.config import env
 from utils.events import broker
-from utils.jobs import cleanup_break_file, normalize_result, pop_current_job, set_current_job, write_break_flag
+from utils.jobs import (
+    cleanup_break_file,
+    normalize_result,
+    pop_current_job,
+    set_current_job,
+    sweep_break_files,
+    write_break_flag,
+)
 from utils.logger import logger
 from utils.tokens import get_tokens, mask_token, pop_thread_token, set_thread_token
 from utils.usage import tokens_with_no_usage
@@ -125,6 +132,7 @@ class _Worker(threading.Thread):
                 self.queue._tasks.pop(task.id, None)
             self.task_id = None
             cleanup_break_file(task.id)
+            sweep_break_files()  # 顺手收掉历史残留 (强杀/异常收尾留下的孤儿信号)
             self.queue._publish()
 
     def _cooldown(self) -> None:
@@ -189,6 +197,11 @@ class GenerationQueue:
         self._publish()
         self._wake.set()
         return task
+
+    def running_ids(self) -> list[str]:
+        """当前运行中的任务 id (停止信号文件清理时用来判断哪些还在用)。"""
+        with self._lock:
+            return list(self._running.keys())
 
     def position(self, task_id: str) -> int:
         """任务在排队序列中的位置 (1 开始; 不在队列返回 0)。"""

@@ -60,6 +60,19 @@ def create_app() -> FastAPI:
 
     threading.Thread(target=_warm_caches, daemon=True, name="warmup").start()
 
+    # 停止信号文件 (outputs/temp_break_<任务id>.json) 的清理机制:
+    # 进程被杀 (插件变更 os.execv 重启 / 关窗 / 崩溃) 时任务来不及删自己的文件, 会一直堆积。
+    # 这里启动时先清一次历史残留, 之后交给定期线程 + 退出兜底 (详见 utils/jobs.py)。
+    try:
+        from utils.jobs import start_break_cleanup
+
+        removed = start_break_cleanup()
+        if removed:
+            logger.info(f"已清理 {len(removed)} 个无用的停止信号文件: {', '.join(removed[:5])}"
+                        f"{' ...' if len(removed) > 5 else ''}")
+    except Exception as e:
+        logger.debug(f"停止信号文件清理机制启动失败 (不影响任务): {e}")
+
     # 静态资源禁用启发式缓存: 每次用 ETag 协商, 文件有改动立即生效
     @app.middleware("http")
     async def _no_cache_static(request, call_next):
