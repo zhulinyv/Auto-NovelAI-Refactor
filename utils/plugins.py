@@ -47,7 +47,9 @@ class Field:
     id: str
     label: str
     type: str = (
-        "text"  # text|textarea|number|slider|checkbox|checkbox_group|radio|select|path|image|filearea|color|info
+        # text|textarea|number|slider|checkbox|checkbox_group|radio|select|path|image|filearea|color|info|section
+        # section = 分区标题: 前端渲染成一条分隔标题, 把同类功能的参数划分到同一区域 (description 作分区说明)
+        "text"
     )
     default: Any = None
     options: list | None = None
@@ -66,11 +68,12 @@ class Field:
     no_drag: bool = False  # type="filearea" 时仅允许点击选择文件, 禁用拖拽
     direct_path: bool = False  # type="filearea" 时用原生对话框取真实路径, 不上传
     hidden: bool = False  # 默认隐藏 (前端可通过彩蛋键位解锁显示, 如 naiv4vibebundle 的 Konami 码)
-    column: str = "left"  # "left"|"right" — 字段渲染到插件页面的左列(表单)或右列(输出/图表/说明)
+    column: str = "left"  # "left"|"right"|"right_bottom" — "left" 表单列; "right" 右列(输出/图表/说明); "right_bottom" 右列底部(排在输出区之后, 如"说明"放结果下方)
     inputs: list[str] = field(default_factory=list)  # type="chart" 时监听变化的参数 id 列表
     corner_of: str = ""  # type="select" 时作为角标下拉附属于指定字段 (如提示词预设)
     row_group: str = ""  # 相邻字段同一 row_group 时渲染到同一行 (如 variety 与 decrisp 并排)
     autosize: bool = False  # type="textarea" 时高度随内容自适应 (有最大行数限制)
+    readonly: bool = False  # type="text"/"textarea" 时只读 (仅供展示结果, 用户改不了; 动作的 set_field 仍能写入)
     sync: str = ""  # 联动: "WxH" 表示选择 "宽x高" 选项时自动写入 inputs 指定的宽高字段
     on_text: str = ""  # type="toggle" 时开启状态按钮文字
     off_text: str = ""  # type="toggle" 时关闭状态按钮文字

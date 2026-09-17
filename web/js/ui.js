@@ -907,6 +907,14 @@ export function makeField(spec, state) {
         placeholder: spec.placeholder || "",
         value: spec.default ?? "",
       });
+      // 只读 (如「读取元数据」的结果框): 用户改不了, 但动作的 set_field / 值还原仍能写入。
+      // 必须走 property —— readonly 是"存在即生效"的属性, setAttribute("readonly", false) 也会只读
+      // (同 el() 里 selected=false 的老问题)。
+      if (spec.readonly) {
+        input.readOnly = true;
+        input.classList.add("readonly");
+        if (!spec.placeholder) input.placeholder = "仅供查看, 不可编辑";
+      }
       // 高度随内容自适应 (最大 35 行, 超出出现滚动条)
       let autosizeFn = null;
       if (spec.autosize) {
@@ -981,6 +989,10 @@ export function makeField(spec, state) {
     }
     case "text": {
       input = el("input", { id: inputId, type: "text", placeholder: spec.placeholder || "", value: spec.default ?? "" });
+      if (spec.readonly) {
+        input.readOnly = true;
+        input.classList.add("readonly");
+      }
       wrap.append(label, input);
       if (spec.autocomplete) wireAutocomplete(input, wrap);
       return {
@@ -1153,6 +1165,18 @@ export function makeField(spec, state) {
         setValue: () => {},
         canvas,
         inputs: spec.inputs || [],
+      };
+    }
+    case "section": {
+      // 表单分区标题: 按功能类别把参数划分成若干区域 (label = 分区名, description = 分区说明)
+      // 不包 .field 外壳 (分区标题没有标题行与控件), 由插件视图直接放进左列表单卡片
+      return {
+        node: el("div", { class: "field-section" }, [
+          el("span", { class: "field-section-title", text: spec.label || "" }),
+          spec.description ? el("span", { class: "field-section-hint", text: spec.description }) : null,
+        ]),
+        getValue: () => null,
+        setValue: () => {},
       };
     }
     case "info":

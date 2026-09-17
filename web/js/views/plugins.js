@@ -31,6 +31,11 @@ function bindChartThemeObserver() {
   }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 }
 
+// 动作标签自带区分 emoji (如 "🚀 开始生成") 时, 前端不再补统一前缀 (▶️ / 📤),
+// 否则会出现两个 emoji 连用 (如 "▶️ 🚀 开始生成" / "📤 🗜️ 仅压缩")。
+// 纯文字标签 (如 "开始生成") 才补前缀, 保证按钮与输出区标题上始终只有一个 emoji。
+const hasLabelEmoji = (label) => /^\p{Extended_Pictographic}/u.test(label || "");
+
 // Konami 彩蛋: 上上下下左右左右BABA 解锁隐藏字段 (如 naiv4vibebundle)
 let konamiUnlocked = false;
 const KONAMI_SEQ = ["ArrowUp", "ArrowUp", "ArrowDown", "ArrowDown", "ArrowLeft", "ArrowRight", "ArrowLeft", "ArrowRight", "b", "a", "b", "a"];
@@ -146,6 +151,17 @@ bus.on("job:done", (ev) => {
     if (ev.image) {
       const img = target.querySelector(".preview-img");
       if (img) { img.src = imageUrl(ev.image); img.style.display = ""; }
+    }
+    // 逐项明细: 动作同时给出汇总 message 与逐条 text 时 (如 "变换完成: 成功 3 项" + 每张图的输出与新尺寸),
+    // 在输出框内补一块可滚动的明细区, 避免只看到汇总、丢掉逐项结果与警告;
+    // 只有 text 的动作 (提示条已经在显示 text) 不重复展示
+    const detailBox = target.querySelector(".out-detail");
+    if (detailBox) {
+      let detail = ev.message && ev.text && ev.text !== ev.message ? ev.text : "";
+      // text 通常以 message 开头 (build_result 会拼上汇总行), 去掉重复的汇总行
+      if (detail && detail.startsWith(ev.message)) detail = detail.slice(ev.message.length).replace(/^\s*\n+/, "");
+      detailBox.textContent = detail;
+      detailBox.style.display = detail ? "" : "none";
     }
     // 动作结果带保存目录时 (如"仅整理"/"压缩并整理"), 显示"打开保存目录"按钮
     if (ev.dir) {
@@ -419,11 +435,12 @@ export async function renderPluginPage(pluginName, container, ctx) {
 
 function renderPanel(plugin, panel, body) {
   const controls = {};
-  // 布局: 右列是否需要 (column="right" 字段 或 有输出框的动作)
-  const hasRightCol = panel.fields.some((f) => f.column === "right") || panel.actions.some((a) => a.show_output);
+  // 布局: 右列是否需要 (column="right"/"right_bottom" 字段 或 有输出框的动作)
+  const hasRightCol = panel.fields.some((f) => f.column === "right" || f.column === "right_bottom") || panel.actions.some((a) => a.show_output);
   const useGrid = hasRightCol && !panel.inline_actions;
 
   // 左列: 表单字段; 右列: 输出/图表/说明 (字段通过 column 属性指定)
+  // column="right" 排右列顶部; column="right_bottom" 排右列底部 (输出区之后, 如"说明"在结果下方)
   const fieldBox = el("div", { class: "card", style: "margin:0;" });
   const outContainer = el("div", { style: "min-width:0;" });
   const wrap = el("div", { class: useGrid ? "grid grid-2" : "" });
@@ -462,19 +479,32 @@ function renderPanel(plugin, panel, body) {
   // row_group 缓冲: 相邻同组字段渲染到同一行 (如 variety 与 decrisp 并排)
   let rowBuffer = [];
   let currentRowGroup = "";
+  // 已渲染的行容器: 条件显示时若整行字段都被隐藏, 行本身也要收起 (否则留下一个空行间距)
+  const rowEls = [];
   const flushRow = () => {
     if (!rowBuffer.length) return;
     const row = el("div", { class: "field-row" });
     rowBuffer.forEach((ctrl) => row.append(ctrl.node));
     fieldBox.append(row);
+    rowEls.push(row);
     rowBuffer = [];
   };
+  // 右列底部字段 (column="right_bottom"): 先收集, 等输出区渲染完再追加 (说明排到处理结果下方)
+  const bottomFields = [];
   panel.fields.forEach((f) => {
     const ctrl = makeField(f, {});
     controls[f.id] = ctrl;
     fieldRegistry.set(f.id, ctrl);
     if (!f.corner_of) {
-      if (f.row_group) {
+      if (f.type === "section") {
+        // 分区标题: 打断行缓冲后插入左列 (同类功能的参数划分到同一区域)
+        flushRow(); currentRowGroup = "";
+        fieldBox.append(ctrl.node);
+      } else if (f.column === "right_bottom") {
+        flushRow(); currentRowGroup = "";
+        if (useGrid) bottomFields.push(ctrl);
+        else fieldBox.append(ctrl.node);
+      } else if (f.row_group) {
         // 同组字段进入缓冲行
         if (f.row_group !== currentRowGroup) { flushRow(); currentRowGroup = f.row_group; }
         rowBuffer.push(ctrl);
@@ -560,16 +590,22 @@ function renderPanel(plugin, panel, body) {
   panel.actions.forEach((action) => {
     if (!action.show_output) return;
     const outBox = el("div", { id: `plugin-output-${panel.id}-${action.id}`, class: "card", style: "margin:0 0 12px 0;" }, [
-      el("div", { class: "card-title", text: "📤 " + (action.label || "输出") }),
+      // 标签自带 emoji 时直接用它, 不再补 "📤 " (否则两个 emoji 连用)
+      el("div", { class: "card-title", text: (hasLabelEmoji(action.label) ? "" : "📤 ") + (action.label || "输出") }),
     ]);
     const gal = el("div", { class: "gallery" });
     const previewImg = el("img", { class: "preview-img", style: "display:none;max-width:100%;max-height:360px;border-radius:var(--radius-sm);border:2px solid var(--border);" });
     const infoBox = el("div", { class: "info-box" });
+    // 逐项明细 (message 之外的逐条结果 / 警告): 默认隐藏, 任务返回 text 时填充
+    const detailBox = el("div", { class: "out-detail", style: "display:none;" });
     const outActions = el("div", { class: "plugin-out-actions" });
-    outBox.append(gal, previewImg, infoBox, outActions);
+    outBox.append(gal, previewImg, infoBox, detailBox, outActions);
     outContainer.append(outBox);
-    outputMap[action.id] = { gal, previewImg, infoBox, outActions };
+    outputMap[action.id] = { gal, previewImg, infoBox, detailBox, outActions };
   });
+
+  // 右列底部字段 (column="right_bottom"): 追加在输出区之后 (说明排在处理结果下方)
+  if (useGrid) bottomFields.forEach((ctrl) => outContainer.append(ctrl.node));
 
   // 内联动作面板 (无右列): 输出区由下方 stage 容器统一放置
 
@@ -629,10 +665,10 @@ function renderPanel(plugin, panel, body) {
   const actRow = el("div", { style: "display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;" });
   panel.actions.forEach((action) => {
     actionMeta.set(`plugin:${plugin.name}/${panel.id}/${action.id}`, { setField: action.set_field || "", showOutput: action.show_output });
-    // 动作标签自带区分 emoji (如 "🚀 开始生成") 时省略统一的 ▶️ 前缀; 纯文字标签 (如 "开始生成") 保留
+    // 标签自带区分 emoji (如 "🚀 开始生成") 时省略统一的 ▶️ 前缀; 纯文字标签 (如 "开始生成") 保留
     const btn = el("button", {
       class: "btn btn-primary",
-      text: (/^\p{Extended_Pictographic}/u.test(action.label || "") ? "" : "▶️ ") + action.label,
+      text: (hasLabelEmoji(action.label) ? "" : "▶️ ") + action.label,
     });
     btn.addEventListener("click", async () => {
       const payload = {};
@@ -640,7 +676,11 @@ function renderPanel(plugin, panel, body) {
       for (const id of action.inputs || []) payload[id] = fieldRegistry.get(id)?.getValue();
       const out = outputMap[action.id];
       btn.disabled = true;
-      if (out) out.infoBox.textContent = "🚀 正在执行...";
+      if (out) {
+        out.infoBox.textContent = "🚀 正在执行...";
+        // 清空上一轮的明细, 避免新任务执行期间还显示旧结果
+        if (out.detailBox) { out.detailBox.textContent = ""; out.detailBox.style.display = "none"; }
+      }
       try {
         const res = await post(`/api/plugin/${plugin.name}/${panel.id}/${action.id}`, { values: payload });
         // 实时预览容器 (供生成器类动作逐张推送预览, 如随机画风)
@@ -744,6 +784,11 @@ function renderPanel(plugin, panel, body) {
         }
       }
       ctrl.node.style.display = visible ? "" : "none";
+    });
+    // 整行字段都被条件显示隐藏时, 把该行一起收起: 只隐藏字段会留下一个空行间距
+    rowEls.forEach((row) => {
+      const anyVisible = [...row.children].some((child) => child.style.display !== "none");
+      row.style.display = anyVisible ? "" : "none";
     });
   }
   showIfFns.push(evalShowIf);

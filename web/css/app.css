@@ -1407,6 +1407,24 @@ body.has-custom-bg::before {
 body.has-custom-bg input, body.has-custom-bg select, body.has-custom-bg textarea {
   background-color: color-mix(in srgb, var(--panel-solid) 82%, var(--input));
 }
+/* ------- 只读输入框 (Field(readonly=True), 如「读取元数据」的结果框) -------
+   改不了内容, 只用于查看/复制: 沉到底色 + 虚线描边 + 默认箭头光标。
+   ⚠ 必须放在上面这条 has-custom-bg 统一底色**之后**: 否则设了自定义背景时, 那条规则会把
+   只读底色盖掉, 只读框看起来和普通输入框一模一样 (实测踩过)。所以这里要连
+   `body.has-custom-bg ...` 变体一起写, 保证两处都盖得住。
+   焦点环保留 (淡一些) —— 只读框也要能聚焦, 用户需要 Ctrl+A 全选复制。 */
+input.readonly, textarea.readonly,
+body.has-custom-bg input.readonly, body.has-custom-bg textarea.readonly {
+  background-color: color-mix(in srgb, var(--bg) 88%, var(--panel-solid));
+  border-style: dashed;
+  cursor: default;
+}
+input.readonly:focus, textarea.readonly:focus,
+body.has-custom-bg input.readonly:focus, body.has-custom-bg textarea.readonly:focus {
+  background-color: color-mix(in srgb, var(--bg) 88%, var(--panel-solid));
+  border-color: color-mix(in srgb, var(--primary) 55%, var(--border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 16%, transparent);
+}
 body.has-custom-bg .fs-control {
   background-color: color-mix(in srgb, var(--panel-solid) 82%, var(--input));
 }
@@ -1574,6 +1592,50 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
   padding: 9px 11px;
   font-size: 14px;
   line-height: 1.7;
+}
+/* 插件表单分区标题 (Field.type="section"): 把同类功能的参数划分到同一区域 */
+.field-section {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 20px 0 12px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid var(--border);
+}
+.field-section:first-child { margin-top: 0; }
+.field-section-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--primary);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+/* 分区名前的小竖条: 让分组边界更明显 (纯 CSS, 不加图标资源) */
+.field-section-title::before {
+  content: "";
+  width: 3px;
+  height: 14px;
+  border-radius: 2px;
+  background: var(--primary);
+  flex: 0 0 3px;
+}
+.field-section-hint { font-size: 12px; font-weight: 400; color: var(--text-2); opacity: 0.85; }
+/* 输出框内的逐项明细 (message 之外的逐条结果/警告): 等宽字体, 过长时可滚动 */
+.out-detail {
+  margin-top: 8px;
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--text-2);
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  padding: 8px 11px;
 }
 /* 相邻同组字段并排一行 (如 variety 与 decrisp) */
 .field-row .field > label { white-space: nowrap; }
