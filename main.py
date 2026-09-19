@@ -62,6 +62,7 @@ def _load_plugins_bg():
         logger.info("插件加载完成")
     except Exception as e:
         logger.error(f"插件后台加载失败 (不影响核心服务): {e}")
+        logger.opt(exception=True).debug("插件后台加载失败 (不影响核心服务)堆栈:")
 
 
 # 插件在后台线程加载: 先同步标记"正在加载" (早于 create_app/端口绑定, 无竞态窗口)。
@@ -87,6 +88,7 @@ def _open_browser():
             return
     except Exception as e:
         logger.debug(f"托管窗口打开失败, 退回普通标签页: {e}")
+        logger.opt(exception=True).debug("托管窗口打开失败, 退回普通标签页堆栈:")
     webbrowser.open(f"http://127.0.0.1:{env.port}")
 
 
@@ -130,4 +132,5 @@ if __name__ == "__main__":
         start_tray()
     except Exception as e:
         logger.debug(f"系统托盘不可用: {e}")
+        logger.opt(exception=True).debug("系统托盘不可用堆栈:")
     uvicorn.run(app, host="127.0.0.1", port=env.port, log_level="warning")

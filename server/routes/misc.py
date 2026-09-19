@@ -81,6 +81,7 @@ async def get_state():
             last_data = read_json(BASE_DIR / "last.json")
         except Exception as e:
             logger.warning(f"读取 last.json 失败: {e}")
+            logger.opt(exception=True).debug("读取 last.json 失败堆栈:")
     parameters = last_data.get("parameters", {})
     model = last_data.get("model", "nai-diffusion-4-5-full").replace("-inpainting", "")
     if model == "nai-diffusion-4-curated":
@@ -126,6 +127,7 @@ async def get_last():
             return read_json(BASE_DIR / "last.json")
         except Exception as e:
             logger.warning(f"读取 last.json 失败: {e}")
+            logger.opt(exception=True).debug("读取 last.json 失败堆栈:")
     return {}
 
 
@@ -353,8 +355,8 @@ def _generate_thumbnail(target: Path, thumb: Path) -> None:
             img.load()
             try:
                 img = ImageOps.exif_transpose(img)  # 按 EXIF 方向摆正 (手机拍摄等)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"缩略图方向校正失败, 使用原图方向: {e}")
             if img.mode not in ("RGB", "RGBA"):
                 img = img.convert("RGBA" if img.mode in ("P", "LA", "PA") else "RGB")
             img.thumbnail((_THUMB_SIZE, _THUMB_SIZE), Image.Resampling.LANCZOS)
@@ -364,6 +366,7 @@ def _generate_thumbnail(target: Path, thumb: Path) -> None:
         _prune_thumb_cache()
     except Exception as e:
         logger.debug(f"缩略图生成失败 {target}: {e}")
+        logger.opt(exception=True).debug("缩略图生成失败堆栈:")
         try:
             if tmp is not None and tmp.exists():
                 tmp.unlink()
@@ -601,6 +604,7 @@ def _migrate_legacy_bg_state():
         logger.info("已把根目录 bg_state.json 迁移到 outputs 目录")
     except Exception as e:
         logger.warning(f"迁移旧 bg_state.json 失败: {e}")
+        logger.opt(exception=True).debug("迁移旧 bg_state.json 失败堆栈:")
 
 
 _migrate_legacy_bg_state()
@@ -672,6 +676,7 @@ def bg_random_wallpaper(payload: dict = None):
                 except Exception as e:
                     last = e
                     logger.warning(f"在线壁纸 Lolicon 请求失败 (trust_env={trust_env}): {e}")
+                    logger.opt(exception=True).debug("在线壁纸 Lolicon 请求失败堆栈:")
             raise last
 
         try:
@@ -701,6 +706,7 @@ def bg_random_wallpaper(payload: dict = None):
         except Exception as e:
             errors.append(f"Lolicon: {e}")
             logger.warning(f"在线壁纸 Lolicon 获取失败: {e}")
+            logger.opt(exception=True).debug("在线壁纸 Lolicon 获取失败堆栈:")
         raise HTTPException(status_code=502, detail="在线壁纸获取失败 (" + "; ".join(errors) + ")")
 
     # 1) Bing 每日壁纸
@@ -724,6 +730,7 @@ def bg_random_wallpaper(payload: dict = None):
         except Exception as e:
             errors.append(f"{host}: {e}")
             logger.warning(f"在线壁纸 Bing ({host}) 获取失败: {e}")
+            logger.opt(exception=True).debug("在线壁纸 Bing 获取失败堆栈:")
 
     # 2) Picsum 随机精选图 (兜底)
     try:
@@ -738,6 +745,7 @@ def bg_random_wallpaper(payload: dict = None):
     except Exception as e:
         errors.append(f"Picsum: {e}")
         logger.warning(f"在线壁纸 Picsum 获取失败: {e}")
+        logger.opt(exception=True).debug("在线壁纸 Picsum 获取失败堆栈:")
 
     raise HTTPException(status_code=502, detail="在线壁纸获取失败 (" + "; ".join(errors) + ")")
 
@@ -749,8 +757,8 @@ async def bg_state_get():
     if _BG_STATE_FILE.exists():
         try:
             data.update(json.loads(_BG_STATE_FILE.read_text(encoding="utf-8")))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"读取背景状态失败, 使用默认值: {e}")
     return data
 
 
@@ -895,6 +903,7 @@ def _gpu_stats():
     except Exception as e:
         # 无独立显卡 / nvidia-smi 不可用 / 超时: 保留上一次的有效值, 首次就失败则维持 None
         logger.debug(f"nvidia-smi 采样失败: {e}")
+        logger.opt(exception=True).debug("nvidia-smi 采样失败堆栈:")
     _GPU_CACHE["t"] = now
     return _GPU_CACHE["data"]
 
@@ -1310,8 +1319,8 @@ def _read_prompt_lib_meta():
             for key in meta:
                 if isinstance(data.get(key), list):
                     meta[key] = [str(x) for x in data[key]]
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"读取提示词库元信息失败, 使用默认值: {e}")
     return meta
 
 
@@ -1375,6 +1384,7 @@ def _online_translate(text: str) -> str:
         return translate_en_to_zh(q)
     except Exception as e:
         logger.warning(f"在线翻译失败: {e}")
+        logger.opt(exception=True).debug("在线翻译失败堆栈:")
     return ""
 
 

@@ -276,7 +276,7 @@ def stop_generate(job_id: str | None = None) -> None:
 
         gen_queue.stop_all_running()
     except Exception:
-        pass
+        logger.opt(exception=True).debug("停止生成队列失败堆栈:")
     try:
         from utils.jobs import jobs as _jobs
         from utils.jobs import write_break_flag
@@ -284,7 +284,7 @@ def stop_generate(job_id: str | None = None) -> None:
         for jid in _jobs.running_job_ids():
             write_break_flag(True, jid)
     except Exception:
-        pass
+        logger.opt(exception=True).debug("写入停止信号失败堆栈:")
     os.makedirs("./outputs", exist_ok=True)
     with open("./outputs/temp_break.json", "w") as f:
         json.dump({"break": True}, f)
@@ -316,6 +316,7 @@ def playsound(file_path: str) -> None:
         _playsound(file_path)
     except Exception as e:
         logger.warning(f"playsound 播放失败: {e}")
+        logger.opt(exception=True).debug("playsound 播放失败堆栈:")
 
 
 # ---------------------------------------------------------------- 系统
@@ -340,8 +341,8 @@ def apply_console_visibility() -> None:
         if hwnd:
             # SW_HIDE=0 / SW_SHOW=5
             ctypes.windll.user32.ShowWindow(hwnd, 0 if env.hide_terminal else 5)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"设置控制台显隐失败: {e}")
 
 
 def shutdown_app() -> None:
@@ -357,8 +358,8 @@ def shutdown_app() -> None:
                 # 由 run.bat 启动时父进程是 cmd.exe: 连同终端一起结束, 避免残留黑窗口
                 if parent and (parent.name() or "").lower() == "cmd.exe":
                     target = parent.pid
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"获取父进程信息失败: {e}")
             try:
                 subprocess.Popen(
                     ["taskkill", "/F", "/T", "/PID", str(target)],
@@ -432,6 +433,7 @@ def update_repo(path: str) -> str:
         return "更新完成, 重启后生效!"
     except Exception as e:
         logger.error(f"更新失败: {e}")
+        logger.opt(exception=True).debug("更新失败堆栈:")
         return f"更新失败: {e}"
 
 
@@ -501,14 +503,15 @@ def install_requirements(path: str) -> None:
         fp = _deps_fingerprint(path)
     except OSError as e:
         logger.warning(f"读取依赖清单失败, 仍尝试安装: {path} ({e})")
+        logger.opt(exception=True).debug("读取依赖清单失败堆栈:")
         fp = None
     if fp:
         try:
             if stamp.read_text(encoding="utf-8").strip() == fp:
                 logger.debug(f"插件依赖指纹未变, 跳过安装: {path}")
                 return
-        except OSError:
-            pass
+        except OSError as e:
+            logger.debug(f"读取插件依赖指纹失败, 将重新安装: {e}")
     logger.debug(f"正在安装插件依赖: {path}")
     in_venv = sys.prefix != getattr(sys, "base_prefix", sys.prefix)
     cmd = [sys.executable, "-X", "utf8", "-m", "pip", "install", "-r", path]
@@ -526,8 +529,8 @@ def install_requirements(path: str) -> None:
         if fp:
             try:
                 stamp.write_text(fp, encoding="utf-8")  # 只在安装成功后落指纹; 失败不写, 下次启动自动重试
-            except OSError:
-                pass
+            except OSError as e:
+                logger.debug(f"写入插件依赖指纹失败: {e}")
         logger.success(f"插件依赖安装完成: {Path(path).name}")
     else:
         tail = (proc.stdout or b"").decode("utf-8", errors="ignore").strip().splitlines()[-5:]
@@ -553,12 +556,14 @@ def send_mail() -> None:
         logger.success("发送邮件成功!")
     except smtplib.SMTPException as e:
         logger.error(f"发送失败: {e}")
+        logger.opt(exception=True).debug("发送失败堆栈:")
     finally:
         if smtp_obj is not None:
             try:
                 smtp_obj.quit()
             except smtplib.SMTPException as e:
                 logger.error(f"关闭 SMTP 连接失败: {e}")
+                logger.opt(exception=True).debug("关闭 SMTP 连接失败堆栈:")
 
 
 def send_anlas_remind_mail(masked: str, remains: float, threshold: int) -> None:
@@ -580,12 +585,14 @@ def send_anlas_remind_mail(masked: str, remains: float, threshold: int) -> None:
         logger.success(f"用量提醒邮件已发送: Token {masked} 剩余用量 {remains}%")
     except smtplib.SMTPException as e:
         logger.error(f"用量提醒邮件发送失败: {e}")
+        logger.opt(exception=True).debug("用量提醒邮件发送失败堆栈:")
     finally:
         if smtp_obj is not None:
             try:
                 smtp_obj.quit()
             except smtplib.SMTPException as e:
                 logger.error(f"关闭 SMTP 连接失败: {e}")
+                logger.opt(exception=True).debug("关闭 SMTP 连接失败堆栈:")
 
 
 # ---------------------------------------------------------------- 图片筛选
@@ -615,6 +622,7 @@ def show_first_img(input_path: str):
         file_list = _safe_img_paths(input_path)
     except Exception as e:
         logger.error(f"加载图片目录失败: {e}")
+        logger.opt(exception=True).debug("加载图片目录失败堆栈:")
         return None, None
     if not file_list:
         logger.error("输入的目录中没有图片!")
@@ -633,6 +641,7 @@ def show_next_img():
         file_list = _load_selector_queue()
     except Exception as e:
         logger.error(f"读取图片列表失败: {e}")
+        logger.opt(exception=True).debug("读取图片列表失败堆栈:")
         return None, None
     while file_list:
         img_path, file_list = file_list[0], file_list[1:]
@@ -642,6 +651,7 @@ def show_next_img():
                 return [str(img_path)], img_path
         except Exception:
             logger.warning(f"图片不存在或无法读取, 已跳过: {img_path}")
+            logger.opt(exception=True).debug("读取图片失败堆栈:")
     return None, None
 
 
@@ -655,6 +665,7 @@ def move_current_img(current_img, output_path):
         return images, nxt, None
     except Exception as e:
         logger.error(f"移动图片失败: {e}")
+        logger.opt(exception=True).debug("移动图片失败堆栈:")
         return None, None, f"移动失败: {e}"
 
 
@@ -668,6 +679,7 @@ def copy_current_img(current_img, output_path):
         return images, nxt, None
     except Exception as e:
         logger.error(f"复制图片失败: {e}")
+        logger.opt(exception=True).debug("复制图片失败堆栈:")
         return None, None, f"复制失败: {e}"
 
 
@@ -684,6 +696,7 @@ def clear_selector_trash():
                     f.unlink(missing_ok=True)
     except Exception as e:
         logger.error(f"清理回收站失败: {e}")
+        logger.opt(exception=True).debug("清理回收站失败堆栈:")
 
 
 def del_current_img(current_img):
@@ -699,4 +712,5 @@ def del_current_img(current_img):
         logger.error("当前未选择图片!")
     except Exception as e:
         logger.error(f"删除图片失败: {e}")
+        logger.opt(exception=True).debug("删除图片失败堆栈:")
     return None, None, None

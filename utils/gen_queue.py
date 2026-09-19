@@ -278,7 +278,7 @@ class GenerationQueue:
                                 },
                             )
                         except Exception:
-                            pass
+                            logger.opt(exception=True).debug("推送队列通知失败堆栈:")
                         self._publish()
                         continue  # 不前进 pos, 继续看下一个任务
                     if worker.idx != eligible:
@@ -465,6 +465,7 @@ class GenerationQueue:
             broker.publish("queue:update", {"queue": self.snapshot()})
         except Exception as e:
             logger.debug(f"推送队列状态失败: {e}")
+            logger.opt(exception=True).debug("推送队列状态失败堆栈:")
 
 
 gen_queue = GenerationQueue()

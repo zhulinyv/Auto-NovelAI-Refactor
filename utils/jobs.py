@@ -121,7 +121,7 @@ def active_job_ids() -> set[str]:
 
         ids.update(gen_queue.running_ids())
     except Exception:
-        pass
+        logger.opt(exception=True).debug("收集运行中任务失败堆栈:")
     return ids
 
 
@@ -216,7 +216,7 @@ def _sweep_at_exit() -> None:
     try:
         sweep_break_files(force=True)
     except Exception:
-        pass
+        logger.opt(exception=True).debug("清理停止信号文件失败堆栈:")
 
 
 def start_break_cleanup(interval: float = JANITOR_INTERVAL) -> list[str]:
@@ -242,6 +242,7 @@ def start_break_cleanup(interval: float = JANITOR_INTERVAL) -> list[str]:
                     logger.debug(f"已清理无用的停止信号文件: {gone}")
             except Exception as e:
                 logger.debug(f"停止信号文件清理失败: {e}")
+                logger.opt(exception=True).debug("停止信号文件清理失败堆栈:")
 
     threading.Thread(target=_loop, daemon=True, name="break-cleanup").start()
     return removed

@@ -114,6 +114,7 @@ async def apply_plugins():
         load_plugins()
     except Exception as e:
         logger.error(f"插件加载失败: {e}")
+        logger.opt(exception=True).debug("插件加载失败堆栈:")
     # 延迟重启, 让响应先返回 (与 run.bat 一致: -X utf8)
     import os
     import sys

@@ -165,6 +165,7 @@ def install_plugin(name: str) -> str:
             break
         except Exception as e:
             logger.error(f"克隆失败: {e}")
+            logger.opt(exception=True).debug("克隆插件仓库失败堆栈:")
             logger.warning(f"正在重试 {i + 1}/3")
     else:
         return "安装失败, 请检查网络后重试"

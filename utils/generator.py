@@ -58,7 +58,7 @@ def _set_last_anlas(anlas, remains, token: str | None = None) -> None:
         try:
             broker.publish("anlas:update", {"token": mask_token(token) or "(未知)"})
         except Exception:
-            pass
+            logger.opt(exception=True).debug("推送点数更新失败堆栈:")
         _maybe_send_usage_remind(token, anlas, remains)
 
 
@@ -107,6 +107,7 @@ def _maybe_send_usage_remind(token: str, anlas, remains) -> None:
                 )
             except Exception as e:
                 logger.debug(f"推送用量提醒通知失败: {e}")
+                logger.opt(exception=True).debug("推送用量提醒通知失败堆栈:")
             logger.warning(
                 f"Token {masked} 剩余用量 {remains_num}% 已低于提醒阈值 {threshold}% (未配置 SMTP, 已通过 WebUI 通知)"
             )
@@ -166,6 +167,7 @@ def inquire_anlas(token: str | None = None):
         return -1, -1
     except Exception as e:
         logger.debug(f"查询剩余点数失败 (不影响生成): {e}")
+        logger.opt(exception=True).debug("查询剩余点数失败堆栈:")
         return -1, -1
 
 

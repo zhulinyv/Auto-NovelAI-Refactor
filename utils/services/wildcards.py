@@ -29,8 +29,8 @@ def list_types() -> list[str]:
         data = json.loads(_TYPES_ORDER_FILE.read_text(encoding="utf-8"))
         if isinstance(data, list):
             order = [t for t in data if isinstance(t, str)]
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"读取通配符类型顺序失败, 使用默认顺序: {e}")
     known = [t for t in order if t in actual]
     rest = [t for t in actual if t not in known]
     return known + rest
@@ -89,6 +89,7 @@ def _drop_old_covers(wildcard_type: str, name: str, keep_ext: str) -> None:
             os.remove(old)
         except OSError as e:
             logger.warning(f"删除旧封面失败 {old}: {e}")
+            logger.opt(exception=True).debug("删除旧封面失败堆栈:")
 
 
 def list_cards(wildcard_type: str) -> list[dict]:

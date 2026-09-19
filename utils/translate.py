@@ -179,11 +179,12 @@ def _get_tss():
 
                     try:
                         tss.server_region = "CN"
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug(f"设置翻译服务地区失败: {e}")
                     _TSS = tss
                 except Exception as e:
                     logger.warning(f"translators 库不可用, 海外免费接口将跳过: {e}")
+                    logger.opt(exception=True).debug("translators 库不可用堆栈:")
                     _TSS = False
     return _TSS or None
 
@@ -272,5 +273,6 @@ def translate_en_to_zh(text: str) -> str:
                 return zh
         except Exception as e:
             logger.debug(f"翻译接口 {display} 失败: {e}")
+            logger.opt(exception=True).debug("翻译接口调用失败堆栈:")
     logger.warning(f"所有翻译接口均失败: {q[:40]!r}")
     return ""

@@ -36,6 +36,7 @@ def _queue_snapshot():
             return [str(f) for f in np.load(_QUEUE_FILE)]
     except Exception as e:
         logger.error(f"读取队列快照失败: {e}")
+        logger.opt(exception=True).debug("读取队列快照失败堆栈:")
     return None
 
 
@@ -120,6 +121,7 @@ def undo():
             logger.error(f"未知操作类型: {action}")
     except Exception as e:
         logger.error(f"撤销失败: {e}")
+        logger.opt(exception=True).debug("撤销失败堆栈:")
         return None, None, f"撤销失败: {e}"
     _HISTORY.pop()
     # 恢复操作前的队列快照, 保证撤销后索引不向前跳 (后续操作从当前图片的下一个继续)
@@ -129,11 +131,13 @@ def undo():
             np.save(_QUEUE_FILE, np.array(queue))
         except Exception as e:
             logger.error(f"恢复队列失败: {e}")
+            logger.opt(exception=True).debug("恢复队列失败堆栈:")
     # 撤销后显示恢复的图片; 若该文件已被外部删除, 顺延展示队列中下一张可读图片
     try:
         with Image.open(src):
             return [str(src)], src, None
     except Exception:
         logger.warning(f"撤销后无法读取 {src}, 顺延下一张")
+        logger.opt(exception=True).debug("读取撤销后的图片失败堆栈:")
         images, current = show_next_img()
         return images, current, None

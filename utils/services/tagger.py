@@ -53,6 +53,7 @@ def tagger(image_path, model_repo, general_thresh, general_mcut, character_thres
             break
         except Exception as e:
             logger.error(f"反推失败: {e}")
+            logger.opt(exception=True).debug("反推失败堆栈:")
             logger.info("正在重试...") if times < 4 else None
             times += 1
     if result is None:

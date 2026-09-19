@@ -32,6 +32,7 @@ async def save_settings(payload: dict):
         from utils.logger import logger
 
         logger.error(f"保存配置失败: {e}")
+        logger.opt(exception=True).debug("保存配置失败堆栈:")
         return {"ok": False, "message": f"保存配置失败: {e}"}
 
 

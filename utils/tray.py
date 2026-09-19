@@ -80,8 +80,8 @@ def _default_browser_exe() -> str | None:
         exe = exe.strip()
         if os.path.basename(exe).lower() in _CHROMIUM_EXES and os.path.isfile(exe):
             return exe
-    except OSError:
-        pass
+    except OSError as e:
+        logger.debug(f"读取注册表浏览器命令失败: {e}")
     return None
 
 
@@ -100,7 +100,7 @@ def _write_pid(pid: int) -> None:
         PROFILE_DIR.mkdir(parents=True, exist_ok=True)
         PID_FILE.write_text(str(pid))
     except OSError:
-        pass
+        logger.opt(exception=True).debug("写入托盘 PID 文件失败堆栈:")
 
 
 def _clear_pid() -> None:
@@ -121,8 +121,8 @@ def _managed_pid() -> int | None:
         p = psutil.Process(pid)
         if p.is_running() and p.status() != psutil.STATUS_ZOMBIE and any(_WINDOW_MARK in str(a) for a in p.cmdline()):
             return pid
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"扫描托管窗口进程失败: {e}")
     _clear_pid()
     return None
 
@@ -209,8 +209,8 @@ def _scan_managed_pid(timeout_s: float = 8.0) -> int | None:
                 cl = " ".join(p.info["cmdline"] or [])
                 if name in ("msedge.exe", "chrome.exe") and _WINDOW_MARK in cl and "--type=" not in cl:
                     return int(p.info["pid"])
-            except Exception:  # noqa: BLE001 - 进程枚举竞争窗口, 下个周期再来
-                pass
+            except Exception as e:  # noqa: BLE001 - 进程枚举竞争窗口, 下个周期再来
+                logger.debug(f"扫描托管窗口进程失败: {e}")
         if time.monotonic() >= deadline:
             return None
         time.sleep(0.4)
@@ -255,8 +255,8 @@ def _ensure_aumid_shortcut(exe: str, args_str: str) -> None:
     try:
         if lnk.is_file() and stamp.read_text(encoding="utf-8") == fingerprint:
             return  # 已是最新: 不反复动开始菜单
-    except OSError:
-        pass
+    except OSError as e:
+        logger.debug(f"读取快捷方式指纹失败: {e}")
     # '@ 结束符必须独占行首 (曾被字符串隐式拼接并进 Add-Type 一行, 教训), CRLF 双保险
     ps = "\r\n".join(
         [
@@ -327,13 +327,14 @@ def _ensure_aumid_shortcut(exe: str, args_str: str) -> None:
                     import ctypes
 
                     ctypes.windll.kernel32.SetFileAttributesW(str(lnk), 0x00000002)  # FILE_ATTRIBUTE_HIDDEN
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"设置快捷方式属性失败: {e}")
             stamp.write_text(fingerprint, encoding="utf-8")  # 成功才落指纹, 失败下次拉起自愈重试
         else:
             logger.debug(f"AUMID 快捷方式注册失败 (退回窗口图标): {r.stderr.decode('utf-8', 'ignore').strip()[:200]}")
     except Exception as e:
         logger.debug(f"AUMID 快捷方式注册异常 (退回窗口图标): {e}")
+        logger.opt(exception=True).debug("AUMID 快捷方式注册失败堆栈:")
 
 
 def open_webui() -> bool:
@@ -379,8 +380,8 @@ def open_webui() -> bool:
             if pid:
                 _write_pid(pid)
                 return True
-        except OSError:
-            pass
+        except OSError as e:
+            logger.debug(f"启动托管窗口失败: {e}")
     # 兜底: 直启浏览器 (窗口照常; 仅 Win11 任务栏图标退回浏览器默认)
     try:
         p = subprocess.Popen(
@@ -497,6 +498,7 @@ def start_tray() -> None:
         logger.info("系统托盘已启动 (打开 / 重启 / 关闭)")
     except Exception as e:
         logger.warning(f"系统托盘启动失败: {e}")
+        logger.opt(exception=True).debug("系统托盘启动失败堆栈:")
 
 
 def _wait_open_main() -> None:

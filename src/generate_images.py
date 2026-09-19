@@ -700,6 +700,7 @@ def generate(request: dict) -> tuple[list[str], str]:
             send_mail()
         except Exception as e:
             logger.error(f"发送邮件提醒失败: {e}")
+            logger.opt(exception=True).debug("发送邮件提醒失败堆栈:")
 
     from utils.generator import get_last_anlas
 

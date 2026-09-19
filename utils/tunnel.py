@@ -67,8 +67,8 @@ def _download_binary() -> Path:
         os.remove(dst)
     try:
         os.chmod(dst, 0o755)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"设置 cloudflared 可执行权限失败: {e}")
     return dst
 
 
@@ -77,7 +77,7 @@ def _write_pidfile(pid: int, url: str | None) -> None:
         _BIN_DIR.mkdir(parents=True, exist_ok=True)
         _PID_FILE.write_text(json.dumps({"pid": pid, "url": url, "port": env.port}), encoding="utf-8")
     except Exception:
-        pass
+        logger.opt(exception=True).debug("写入隧道 PID 文件失败堆栈:")
 
 
 def _read_pidfile() -> dict | None:
@@ -134,6 +134,7 @@ def _maybe_open_browser(url: str | None) -> None:
         logger.info(f"已打开共享链接: {url}")
     except Exception as e:
         logger.warning(f"自动打开共享链接失败: {e}")
+        logger.opt(exception=True).debug("自动打开共享链接失败堆栈:")
 
 
 def _publish() -> None:
@@ -142,7 +143,7 @@ def _publish() -> None:
 
         broker.publish("share:update", {"url": get_tunnel_url(), "running": is_running()})
     except Exception:
-        pass
+        logger.opt(exception=True).debug("推送共享状态失败堆栈:")
 
 
 def start_tunnel(open_browser: bool = False) -> bool:
@@ -177,6 +178,7 @@ def start_tunnel(open_browser: bool = False) -> bool:
             _download_binary()
         except Exception as e:
             logger.error(f"共享链接: cloudflared 下载失败, 无法生成外网链接: {e}")
+            logger.opt(exception=True).debug("cloudflared 下载失败堆栈:")
             return False
     cmd = [
         str(binary),
@@ -198,6 +200,7 @@ def start_tunnel(open_browser: bool = False) -> bool:
         )
     except Exception as e:
         logger.error(f"共享链接: 启动 cloudflared 失败: {e}")
+        logger.opt(exception=True).debug("启动 cloudflared 失败堆栈:")
         return False
     with _lock:
         _process = proc
@@ -278,7 +281,7 @@ def _watch(proc: subprocess.Popen) -> None:
                 logger.success(f"共享链接已生成: {_tunnel_url}, 正在做端到端连通性确认...")
                 threading.Thread(target=_confirm_ready, args=(proc, _tunnel_url), daemon=True).start()
     except Exception:
-        pass
+        logger.opt(exception=True).debug("读取隧道输出失败堆栈:")
     finally:
         code = proc.wait()
         with _lock:

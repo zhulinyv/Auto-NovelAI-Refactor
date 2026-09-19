@@ -40,16 +40,19 @@ def create_app() -> FastAPI:
             misc._get_tag_cache()
         except Exception as e:
             logger.warning(f"标签词典预热失败: {e}")
+            logger.opt(exception=True).debug("标签词典预热失败堆栈:")
         try:
             from utils.generator import inquire_all_anlas
 
             inquire_all_anlas()
         except Exception as e:
             logger.debug(f"启动查询剩余点数失败: {e}")
+            logger.opt(exception=True).debug("启动查询剩余点数失败堆栈:")
         try:
             plugins_store.list_plugins()
         except Exception as e:
             logger.warning(f"插件商店数据预热失败: {e}")
+            logger.opt(exception=True).debug("插件商店数据预热失败堆栈:")
         # 在线翻译多源引擎: 后台预导入 translators 库 (首次在线翻译不再卡几秒)
         try:
             from utils.translate import _get_tss
@@ -57,6 +60,7 @@ def create_app() -> FastAPI:
             _get_tss()
         except Exception as e:
             logger.debug(f"在线翻译库预热失败: {e}")
+            logger.opt(exception=True).debug("在线翻译库预热失败堆栈:")
 
     threading.Thread(target=_warm_caches, daemon=True, name="warmup").start()
 
@@ -74,6 +78,7 @@ def create_app() -> FastAPI:
             )
     except Exception as e:
         logger.debug(f"停止信号文件清理机制启动失败 (不影响任务): {e}")
+        logger.opt(exception=True).debug("停止信号文件清理机制启动失败堆栈:")
 
     # 静态资源禁用启发式缓存: 每次用 ETag 协商, 文件有改动立即生效
     @app.middleware("http")

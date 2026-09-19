@@ -104,8 +104,8 @@ def _migrate_from_env(data: dict) -> dict:
             key = key.strip()
             if key in DEFAULTS and not data.get(key):
                 data[key] = _coerce(key, value)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"读取 .env 配置失败, 使用默认值: {e}")
     return data
 
 
