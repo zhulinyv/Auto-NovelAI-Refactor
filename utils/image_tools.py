@@ -6,8 +6,8 @@ import base64
 from io import BytesIO
 from pathlib import Path
 
-import ujson
 import numpy as np
+import ujson
 from PIL import Image
 from PIL.PngImagePlugin import PngInfo
 

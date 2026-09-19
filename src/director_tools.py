@@ -11,7 +11,7 @@ from PIL import Image
 from utils.config import env
 from utils.errors import NovelAIAPIError
 from utils.generator import Generator
-from utils.helpers import check_stop, format_str, playsound, reset_stop, sleep_for_cool, StopGeneration
+from utils.helpers import StopGeneration, check_stop, format_str, playsound, reset_stop, sleep_for_cool
 from utils.image_tools import image_to_base64
 from utils.logger import logger
 from utils.models import director

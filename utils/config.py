@@ -11,6 +11,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from utils.logger import logger
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 SETTINGS_FILE = BASE_DIR / "settings.json"
 OUTPUTS_DIR = BASE_DIR / "outputs"

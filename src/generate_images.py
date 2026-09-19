@@ -245,8 +245,7 @@ def _prepare_inpaint_inputs(inpaint: dict | None, width: int, height: int):
             return _resize_editor_image(image.crop(box), gen_size)
 
         logger.info(
-            f"裁剪重绘: 外框 {crop_w}×{crop_h} @ ({crop_x}, {crop_y}) → "
-            f"生成分辨率 {gen_size[0]}×{gen_size[1]}"
+            f"裁剪重绘: 外框 {crop_w}×{crop_h} @ ({crop_x}, {crop_y}) → " f"生成分辨率 {gen_size[0]}×{gen_size[1]}"
         )
         return (
             _crop_and_fit(background),
@@ -576,7 +575,7 @@ def generate(request: dict) -> tuple[list[str], str]:
         base_json = deepcopy(json_data)
 
         # 5. 图生图 / 重绘
-        crop_ctx = None   # 裁剪重绘的贴回说明; 其它模式恒为 None
+        crop_ctx = None  # 裁剪重绘的贴回说明; 其它模式恒为 None
         inpaint_inputs = _prepare_inpaint_inputs(inpaint, width, height)
         if inpaint_inputs:
             inpaint_image, inpaint_mask, inpaint_composite, crop_ctx = inpaint_inputs
