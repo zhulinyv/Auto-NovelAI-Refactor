@@ -1416,9 +1416,8 @@ def translate_online(payload: dict):
 # 启动时查询全部 Token, 生成后仅更新本次所用 Token, 前端按 Token 展示; 值为 -1 表示尚未查询到
 
 
-@router.get("/anlas")
-def get_anlas():
-    """返回全部 Token 的剩余点数/用量 (启动时查询一次, 每次生成后只更新所用 Token)。
+def _anlas_payload() -> dict:
+    """把按 Token 的剩余点数/用量 (点数 + 用量% + 订阅状态 + 下次恢复 1% 的秒数) 组装成前端要的形状。
 
     active: 订阅是否有效 (对号/错号); recover_seconds: 下次恢复 1% 的秒数 (前端换算小时)。
     """
@@ -1443,3 +1442,26 @@ def get_anlas():
             }
         )
     return {"tokens": anlas_list}
+
+
+@router.get("/anlas")
+def get_anlas():
+    """返回全部 Token 的剩余点数/用量 (读缓存快照: 启动时查询一次, 生成后只更新所用 Token)。
+
+    想强制重新查询走 POST /api/anlas/refresh (输出区右上角那个「刷新」按钮)。
+    """
+    return _anlas_payload()
+
+
+@router.post("/anlas/refresh")
+def refresh_anlas():
+    """手动重查全部 Token 的剩余点数/用量, 返回刷新后的快照 (输出区右上角「刷新」按钮调用)。
+
+    与 GET 的区别: 这里会**真实请求 NovelAI** 的 /user/subscription, 所以是 POST (有副作用, 不该被缓存)。
+    查询是阻塞式外部 HTTP (每个 Token 最长 15s 连接 + 30s 读), 故用同步 def —— FastAPI 会把同步端点
+    丢进线程池执行, 不会卡住事件循环上的其它接口; 返回体与 GET 完全同形状, 前端可复用同一套渲染。
+    """
+    from utils.generator import inquire_all_anlas
+
+    inquire_all_anlas()
+    return _anlas_payload()

@@ -44,6 +44,7 @@ let anlasBadgeEl = null;
 let anlasMenuEl = null;
 let anlasSelected = 0;         // 徽标当前展示的 Token 序号
 let anlasOutsideBound = false; // 点击外部关闭下拉 (页面级只绑一次)
+let anlasRefreshBtn = null;    // 徽标右侧的「🔄 刷新」按钮 (手动重查剩余点数/用量)
 
 // ---------------- 控件工厂 ----------------
 
@@ -980,10 +981,20 @@ function buildRightPanel() {
       if (anlasWrapEl && !anlasWrapEl.contains(e.target)) toggleAnlasMenu(false);
     });
   }
+  // 紧挨徽标右侧的「刷新」按钮 (同一行、最右边): 手动重查剩余点数/用量
+  anlasRefreshBtn = el("button", {
+    class: "btn btn-sm anlas-refresh",
+    id: "anlas-refresh",
+    type: "button",
+    text: "🔄 刷新",
+    title: "立即重新查询剩余点数 / 用量 (会真实请求 NovelAI)",
+  });
+  anlasRefreshBtn.addEventListener("click", refreshAnlasNow);
   const card = el("div", { class: "card", style: "min-height:400px;display:flex;flex-direction:column;" }, [
     el("div", { class: "card-title" }, [
       "🖼️ 输出图片",
       anlasWrapEl,
+      anlasRefreshBtn,
     ]),
   ]);
   genGalleryEl = el("div", { class: "gallery", style: "flex:1;" });
@@ -1000,6 +1011,37 @@ function buildRightPanel() {
   infoEl = el("div", { class: "info-box", style: "margin-top:10px;" });
   card.append(genGalleryEl, btnRow, infoEl);
   return card;
+}
+
+/**
+ * 点「刷新」: 让后端真实重查一遍全部 Token, 再重画徽标。
+ * 徽标平时只在启动查询完成、生成结束或后端推送 anlas:update 时更新 —— 想立刻看到最新值就点它。
+ * 查询期间按钮禁用并显示"刷新中…", 防重复点击 (后端那次查询是同步的, 要走完外部 HTTP)。
+ */
+async function refreshAnlasNow() {
+  const btn = anlasRefreshBtn || document.getElementById("anlas-refresh");
+  if (!btn || btn.disabled) return;
+  const label = "🔄 刷新";
+  btn.disabled = true;
+  btn.textContent = "⏳ 刷新中…";
+  try {
+    // 必须打 /api/anlas/refresh: /api/anlas 只回缓存快照, 点多少次都刷不出新值
+    const data = await post("/api/anlas/refresh");
+    await updateAnlasBadge();
+    const list = Array.isArray(data?.tokens) ? data.tokens : [];
+    if (!list.length) {
+      toast("未配置 Token, 无法查询剩余点数 / 用量", "warning");
+    } else if (!list.some((t) => Number(t.anlas) >= 0)) {
+      toast("刷新完成, 但仍未查询到点数 —— 检查设置里的「⚡ 跳过剩余点数/用量计算」或 Token 是否有效", "warning");
+    } else {
+      toast(`剩余点数 / 用量已刷新 (${list.length} 个 Token)`, "success");
+    }
+  } catch (e) {
+    toast("刷新剩余点数失败: " + (e?.message || e), "error");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+  }
 }
 
 /** 展开/收起剩余点数/用量下拉面板 (force 省略时切换) */
