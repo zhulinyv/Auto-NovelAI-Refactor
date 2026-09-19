@@ -818,6 +818,15 @@ a.btn { text-decoration: none; }
   border-radius: var(--radius-sm);
   padding: 3px;
 }
+/* 这两个类名写在同一个元素上 (class="opt-group ed-seg"), 但 .opt-group 在文件更后面
+   且权重相同 (都是单类), 于是它那条 gap: 8px 会盖掉上面 .ed-seg 里的 gap: 0 —— 分段按钮
+   之间一直多着 8px 缝。用复合选择器把权重提到 (0,2,0) 让 gap: 0 真正生效;
+   这一行对"选区工具 4 项"尤其关键: 4 项时 3 道 8px 缝 (24px) 正好把每项压到 48px,
+   而标签需要 ~50px, 结果是标签折行或被挤到第二行。 */
+.opt-group.ed-seg {
+  gap: 0;
+}
+
 .ed-seg .opt-item {
   flex: 1;
   justify-content: center;
@@ -826,6 +835,9 @@ a.btn { text-decoration: none; }
   border-radius: var(--radius-sm);
   padding: 6px 4px;
   font-size: 12.5px;
+  /* 选区工具一行 4 项 (矩形/椭圆/套索/裁剪): 不允许把标签折成上下两行 (矩形 -> 矩 / 形)。
+     现在每项能拿到 ~53px, 标签只需 ~42px, 正常情况不会触发截断。 */
+  white-space: nowrap;
 }
 .ed-seg .opt-item:hover { border-color: transparent; background: var(--hover); }
 .ed-seg .opt-item.selected {
@@ -858,6 +870,14 @@ a.btn { text-decoration: none; }
   gap: 8px;
   padding-top: 12px;
   border-top: 1px dashed var(--border);
+}
+/* 裁剪重绘 (局部重绘): 选中「▣ 裁剪」时出现 —— 内缩 a 滑条 + 选框尺寸提示 */
+.ed-crop-sec { padding-top: 12px; border-top: 1px dashed var(--border); }
+.ed-crop-info {
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-2);
+  word-break: break-word;
 }
 .ed-actions .btn { padding-left: 6px; padding-right: 6px; white-space: nowrap; font-size: 12.5px; }
 /* ------- 角色卡片 ------- */

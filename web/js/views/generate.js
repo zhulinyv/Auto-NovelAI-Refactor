@@ -1439,6 +1439,13 @@ async function onGenerate() {
     C.width.input?.focus?.();
     return;
   }
+  // 编辑器侧校验 (如裁剪重绘还没框选): 也放在导出/上传之前, 不走一遍重活
+  const editorError = editor?.validate?.();
+  if (editorError) {
+    infoEl.textContent = "❌ " + editorError;
+    toast(editorError, "error", 6000);
+    return;
+  }
   let request;
   try {
     request = await collectRequest();

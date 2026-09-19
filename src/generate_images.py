@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import os
 import random
+from copy import deepcopy
+from io import BytesIO
 from pathlib import Path
 
 import ujson as json
@@ -40,6 +42,7 @@ from utils.image_tools import (
     process_image_by_orientation,
     process_white_regions,
     resize_image,
+    revert_image_info,
 )
 from utils.logger import logger
 from utils.models import *  # noqa: F401,F403
@@ -55,6 +58,18 @@ image_generator = Generator("https://image.novelai.net/ai/generate-image")
 
 # Enhance "Max" 选项 (仅 v5 系列) 的分辨率上限: 宽高乘积不超过 1536 × 2048
 ENHANCE_MAX_SIZE = (1536, 2048)
+
+# 裁剪重绘: 外侧选框面积上限 (不限制单边, 长宽可任意搭配, 只要乘积不超过它)
+# (与前端 web/js/cropRect.js 的 CROP_MAX_AREA 一致, 改动需两侧同步)
+# 注意: 裁剪块的尺寸就是送进模型的生成分辨率, 这个上限必须留在 v5 的 1536 × 2048 预算之内
+CROP_MAX_AREA = 1024 * 1024
+
+# 裁剪重绘: 外侧选框的对齐网格 —— 前端把宽高与起点都吸附到它的整数倍 (与 cropRect.js 的 CROP_SNAP 一致)。
+# 裁剪块尺寸 = 生成分辨率, 所以 64 对齐后 return_x64 不会再去改动它, 生成图与裁剪块 1:1, 没有拉伸变形。
+CROP_SNAP = 64
+
+# 裁剪重绘: 内缩 a 的最小值 (与前端 cropRect.js 的 CROP_MIN_INSET 一致; 仅请求里缺 inset 时兜底用)
+CROP_MIN_INSET = 32
 
 
 # ---------------------------------------------------------------- 辅助函数
@@ -122,8 +137,73 @@ def _enhance_target_size(model: str, amount, width: int, height: int) -> tuple[i
     return return_x64(int(width * upscale_amount)), return_x64(int(height * upscale_amount))
 
 
+def _snap_grid(v: int) -> int:
+    """四舍五入到 CROP_SNAP 的整数倍 (与前端 cropRect.js 的 snapGrid 行为一致)"""
+    return int(v / CROP_SNAP + 0.5) * CROP_SNAP
+
+
+def _floor_grid(v: int) -> int:
+    return (v // CROP_SNAP) * CROP_SNAP
+
+
+def _ceil_grid(v: int) -> int:
+    return -(-v // CROP_SNAP) * CROP_SNAP
+
+
+def _grid_max(v: int) -> int:
+    """图像能给的最大边长: 向下对齐到网格; 图像本身比一格还小时只好退回图像尺寸"""
+    n = max(0, int(v))
+    f = _floor_grid(n)
+    return f if f >= CROP_SNAP else n
+
+
+def _crop_rect_from_request(crop, image_size):
+    """把请求里的裁剪框换算成图像内的整数框 (x, y, w, h); 缺失或非法返回 None。
+
+    只做兜底收敛: 起点与宽高都吸附到 CROP_SNAP (64) 的倍数 (裁剪块尺寸 = 生成分辨率,
+    64 对齐后 return_x64 不会再改动它), 边长 ≥ 2a (内框允许退化到 0×0) 且落在图像内;
+    单边不限, 只约束面积 ≤ CROP_MAX_AREA。
+    前端已经按 64 的倍数对齐过, 后端再夹一次防止手写请求越界。
+    """
+    if not isinstance(crop, dict):
+        return None
+    try:
+        x, y, w, h = (int(round(float(crop[key]))) for key in ("x", "y", "w", "h"))
+    except (KeyError, TypeError, ValueError):
+        return None
+    try:
+        inset = int(round(float(crop.get("inset", CROP_MIN_INSET))))
+    except (TypeError, ValueError):
+        inset = CROP_MIN_INSET
+    image_w, image_h = image_size
+    # 单边只受图像限制, 不设 512 之类的硬上限: 长宽可任意搭配, 只约束面积
+    max_w, max_h = _grid_max(image_w), _grid_max(image_h)
+    min_w = min(max(CROP_SNAP, _ceil_grid(2 * inset)), max_w)
+    min_h = min(max(CROP_SNAP, _ceil_grid(2 * inset)), max_h)
+    w = min(max(min_w, _snap_grid(w)), max_w)
+    h = min(max(min_h, _snap_grid(h)), max_h)
+    if w * h > CROP_MAX_AREA:
+        # 面积超限时按网格逐步收缩较长边 (极端兜底, 正常请求不会走到这里)
+        while w * h > CROP_MAX_AREA and (w > min_w or h > min_h):
+            if w >= h:
+                w = min(max(min_w, w - CROP_SNAP), max_w)
+            else:
+                h = min(max(min_h, h - CROP_SNAP), max_h)
+    x = min(max(0, _snap_grid(x)), max(0, _floor_grid(image_w - w)))
+    y = min(max(0, _snap_grid(y)), max(0, _floor_grid(image_h - h)))
+    return x, y, w, h
+
+
 def _prepare_inpaint_inputs(inpaint: dict | None, width: int, height: int):
-    """从请求中的重绘配置构建 (background, mask, composite) PIL 图像。"""
+    """从请求中的重绘配置构建 (background, mask, composite, crop) 四元组。
+
+    普通图生图 / 局部重绘 / 涂鸦重绘: 三张图统一缩放到请求分辨率, crop 恒为 None。
+
+    裁剪重绘 (mode == "裁剪重绘"): 沿 crop 外框把三张图裁下来当生成输入, 生成分辨率取
+    裁剪块尺寸 (对齐 64 的倍数, NovelAI 的硬要求), 此时 crop 为一份贴回说明:
+        {"rect": (x, y, w, h), "gen": (gw, gh), "full": 完整原图, "size": (width, height)}
+    调用方生成完需用 _paste_crop_back 把结果贴回原图, 输出仍是完整原图。
+    """
     if not inpaint or not inpaint.get("enabled"):
         return None
     background_path = inpaint.get("background_path")
@@ -151,12 +231,53 @@ def _prepare_inpaint_inputs(inpaint: dict | None, width: int, height: int):
     else:
         composite = background
 
+    if mode == "裁剪重绘":
+        rect = _crop_rect_from_request(inpaint.get("crop"), background.size)
+        if rect is None:
+            raise ValueError("裁剪重绘需要先在图片上框选裁剪区域")
+        crop_x, crop_y, crop_w, crop_h = rect
+        box = (crop_x, crop_y, crop_x + crop_w, crop_y + crop_h)
+        gen_size = (return_x64(crop_w), return_x64(crop_h))
+
+        def _crop_and_fit(image):
+            if image.size != background.size:
+                image = _resize_editor_image(image, background.size)
+            return _resize_editor_image(image.crop(box), gen_size)
+
+        logger.info(
+            f"裁剪重绘: 外框 {crop_w}×{crop_h} @ ({crop_x}, {crop_y}) → "
+            f"生成分辨率 {gen_size[0]}×{gen_size[1]}"
+        )
+        return (
+            _crop_and_fit(background),
+            _crop_and_fit(mask),
+            _crop_and_fit(composite),
+            {"rect": rect, "gen": gen_size, "full": background, "size": (width, height)},
+        )
+
     size = (width, height)
     return (
         _resize_editor_image(background, size),
         _resize_editor_image(mask, size),
         _resize_editor_image(composite, size),
+        None,
     )
+
+
+def _paste_crop_back(patch_path: str, crop_ctx: dict) -> Image.Image:
+    """裁剪重绘: 把生成的裁剪块贴回原图对应位置, 返回完整原图尺寸的图像。
+
+    裁剪块先缩回框选尺寸 (生成分辨率对齐过 64, 可能比框选尺寸大), 再按外框坐标贴回,
+    最后整体对齐到请求分辨率 —— 与图生图一致, 输出尺寸始终等于面板分辨率。
+    """
+    crop_x, crop_y, crop_w, crop_h = crop_ctx["rect"]
+    with Image.open(patch_path) as patch:
+        patch = patch.convert("RGBA")
+    if patch.size != (crop_w, crop_h):
+        patch = patch.resize((crop_w, crop_h), Image.Resampling.LANCZOS)
+    full = crop_ctx["full"].copy()
+    full.paste(patch, (crop_x, crop_y))
+    return _resize_editor_image(full, crop_ctx["size"])
 
 
 def _build_character_data(characters: list[dict]) -> tuple[list, list, list]:
@@ -489,9 +610,22 @@ def generate(request: dict) -> tuple[list[str], str]:
         try:
             resolved_json = find_and_replace_wildcards_from_dict(json_data)
             image_data = _generate_with_retry(image_generator, resolved_json, f"第 {i + 1} 张")
-            path = image_generator.save(image_data, _type, json_data["parameters"]["seed"])
+            if crop_ctx:
+                # 裁剪重绘: 模型返回的只是裁剪块, 先原样落地保留 NovelAI 元数据,
+                # 贴回原图后按正常命名重新写盘, 再把元数据搬过去 (PNG 隐写 + EXIF tEXt)
+                crop_raw_path = "./outputs/temp_inpaint_crop.png"
+                with open(crop_raw_path, "wb") as f:
+                    f.write(image_data)
+                buffer = BytesIO()
+                _paste_crop_back(crop_raw_path, crop_ctx).save(buffer, format="PNG")
+                path = image_generator.save(buffer.getvalue(), _type, json_data["parameters"]["seed"])
+                revert_image_info(crop_raw_path, path)
+            else:
+                path = image_generator.save(image_data, _type, json_data["parameters"]["seed"])
             if not path:
                 raise NovelAIAPIError("图片保存失败")
+            if crop_ctx:
+                logger.info(f"裁剪重绘已贴回原图 ({crop_ctx['rect'][2]}×{crop_ctx['rect'][3]}): {path}")
 
             # 7. Enhance (失败自动重试; 仍失败则保留原图继续)
             if enhance.get("enabled"):

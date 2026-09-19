@@ -3,6 +3,20 @@
 // ============================================================
 import { $, $$, el, clear, toast, sliderRow, enableDrop, edgeScroll, imageDropZone, wireAutocomplete, wildcardsButton } from "./ui.js";
 import { imageUrl, uploadFiles, get } from "./api.js";
+import {
+  CROP_INSET_STEP,
+  CROP_MAX_INSET,
+  CROP_MIN_INSET,
+  cropHandleCenter,
+  cropHandleRadius,
+  cropRectFromAnchor,
+  cropRectFromDrag,
+  cropRectFromMove,
+  hitCropHandle,
+  hitCropRect,
+  innerCropRect as innerRect,
+  normalizeCropRect as normalizeCrop,
+} from "./cropRect.js";
 
 // ---------------- 页签 ----------------
 
@@ -235,6 +249,9 @@ export function imageEditor(container, { onChange, onImageLoad } = {}) {
     tool: "brush",
     drawing: false,
     image: null,
+    cropMode: false,      // 裁剪重绘是否启用 (选中「▣ 裁剪」置位, 仅局部重绘模式生效)
+    cropInset: CROP_MIN_INSET,   // 内侧框相对外侧框的内缩像素 a
+    cropRect: null,       // 外侧选框 {x, y, w, h} (图像像素, 64 的倍数); 只能存在一个
   };
 
   const wrap = el("div", { class: "img-editor-wrap" });
@@ -263,10 +280,13 @@ export function imageEditor(container, { onChange, onImageLoad } = {}) {
     ctx(maskCanvas).clearRect(0, 0, maskCanvas.width, maskCanvas.height);
     ctx(doodleCanvas).clearRect(0, 0, w, h);
     resetHistory();   // 换图后历史失效
+    cropDrag = null;
+    state.cropRect = null;   // 换图后旧选框的坐标不再成立
     clear(canvasWrap);
     canvasWrap.append(compositeCanvas, removeOverlayBtn);
     renderComposite();
     updateRemoveBtn();
+    updateCropInfo();
   }
 
   function renderComposite() {
@@ -284,6 +304,124 @@ export function imageEditor(container, { onChange, onImageLoad } = {}) {
       c.globalAlpha = 1;
       c.imageSmoothingEnabled = true;
     }
+    // 裁剪重绘: 在最上层画"外框 + 内缩 a 的内框"的闭环选框
+    if (isCropActive()) drawCropOverlay();
+  }
+
+  // 画布的显示尺寸一变 (进/出全屏编辑、拖侧边栏、改窗口大小), 之前画进位图的手柄半径就过期了:
+  // 它是按"屏幕上恒定 10px ÷ 当时的缩放"换算出来的, 缩放变了它就不再是 10px ——
+  // 进全屏会突然变大、在全屏里框的选框退出后又变得很小, 而且手柄的命中区 (按实时缩放算)
+  // 也会和画出来的圆对不上。显示尺寸一变就重画一次, 两边始终一致。
+  if (typeof ResizeObserver === "function") {
+    new ResizeObserver(() => {
+      if (!state.image || !compositeCanvas.isConnected || compositeCanvas.clientWidth <= 0) return;
+      renderComposite();
+    }).observe(compositeCanvas);
+  }
+
+  // ---- 裁剪重绘: 选框几何 (纯函数在 cropRect.js, 这里绑定当前内缩 a 与画布尺寸) ----
+
+  /** 裁剪重绘是否生效: 开关打开且处于局部重绘模式 (涂鸦重绘/图生图不适用) */
+  function isCropActive() {
+    return state.cropMode && state.mode === "局部重绘";
+  }
+
+  /** 当前内缩 a 对应的内侧框 (外框四边各向内缩 a 像素) */
+  const innerCropRect = (r) => innerRect(r, state.cropInset);
+
+  /** 内侧框尺寸文案: 图像装不下整圈时内框会算出负数, 界面上一律按 0 报 */
+  const innerSizeText = (inner) => `${Math.max(0, inner.w)} × ${Math.max(0, inner.h)}`;
+
+  /** 外侧选框合法化 (64 对齐 = 裁剪块即生成分辨率 / 只限面积 1024×1024, 单边不限 / 内框不设最小区域) */
+  const normalizeCropRect = (x, y, w, h) =>
+    normalizeCrop({ x, y, w, h }, { inset: state.cropInset, imageW: bgCanvas.width, imageH: bgCanvas.height });
+
+  /** 画布显示缩放 (屏幕 CSS 像素 / 图像像素): 手柄半径按它换算, 屏幕上大小恒定 */
+  function canvasScale() {
+    // 取布局宽度 (clientWidth) 而不是 getBoundingClientRect().width: 后者会把祖先的 CSS
+    // transform 也算进去 (全屏遮罩的 pop-in 动画是 scale(0.98)), 会让刚进全屏那一帧算错半径。
+    const w = compositeCanvas.clientWidth || compositeCanvas.getBoundingClientRect().width;
+    return w > 0 && compositeCanvas.width > 0 ? w / compositeCanvas.width : 1;
+  }
+
+  /** 选框几何的统一上下文 (当前内缩 a + 画布尺寸) */
+  const cropCtx = () => ({ inset: state.cropInset, imageW: bgCanvas.width, imageH: bgCanvas.height });
+
+  /** 拖拽中的鼠标位置 -> 合法化后的外框 (反向拖拽时取左上角为起点) */
+  const rectFromDrag = (d) => cropRectFromDrag(d.sx, d.sy, d.cx, d.cy, cropCtx());
+
+  /** 拖右下角手柄 -> 合法化后的外框 (左上角锚定在 d.sx/d.sy; 指针越过锚点只收到最小尺寸, 不翻转) */
+  const rectFromHandleDrag = (d) => cropRectFromAnchor({ x: d.sx, y: d.sy }, d.cx, d.cy, cropCtx());
+
+  /** 拖选框内部 -> 平移整个外框 (尺寸与内缩都不变, 只跟着指针的位移走; 越界贴边) */
+  const rectFromMoveDrag = (d) => cropRectFromMove(d.orig, d.cx - d.sx, d.cy - d.sy, cropCtx());
+
+  /**
+   * 已有的选框能否被直接拖动编辑 (平移 / 拖手柄缩放): 必须处于「▣ 裁剪」工具。
+   * 画笔/橡皮下刻意不接管指针 —— 选框内部正是要涂抹的区域, 一旦在涂画时误触
+   * 就会挪动选框并丢弃内侧框外的笔迹, 代价太大。
+   */
+  function canEditCropRect() {
+    return isCropActive() && state.tool === "crop" && !!state.cropRect;
+  }
+
+  /** 右下角手柄是否可用: 与平移同一前提, 只是命中区域不同 */
+  const canDragHandle = canEditCropRect;
+
+  /** 指针 (图像坐标) 是否压在右下角调整手柄上 */
+  function isOnCropHandle(x, y) {
+    return canDragHandle() && hitCropHandle(state.cropRect, x, y, canvasScale());
+  }
+
+  /** 裁剪重绘选框: 外框之外压暗, 外框↔内框之间的闭环带标为"仅作重绘上下文", 内框虚线为画笔范围 */
+  function drawCropOverlay() {
+    const d = cropDrag;
+    const rect = (d && d.rect) || state.cropRect;
+    if (!rect) return;
+    const inner = innerCropRect(rect);
+    // 内框允许退化到 0×0 (a=32 时的最小外框 64×64): 那时整个外框都是"只作重绘上下文"的环带。
+    // 外框压暗 / 实线 / 手柄必须照画 —— 否则缩到最小值就整个看不见, 连手柄都没了、再想拖大都点不到。
+    const hasInner = inner.w > 0 && inner.h > 0;
+    const c = ctx(compositeCanvas);
+    const W = compositeCanvas.width, H = compositeCanvas.height;
+    const lw = Math.max(1, W / 500);
+    c.save();
+    // 外框之外: 不参与重绘
+    c.fillStyle = "rgba(0, 0, 0, 0.45)";
+    c.beginPath();
+    c.rect(0, 0, W, H);
+    c.rect(rect.x, rect.y, rect.w, rect.h);
+    c.fill("evenodd");
+    // 外框 ↔ 内框: 蓝色的闭环带 (会被裁进重绘图片, 但画笔涂不到); 内框为空时整块都是环带
+    c.fillStyle = "rgba(96, 200, 255, 0.18)";
+    c.beginPath();
+    c.rect(rect.x, rect.y, rect.w, rect.h);
+    if (hasInner) c.rect(inner.x, inner.y, inner.w, inner.h);
+    c.fill("evenodd");
+    // 外框实线 (+ 内框虚线; 内框为空就没有内侧框可画)
+    c.lineWidth = lw * 1.8;
+    c.strokeStyle = "rgba(255, 255, 255, 0.95)";
+    c.strokeRect(rect.x, rect.y, rect.w, rect.h);
+    if (hasInner) {
+      c.lineWidth = lw * 1.4;
+      c.strokeStyle = "rgba(96, 200, 255, 0.95)";
+      c.setLineDash([lw * 5, lw * 4]);
+      c.strokeRect(inner.x, inner.y, inner.w, inner.h);
+      c.setLineDash([]);   // 手柄的描边不能是虚线
+    }
+    // 右下角调整手柄 (拖它 = 固定左上角改宽高): 半径按缩放换算, 屏幕上始终同样大小
+    if (state.tool === "crop") {
+      const hc = cropHandleCenter(rect);
+      const hr = cropHandleRadius(canvasScale());
+      c.beginPath();
+      c.arc(hc.x, hc.y, hr, 0, Math.PI * 2);
+      c.fillStyle = "rgba(96, 200, 255, 0.95)";
+      c.fill();
+      c.lineWidth = lw * 1.6;
+      c.strokeStyle = "rgba(255, 255, 255, 0.95)";
+      c.stroke();
+    }
+    c.restore();
   }
 
   /** 笔画参数: 蒙版画在 1/8 小画布上 (固定灰色, 线宽换算到蒙版坐标系; 后端只按 alpha 识别蒙版, 颜色不影响语义); 涂鸦画在全尺寸画布上 (用户颜色) */
@@ -296,6 +434,31 @@ export function imageEditor(container, { onChange, onImageLoad } = {}) {
     c.lineCap = "round";
     c.lineJoin = "round";
     return c;
+  }
+
+  // ---- 裁剪重绘: 画笔/橡皮只能在内侧框内使用 (给蒙版画布挂一个裁剪区) ----
+  // 裁剪区是 canvas 状态, 一次笔画期间一直有效, 所以用 save/restore 成对进出,
+  // 避免多次 clip 叠加 (clip 是求交集, 反复调用会把可画区域越缩越小)。
+  let maskClipCtx = null;
+
+  function enterMaskClip() {
+    if (maskClipCtx || !isCropActive() || !state.cropRect) return;
+    const inner = innerCropRect(state.cropRect);
+    const c = ctx(maskCanvas);
+    const sx = maskCanvas.width / compositeCanvas.width;
+    const sy = maskCanvas.height / compositeCanvas.height;
+    c.save();
+    c.beginPath();
+    // 内框退化到 0×0 时裁成空区域: 画笔什么也画不上去 (画到环带或框外才是真的越界)
+    c.rect(inner.x * sx, inner.y * sy, Math.max(0, inner.w) * sx, Math.max(0, inner.h) * sy);
+    c.clip();
+    maskClipCtx = c;
+  }
+
+  function exitMaskClip() {
+    if (!maskClipCtx) return;
+    maskClipCtx.restore();
+    maskClipCtx = null;
   }
 
   /** 二值化蒙版: alpha >= 128 的像素设为不透明灰色, 其余完全透明 (无半透明过渡像素) */
@@ -336,6 +499,41 @@ export function imageEditor(container, { onChange, onImageLoad } = {}) {
     // 指针捕获: 拖拽移出画布也持续接收事件, 松开才结束
     try { compositeCanvas.setPointerCapture(e.pointerId); } catch {}
     const { x, y } = getPos(e);
+    // 裁剪重绘: 压在外框右下角的手柄上 -> 调整已有选框 (左上角固定), 而不是重新框一个
+    if (isOnCropHandle(x, y)) {
+      const r = state.cropRect;
+      cropDrag = { kind: "handle", sx: r.x, sy: r.y, cx: x, cy: y, mx: e.clientX, my: e.clientY, rect: { ...r } };
+      updateShapeSizeLabel();
+      renderComposite();
+      return;
+    }
+    // 裁剪重绘: 压在已有选框内部 -> 整体平移 (尺寸不变, 只挪位置); 手柄先判, 命中区在右下角重合
+    if (canEditCropRect() && hitCropRect(state.cropRect, x, y)) {
+      const r = state.cropRect;
+      cropDrag = {
+        kind: "move", sx: x, sy: y, cx: x, cy: y, mx: e.clientX, my: e.clientY,
+        orig: { ...r }, rect: { ...r },
+      };
+      updateShapeSizeLabel();
+      renderComposite();
+      return;
+    }
+    // 裁剪框选: 在框外拖出"外框 + 内缩 a 的内框"的闭环选框, 松开时提交 (全局只能有一个外框)
+    if (state.tool === "crop" && isCropActive()) {
+      cropDrag = {
+        kind: "new", sx: x, sy: y, cx: x, cy: y, mx: e.clientX, my: e.clientY,
+        rect: normalizeCropRect(x, y, 0, 0),
+      };
+      updateShapeSizeLabel();
+      renderComposite();
+      return;
+    }
+    // 裁剪重绘: 画笔/橡皮只能在内侧框内使用, 还没框选就先提示 (否则会画到裁剪范围之外的蒙版上)
+    if (isCropActive() && !state.cropRect && (state.tool === "brush" || state.tool === "eraser")) {
+      state.drawing = false;
+      toast("请先用「▣ 裁剪」框出重绘区域", "warning");
+      return;
+    }
     // 快速选区工具: 记下起点, 拖拽实时预览, 松开时提交填充
     if (state.tool === "rect" || state.tool === "ellipse" || state.tool === "lasso") {
       shapeDrag = { tool: state.tool, sx: x, sy: y, cx: x, cy: y, points: [{ x, y }], mx: e.clientX, my: e.clientY };
@@ -346,6 +544,7 @@ export function imageEditor(container, { onChange, onImageLoad } = {}) {
     const target = state.mode === "涂鸦重绘" ? doodleCanvas : maskCanvas;
     const sx = target.width / compositeCanvas.width;
     const sy = target.height / compositeCanvas.height;
+    if (target === maskCanvas) enterMaskClip();
     pushHistory([target]);
     drawStroke(target, x * sx, y * sy);
     if (target === maskCanvas) binarizeMask();
@@ -356,6 +555,18 @@ export function imageEditor(container, { onChange, onImageLoad } = {}) {
     if (!state.drawing || !state.image) return;
     e.preventDefault();
     const { x, y } = getPos(e);
+    // 裁剪框选拖拽: 实时合法化外框并预览 (含尺寸标签); 拖右下角手柄时左上角固定不动
+    if (cropDrag) {
+      cropDrag.cx = clampX(x);
+      cropDrag.cy = clampY(y);
+      cropDrag.mx = e.clientX;
+      cropDrag.my = e.clientY;
+      cropDrag.rect = cropDrag.kind === "handle" ? rectFromHandleDrag(cropDrag)
+        : cropDrag.kind === "move" ? rectFromMoveDrag(cropDrag) : rectFromDrag(cropDrag);
+      renderComposite();
+      updateShapeSizeLabel();
+      return;
+    }
     // 选区拖拽: 更新终点 / 套索顶点, 实时预览 + 尺寸标签
     if (shapeDrag) {
       shapeDrag.cx = clampX(x);
@@ -381,7 +592,9 @@ export function imageEditor(container, { onChange, onImageLoad } = {}) {
   }
 
   function endStroke() {
+    if (cropDrag) { commitCrop(); return; }   // 裁剪框选: 松开时提交
     if (shapeDrag) { commitShape(); return; }   // 选区: 松开时提交
+    exitMaskClip();
     state.drawing = false;
   }
 
@@ -422,12 +635,38 @@ export function imageEditor(container, { onChange, onImageLoad } = {}) {
     lastPointer = null;
   }
 
-  compositeCanvas.addEventListener("pointerenter", (e) => updateBrushCursor(e.clientX, e.clientY));
-  compositeCanvas.addEventListener("pointermove", (e) => updateBrushCursor(e.clientX, e.clientY));
-  compositeCanvas.addEventListener("pointerleave", hideBrushCursor);
+  /**
+   * 选框上的光标提示: 右下角手柄 -> ↖↘ 缩放, 外框内部 -> move (可整体拖动), 其余 -> 十字。
+   * 两种拖动都只在「▣ 裁剪」工具下生效, 那时画笔圈本来就是隐藏的, 这里只是保证一致。
+   */
+  function updateCropHandleCursor(e) {
+    if (!canEditCropRect()) {
+      compositeCanvas.style.cursor = "";
+      return;
+    }
+    const { x, y } = getPos(e);
+    const onHandle = isOnCropHandle(x, y);
+    const inBox = !onHandle && hitCropRect(state.cropRect, x, y);
+    compositeCanvas.style.cursor = onHandle ? "nwse-resize" : inBox ? "move" : "";
+    if (onHandle || inBox) hideBrushCursor();
+  }
+
+  compositeCanvas.addEventListener("pointerenter", (e) => {
+    updateBrushCursor(e.clientX, e.clientY);
+    updateCropHandleCursor(e);
+  });
+  compositeCanvas.addEventListener("pointermove", (e) => {
+    updateBrushCursor(e.clientX, e.clientY);
+    updateCropHandleCursor(e);
+  });
+  compositeCanvas.addEventListener("pointerleave", () => {
+    hideBrushCursor();
+    compositeCanvas.style.cursor = "";
+  });
 
   // ---- 快速选区 (矩形 / 椭圆 / 套索): 拖拽实时预览, 松开时填充到蒙版或涂鸦层 ----
   let shapeDrag = null;   // { tool, sx, sy, cx, cy, points, mx, my }  画布坐标系 + 鼠标屏幕坐标
+  let cropDrag = null;    // { kind:"new"|"handle", sx, sy, cx, cy, mx, my, rect }  裁剪重绘的外框拖拽状态
   const shapeSizeLabel = el("div", { class: "shape-size-label" });
 
   const clampX = (x) => Math.max(0, Math.min(compositeCanvas.width, x));
@@ -471,13 +710,19 @@ export function imageEditor(container, { onChange, onImageLoad } = {}) {
     updateShapeSizeLabel();
   }
 
-  /** 实时尺寸标签: 跟随鼠标显示选区当前宽 x 高 (图像像素) */
+  /** 实时尺寸标签: 跟随鼠标显示选区当前宽 x 高 (图像像素); 裁剪框选额外显示内框尺寸 */
   function updateShapeSizeLabel() {
-    const d = shapeDrag;
+    const d = cropDrag || shapeDrag;
     if (!d) return;
-    const w = Math.round(Math.abs(d.cx - d.sx));
-    const h = Math.round(Math.abs(d.cy - d.sy));
-    shapeSizeLabel.textContent = w + " × " + h;
+    if (cropDrag) {
+      const r = cropDrag.rect;
+      const inner = innerCropRect(r);
+      shapeSizeLabel.textContent = `外框 ${r.w} × ${r.h} · 内框 ${innerSizeText(inner)} · 内缩 ${state.cropInset}`;
+    } else {
+      const w = Math.round(Math.abs(d.cx - d.sx));
+      const h = Math.round(Math.abs(d.cy - d.sy));
+      shapeSizeLabel.textContent = w + " × " + h;
+    }
     const wrapRect = canvasWrap.getBoundingClientRect();
     shapeSizeLabel.style.left = Math.min(d.mx - wrapRect.left + 14, wrapRect.width - shapeSizeLabel.offsetWidth - 6) + "px";
     shapeSizeLabel.style.top = Math.min(d.my - wrapRect.top + 18, wrapRect.height - 26) + "px";
@@ -509,13 +754,68 @@ export function imageEditor(container, { onChange, onImageLoad } = {}) {
     renderComposite();
   }
 
-  /** 取消当前选区拖拽 (Esc) */
+  /** 取消当前选区/裁剪拖拽 (Esc) */
   function cancelShape() {
+    if (cropDrag) {
+      cropDrag = null;
+      state.drawing = false;
+      hideShapeSizeLabel();
+      renderComposite();
+      return;
+    }
     if (!shapeDrag) return;
     shapeDrag = null;
     state.drawing = false;
     hideShapeSizeLabel();
     renderComposite();
+  }
+
+  /** 裁剪重绘: 丢弃内侧框之外的蒙版内容 (画笔只允许在内侧框里用, 之前在全图模式下画的要裁掉) */
+  function clipMaskToInner() {
+    const r = state.cropRect;
+    if (!r) return;
+    const c = ctx(maskCanvas);
+    const inner = innerCropRect(r);
+    const sx = maskCanvas.width / compositeCanvas.width;
+    const sy = maskCanvas.height / compositeCanvas.height;
+    // 内侧框与 1/8 蒙版对齐 (坐标都是 8 的倍数), 这里都是整数
+    const ix = Math.round(inner.x * sx), iy = Math.round(inner.y * sy);
+    const iw = Math.round(inner.w * sx), ih = Math.round(inner.h * sy);
+    if (iw <= 0 || ih <= 0) {
+      c.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
+      return;
+    }
+    const keep = c.getImageData(ix, iy, iw, ih);
+    c.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
+    c.putImageData(keep, ix, iy);
+  }
+
+  /** 提交裁剪的原地改动: 手柄与平移都算; 在框外重新框选则是直接替换旧框 (选框只能有一个) */
+  function commitCrop() {
+    const d = cropDrag;
+    cropDrag = null;
+    state.drawing = false;
+    hideShapeSizeLabel();
+    if (!d || !d.rect) { renderComposite(); return; }
+    const prev = state.cropRect;
+    const untouched = prev
+      && prev.x === d.rect.x && prev.y === d.rect.y && prev.w === d.rect.w && prev.h === d.rect.h;
+    // 手柄/选框上只按了一下没拖动: 不算改动, 也就不用弹提示
+    if (untouched && (d.kind === "handle" || d.kind === "move")) {
+      renderComposite();
+      return;
+    }
+    state.cropRect = d.rect;
+    if (state.cropMode) clipMaskToInner();   // 内侧框之外的旧笔迹作废
+    renderComposite();
+    updateCropInfo();
+    // 提示只报尺寸 (位置坐标只在后端日志里出现)
+    const size = `${d.rect.w} × ${d.rect.h}`;
+    const msg = d.kind === "handle" ? `✂️ 裁剪区域已调整为 ${size}`
+      : d.kind === "move" ? `✥ 裁剪区域已移动 (尺寸仍是 ${size})`
+        : `✂️ 裁剪区域 ${size}`;
+    toast(msg, "info");
+    if (onChange) onChange();
   }
 
   // ---- 工具面板 (分区布局: 上传 / 模式 / 画笔 / 操作) ----
@@ -588,14 +888,19 @@ export function imageEditor(container, { onChange, onImageLoad } = {}) {
   let brushSec = null;
   const modeGroup = segGroup(["图生图", "局部重绘", "涂鸦重绘"], state.mode, (m) => {
     state.mode = m;
+    // 裁剪工具只在"局部重绘"下成立; 切走时交还给画笔 (回来时若还开着裁剪重绘则自动选回「裁剪」)
+    if (state.cropMode && m === "局部重绘") setTool("crop");
+    else if (state.tool === "crop") setTool("brush");
     renderComposite();
     updateBrushSection();
+    updateCropInfo();
     if (m === "图生图") hideBrushCursor();   // 图生图不需要绘制, 隐藏画笔提示圈
     if (onChange) onChange();
   });
 
-  // 画笔/橡皮/快速选区分段 + 大小滑条 + 颜色 (与 ANR 一致: 局部重绘只画遮罩不需要颜色, 涂鸦重绘需要)
+  // 画笔/橡皮/选区分段 + 大小滑条 + 颜色 (与 ANR 一致: 局部重绘只画遮罩不需要颜色, 涂鸦重绘需要)
   const toolGroup = el("div", { class: "opt-group ed-seg" });
+  // 选区工具 (四项单选): 矩形 / 椭圆 / 套索 / 裁剪 —— 选中「▣ 裁剪」即启用裁剪重绘, 不需要额外的开关
   const shapeGroup = el("div", { class: "opt-group ed-seg" });
   const TOOL_OPTIONS = [
     [toolGroup, "brush", "🖌️ 画笔", ""],
@@ -603,6 +908,7 @@ export function imageEditor(container, { onChange, onImageLoad } = {}) {
     [shapeGroup, "rect", "▭ 矩形", "拖拽框选矩形区域, 拖拽时实时显示宽高"],
     [shapeGroup, "ellipse", "◯ 椭圆", "拖拽框选椭圆区域, 拖拽时实时显示宽高"],
     [shapeGroup, "lasso", "✎ 套索", "拖拽圈选任意形状区域 (Esc 取消)"],
+    [shapeGroup, "crop", "▣ 裁剪", "选中即启用裁剪重绘: 拖拽框出重绘区域, 外框为裁剪/重绘范围 (64 的倍数 = 生成分辨率, 面积不超过 1024×1024, 长宽不限), 内框向内缩 a 像素为画笔范围 (不设最小区域); 只能框选一个。框好后切到画笔涂画, 或拖右下角手柄调整大小 (左上角固定); 改选矩形/椭圆/套索即关闭"],
   ];
   for (const [group, tool, label, tip] of TOOL_OPTIONS) {
     const item = el("label", {
@@ -614,14 +920,33 @@ export function imageEditor(container, { onChange, onImageLoad } = {}) {
     item.addEventListener("click", () => setTool(tool));
     group.append(item);
   }
-  /** 统一切换工具: 两组分段按钮单选同步 */
+  /**
+   * 统一切换工具: 两组分段按钮单选同步。
+   * 选区工具里选中「▣ 裁剪」= 启用裁剪重绘, 改选矩形/椭圆/套索 = 关掉它。
+   * 画笔/橡皮刻意不动这个开关 —— 否则"框好选框再切去涂画"就没法用了
+   * (「框选 → 涂画 → 生成」是裁剪重绘的主流程)。
+   */
   function setTool(t) {
+    // 裁剪只在"局部重绘"模式成立, 其它模式一律退回画笔
+    if (t === "crop" && state.mode !== "局部重绘") t = "brush";
+    // 提示圈只对画笔/橡皮有意义; 选区/裁剪时隐藏
+    if (t === "crop") hideBrushCursor();
     state.tool = t;
-    if (shapeDrag) cancelShape();   // 拖拽中切工具: 取消当前选区
+    if (t === "crop") state.cropMode = true;
+    else if (t !== "brush" && t !== "eraser") state.cropMode = false;   // 矩形/椭圆/套索 = 关闭裁剪重绘
+    if (shapeDrag || cropDrag) cancelShape();   // 拖拽中切工具: 取消当前选区
+    exitMaskClip();   // 笔画中途被切走 (未收到 pointerup) 时兜底解除内侧框裁剪, 防止裁剪状态残留
     $$(".opt-item", toolGroup).forEach((x) => x.classList.toggle("selected", x.dataset.tool === t));
     $$(".opt-item", shapeGroup).forEach((x) => x.classList.toggle("selected", x.dataset.tool === t));
+    // 回到裁剪模式: 期间可能用矩形/椭圆/套索画过内框之外的蒙版, 那部分作废
+    if (t === "crop" && state.cropRect) clipMaskToInner();
     // 悬停中切换工具: 指示圈实线(画笔)/虚线(橡皮)/隐藏(选区) 即时切换
     if (lastPointer) updateBrushCursor(lastPointer.x, lastPointer.y);
+    // 手柄只在裁剪工具下可拖: 切工具后重画选框(手柄出现/消失), 并刷新分区显隐与提示文案
+    compositeCanvas.style.cursor = "";
+    updateBrushSection();
+    renderComposite();
+    updateCropInfo();
   }
   const colorInput = el("input", { type: "color", value: state.brushColor });
   colorInput.addEventListener("input", () => { state.brushColor = colorInput.value; });
@@ -635,20 +960,83 @@ export function imageEditor(container, { onChange, onImageLoad } = {}) {
   });
   sizeCtl.node.style.flex = "1";
   sizeCtl.node.style.minWidth = "0";
+  // 内缩 a 滑条: 紧跟在选区工具 (矩形/椭圆/套索/裁剪) 下面, 选中「▣ 裁剪」后一眼就能看到
+  const cropInsetCtl = sliderRow({ min: CROP_MIN_INSET, max: CROP_MAX_INSET, step: CROP_INSET_STEP, value: state.cropInset });
+  cropInsetCtl.node.style.flex = "1";
+  cropInsetCtl.node.style.minWidth = "0";
+  cropInsetCtl.input.addEventListener("input", () => {
+    state.cropInset = cropInsetCtl.get();
+    // a 变化会改变外框的最小尺寸: 已有选框重新合法化 (越界时会被撑大/收敛)
+    if (state.cropRect) {
+      state.cropRect = normalizeCropRect(state.cropRect.x, state.cropRect.y, state.cropRect.w, state.cropRect.h);
+      clipMaskToInner();   // 内侧框变小后, 越界的旧笔迹一并裁掉
+    }
+    renderComposite();
+    updateCropInfo();
+  });
+  const cropInsetRow = el("div", { class: "ed-size-row ed-inset-row" }, [
+    el("span", { class: "ed-color-label", text: "内缩" }),
+    cropInsetCtl.node,
+  ]);
+  cropInsetRow.title = "内侧框相对外侧框向内缩进的像素数 a (32-96, 步长 8); 这段环带只作为重绘上下文, 画笔涂不到";
+
+  // ---- 裁剪重绘 (选中「▣ 裁剪」即启用, 仅局部重绘模式): 沿外框裁剪重绘, 画笔只能在内缩 a 的内框里画 ----
+  // 这一块 (标题 + 📏 选框尺寸提示行) 整体挂在 brushSec 里、「选区工具」下方: 选中裁剪后顺着往下就是
+  // "内缩 a" 与它算出来的外框/内框尺寸, 一条线读下来, 不用回头看面板顶部。
+  const cropSec = el("div", { class: "ed-sec ed-crop-sec" });
+  const cropInfo = el("div", {
+    class: "ed-crop-info",
+    title: "拖框内部平移选框 · 拖右下角手柄缩放 · 在框外拖拽可以重新框选 (选框只能有一个)",
+  });
+  cropSec.append(
+    el("div", { class: "ed-sec-title", text: "✂️ 裁剪重绘" }),
+    cropInfo,
+  );
+
   brushSec = el("div", { class: "ed-sec ed-brush-sec" }, [
-    el("div", { class: "ed-sec-title", text: "🖍️ 画笔 / 橡皮 / 快速选区" }),
+    el("div", { class: "ed-sec-title", text: "🖍️ 画笔 / 橡皮 / 选区" }),
     toolGroup,
     el("div", { class: "ed-size-row" }, [el("span", { class: "ed-color-label", text: "大小" }), sizeCtl.node]),
     colorRow,
     shapeGroup,
+    cropInsetRow,   // 内缩 a: 紧贴选区工具 (只在「▣ 裁剪」选中时出现)
+    cropSec,        // ✂️ 裁剪重绘 (标题 + 📏 尺寸提示行): 同在选区工具下方, 排在"内缩"之后
   ]);
+
+  /** 选框状态提示: 只报尺寸 (外框 + 内框); 用法看光标形状与右下角手柄, 坐标只在后端日志里 */
+  function updateCropInfo() {
+    if (!isCropActive()) {
+      cropInfo.textContent = "";
+      return;
+    }
+    const r = state.cropRect;
+    if (!r) {
+      cropInfo.textContent = "📏 在图片上拖拽框选重绘区域";
+      return;
+    }
+    const inner = innerCropRect(r);
+    // 这一行只说尺寸, 不夹带任何手势提示 —— 选中「▣ 裁剪」时光标是 move、右下角还有手柄, 用法已经够明显;
+    // 切到画笔去涂画时更不该再冒出"选裁剪后可平移/拖手柄"这类跟当前操作无关的提示。
+    // 用法说明统一收进悬停 title (见上面 cropInfo 的 title), 坐标只在后端日志
+    // (generate_images.py 的 "裁剪重绘: 外框 w×h @ (x, y)")。
+    cropInfo.textContent = `📏 外框 ${r.w} × ${r.h} · 内框 ${innerSizeText(inner)}`;
+  }
+
   function updateBrushSection() {
     const isI2I = state.mode === "图生图";
+    const cropOn = isCropActive();
     // 图生图不需要绘制: 画笔区与操作按钮行全部隐藏; 局部重绘不需要颜色, 仅涂鸦重绘显示颜色
     brushSec.classList.toggle("hidden", isI2I);
     historyRow.classList.toggle("hidden", isI2I);
     actionsRow.classList.toggle("hidden", isI2I);
     colorRow.classList.toggle("hidden", state.mode !== "涂鸦重绘");
+    // 裁剪重绘的提示行只在「▣ 裁剪」选中时出现
+    // (矩形/椭圆/套索/裁剪 是同一组单选, 一直都在, 互相切换时不隐藏彼此)
+    cropSec.classList.toggle("hidden", !cropOn);
+    // 内缩 a 滑条挪到了选区工具下面 (挂在 brushSec 里), 得单独按裁剪开关显隐, 否则切走以后它还留在那儿
+    cropInsetRow.classList.toggle("hidden", !cropOn);
+    if (cropOn && state.cropRect) state.cropRect = normalizeCropRect(state.cropRect.x, state.cropRect.y, state.cropRect.w, state.cropRect.h);
+    if (!cropOn && state.tool === "crop") setTool("brush");
   }
 
   // ---- 撤销 / 恢复 (绘制历史: 每次操作前快照将被修改的画布) ----
@@ -715,6 +1103,8 @@ export function imageEditor(container, { onChange, onImageLoad } = {}) {
     overlay.remove();
     overlay = null;
     document.body.style.overflow = "";
+    // 画布显示尺寸变了: 手柄半径按新缩放重画一遍 (否则退出全屏后看着会突然变小)
+    renderComposite();
   }
 
   function openFullscreen() {
@@ -730,16 +1120,18 @@ export function imageEditor(container, { onChange, onImageLoad } = {}) {
     bodyRow.append(canvasWrap, tools);
     document.body.append(overlay);
     document.body.style.overflow = "hidden";
+    // 同上: 进全屏后画布变大, 手柄半径按新缩放重画, 否则看着会突然变大
+    renderComposite();
   }
 
   fullscreenBtn.addEventListener("click", () => {
     if (overlay) closeFullscreen(); else openFullscreen();
   });
 
-  // Esc 关闭 (选区拖拽中先取消选区); Ctrl+Z / Ctrl+Y 撤销恢复
+  // Esc 关闭 (选区/裁剪框拖拽中先取消当前拖拽); Ctrl+Z / Ctrl+Y 撤销恢复
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
-      if (shapeDrag) { cancelShape(); return; }
+      if (shapeDrag || cropDrag) { cancelShape(); return; }
       closeFullscreen();
       return;
     }
@@ -764,9 +1156,10 @@ export function imageEditor(container, { onChange, onImageLoad } = {}) {
   const actionsRow = el("div", { class: "ed-actions" }, [clearBtn, fullscreenBtn]);
   updateBrushSection();
   updateRemoveBtn();
+  updateCropInfo();
   tools.append(
     el("div", { class: "ed-sec" }, [el("div", { class: "ed-sec-title", text: "🎨 重绘模式" }), modeGroup]),
-    brushSec,
+    brushSec,     // 画笔 / 橡皮 / 选区 + 内缩 a + ✂️ 裁剪重绘 (后两者仅局部重绘模式下、选中「▣ 裁剪」时可见)
     historyRow,
     actionsRow,
   );
@@ -784,9 +1177,47 @@ export function imageEditor(container, { onChange, onImageLoad } = {}) {
     return new Promise((resolve) => c.toBlob(resolve, "image/png"));
   }
 
-  // 导出: 上传三张图, 返回路径
+  /** 蒙版上是否已有任何笔迹 (裁剪重绘判断"只框选没涂画"用) */
+  function hasMaskContent() {
+    const { data } = ctx(maskCanvas).getImageData(0, 0, maskCanvas.width, maskCanvas.height);
+    for (let i = 3; i < data.length; i += 4) {
+      if (data[i] !== 0) return true;
+    }
+    return false;
+  }
+
+  /** 裁剪重绘: 只框选而没有使用画笔时, 默认画笔涂满整个内侧框 (外框内缩 a 的那块区域) */
+  function fillInnerCropAsMask() {
+    const r = state.cropRect;
+    if (!r) return;
+    const inner = innerCropRect(r);
+    if (inner.w <= 0 || inner.h <= 0) return;
+    const c = ctx(maskCanvas);
+    const sx = maskCanvas.width / compositeCanvas.width;
+    const sy = maskCanvas.height / compositeCanvas.height;
+    c.save();
+    c.globalCompositeOperation = "source-over";
+    c.fillStyle = "#808080";
+    c.fillRect(inner.x * sx, inner.y * sy, inner.w * sx, inner.h * sy);
+    c.restore();
+  }
+
+  /** 提交前校验: 返回错误文案, 通过则返回 null */
+  function validate() {
+    if (isCropActive() && !state.cropRect) return "裁剪重绘需要先在图片上框选裁剪区域";
+    return null;
+  }
+
+  // 导出: 上传三张图, 返回路径 (蒙版始终是整图尺寸, 裁剪重绘由后端按外框裁切)
   async function exportImages() {
     if (!state.image) return null;
+    const cropOn = isCropActive();
+    if (cropOn && !state.cropRect) throw new Error("裁剪重绘需要先在图片上框选裁剪区域");
+    if (cropOn && !hasMaskContent()) {
+      // 只框选没涂画: 默认重绘整个内侧框 (先落盘再渲染, 让预览与导出结果一致)
+      fillInnerCropAsMask();
+      renderComposite();
+    }
     const blob = (c) => new Promise((resolve) => c.toBlob(resolve, "image/png"));
     const bgBlob = await blob(bgCanvas);
     const maskBlob = await buildMaskBlob();
@@ -797,13 +1228,18 @@ export function imageEditor(container, { onChange, onImageLoad } = {}) {
       new File([compBlob], "composite.png"),
     ]);
     const get = (name) => (files.find((f) => f.name === name) || {}).path;
-    return {
+    const result = {
       enabled: true,
-      mode: state.mode,
+      mode: cropOn ? "裁剪重绘" : state.mode,
       background_path: get("background.png"),
       mask_path: get("mask.png"),
       composite_path: get("composite.png"),
     };
+    if (cropOn) {
+      // 外框 + 内缩 a: 后端按外框裁剪, 生成后再贴回原图
+      result.crop = { x: state.cropRect.x, y: state.cropRect.y, w: state.cropRect.w, h: state.cropRect.h, inset: state.cropInset };
+    }
+    return result;
   }
 
   // 从路径加载图片 (用于"发送到图生图")
@@ -825,6 +1261,8 @@ export function imageEditor(container, { onChange, onImageLoad } = {}) {
     node: wrap,
     getMode: () => state.mode,
     hasImage: () => !!state.image,
+    /** 提交前校验 (如裁剪重绘未框选): 返回错误文案, 通过返回 null */
+    validate,
     exportImages,
     loadImage,
   };
