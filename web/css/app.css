@@ -719,6 +719,25 @@ a.btn { text-decoration: none; }
 }
 .editor-remove-btn:hover { background: var(--danger); }
 
+/* 编辑器右上角还原按钮 (移除按钮左侧): 复位滚轮缩放的默认位置与大小 */
+.editor-restore-btn {
+  position: absolute;
+  top: 6px;
+  right: 40px;
+  z-index: 10;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.editor-restore-btn:hover { background: #6c8cff; }
+
 /* 画笔/橡皮悬停区域提示圈 (跟随鼠标, 直径 = 画笔大小 × 画布显示缩放) */
 .editor-canvas-wrap .brush-cursor {
   position: absolute;
@@ -777,7 +796,8 @@ a.btn { text-decoration: none; }
 .overlay-body .editor-canvas-wrap {
   flex: 1;
   min-width: 0;
-  background: rgba(0, 0, 0, 0.85);
+  /* 跟随主题 (与编辑器基础区一致), 不再写死深色 */
+  background: var(--input);
   border: 1px solid var(--border);
 }
 .overlay-body .editor-canvas-wrap canvas {

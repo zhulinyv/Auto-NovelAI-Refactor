@@ -346,8 +346,9 @@ export function toast(message, type = "info", _duration = 0) {
   close.addEventListener("click", () => closeToastNode(node));
   node.append(text, close);
   box.append(node);
-  // 10 秒后自动关闭 (也可手动点击 ✕)
-  setTimeout(() => closeToastNode(node), 10000);
+  // 默认 5 秒后自动关闭 (也可手动点击 ✕); 调用方显式传入的 _duration 优先
+  const _autoClose = _duration > 0 ? _duration : 5000;
+  setTimeout(() => closeToastNode(node), _autoClose);
   return node;
 }
 

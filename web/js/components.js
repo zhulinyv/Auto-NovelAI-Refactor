@@ -1,7 +1,7 @@
 // ============================================================
 // 可复用组件: 页签、画廊、日志、图片编辑器
 // ============================================================
-import { $, $$, el, clear, toast, sliderRow, enableDrop, edgeScroll, imageDropZone, wireAutocomplete, wildcardsButton } from "./ui.js";
+import { $, $$, el, elSvg, clear, toast, sliderRow, enableDrop, edgeScroll, imageDropZone, wireAutocomplete, wildcardsButton } from "./ui.js";
 import { imageUrl, uploadFiles, get } from "./api.js";
 import {
   CROP_INSET_STEP,
@@ -256,6 +256,10 @@ export function imageEditor(container, { onChange, onImageLoad } = {}) {
 
   const wrap = el("div", { class: "img-editor-wrap" });
 
+  // 滚轮缩放视图 (以鼠标指针为中心): scale 为相对"适应大小"的倍数, x/y 为平移 (CSS px)
+  let view = { scale: 1, x: 0, y: 0 };
+  const VIEW_MIN = 0.2, VIEW_MAX = 12;
+
   // 画布区: 只显示合成画布 (背景 + 遮罩预览), 其余为工作层
   const canvasWrap = el("div", { class: "editor-canvas-wrap" });
   const bgCanvas = el("canvas", { style: "display:none;" });
@@ -283,10 +287,13 @@ export function imageEditor(container, { onChange, onImageLoad } = {}) {
     cropDrag = null;
     state.cropRect = null;   // 换图后旧选框的坐标不再成立
     clear(canvasWrap);
-    canvasWrap.append(compositeCanvas, removeOverlayBtn);
+    canvasWrap.append(compositeCanvas, restoreBtn, removeOverlayBtn);
     renderComposite();
     updateRemoveBtn();
     updateCropInfo();
+    // 换图复位缩放视图到默认位置与大小
+    view = { scale: 1, x: 0, y: 0 };
+    applyView();
   }
 
   function renderComposite() {
@@ -341,7 +348,16 @@ export function imageEditor(container, { onChange, onImageLoad } = {}) {
     // 取布局宽度 (clientWidth) 而不是 getBoundingClientRect().width: 后者会把祖先的 CSS
     // transform 也算进去 (全屏遮罩的 pop-in 动画是 scale(0.98)), 会让刚进全屏那一帧算错半径。
     const w = compositeCanvas.clientWidth || compositeCanvas.getBoundingClientRect().width;
-    return w > 0 && compositeCanvas.width > 0 ? w / compositeCanvas.width : 1;
+    const base = w > 0 && compositeCanvas.width > 0 ? w / compositeCanvas.width : 1;
+    // 再乘上当前滚轮缩放倍数 (view.scale), 让手柄半径/命中区与缩放后的显示保持一致
+    return base * (view.scale || 1);
+  }
+
+  /** 应用滚轮缩放视图: 画布套一层 CSS transform, 缩放后重画手柄 (半径已含 view.scale) */
+  function applyView() {
+    compositeCanvas.style.transformOrigin = '0 0';
+    compositeCanvas.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.scale})`;
+    if (state.image) renderComposite();
   }
 
   /** 选框几何的统一上下文 (当前内缩 a + 画布尺寸) */
@@ -846,15 +862,58 @@ export function imageEditor(container, { onChange, onImageLoad } = {}) {
   enableDrop(canvasWrap, { onFiles: (files) => loadFiles(files) });
 
   // 右上角移除图片按钮 (仅在加载图片后显示)
-  const removeOverlayBtn = el("button", { class: "editor-remove-btn", text: "✖", style: "display:none;" });
+  const removeOverlayBtn = el("button", { class: "editor-remove-btn", style: "display:none;" });
+  // 叉号用内联 SVG 而非 ✖ 文字字形: 文字字形会被 Twemoji 转成黑色 emoji 图片,
+  // 与右侧白色 ⟲ (内联 SVG / currentColor) 看着"一黑一白"; 统一成 SVG 即都为白。
+  removeOverlayBtn.append(
+    elSvg("svg", { viewBox: "0 0 24 24", width: 13, height: 13, fill: "none", stroke: "currentColor", "stroke-width": "2", "stroke-linecap": "round", "stroke-linejoin": "round" }, [
+      elSvg("path", { d: "M3 3l18 18M21 3L3 21" }),
+    ]),
+  );
   removeOverlayBtn.title = "移除图片并清空绘制";
   removeOverlayBtn.addEventListener("click", (e) => {
     e.stopPropagation();
     clearImage();
   });
 
+  // 右上角还原按钮 (移除按钮左侧): 复位滚轮缩放的默认位置与大小
+  const restoreBtn = el("button", { class: "editor-restore-btn", title: "还原默认位置和大小", style: "display:none;" });
+  restoreBtn.append(
+    elSvg("svg", { viewBox: "0 0 24 24", width: 13, height: 13, fill: "none", stroke: "currentColor", "stroke-width": "2", "stroke-linecap": "round", "stroke-linejoin": "round" }, [
+      elSvg("path", { d: "M3 12a9 9 0 1 0 3-6.7L3 8" }),
+      elSvg("path", { d: "M3 3v5h5" }),
+    ]),
+  );
+  restoreBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    view = { scale: 1, x: 0, y: 0 };
+    applyView();
+  });
+
+  // 滚轮以鼠标指针为中心放大/缩小 (基础图片区与全屏编辑共用同一个画布, 自动生效)
+  canvasWrap.addEventListener("wheel", (e) => {
+    if (!state.image) return;
+    e.preventDefault();
+    const r = compositeCanvas.getBoundingClientRect();
+    // 画布未变换时的左上角 = 视觉左 - 平移量; 指针相对该左上角的位置即缩放不动点
+    const L = r.left - view.x;
+    const T = r.top - view.y;
+    const cx = e.clientX - L;
+    const cy = e.clientY - T;
+    const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+    const newScale = Math.min(VIEW_MAX, Math.max(VIEW_MIN, view.scale * factor));
+    if (newScale === view.scale) return;
+    const ratio = newScale / view.scale;
+    view.x = cx - (cx - view.x) * ratio;
+    view.y = cy - (cy - view.y) * ratio;
+    view.scale = newScale;
+    applyView();
+  }, { passive: false });
+
   function updateRemoveBtn() {
-    removeOverlayBtn.style.display = state.image ? "flex" : "none";
+    const show = state.image ? "flex" : "none";
+    removeOverlayBtn.style.display = show;
+    restoreBtn.style.display = show;
   }
 
   function clearImage() {
@@ -864,7 +923,7 @@ export function imageEditor(container, { onChange, onImageLoad } = {}) {
     resetHistory();
     [bgCanvas, maskCanvas, doodleCanvas].forEach((c) => ctx(c).clearRect(0, 0, c.width, c.height));
     clear(canvasWrap);
-    canvasWrap.append(placeholder, removeOverlayBtn);
+    canvasWrap.append(placeholder, restoreBtn, removeOverlayBtn);
     updateRemoveBtn();
     if (onChange) onChange();
   }

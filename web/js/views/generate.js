@@ -459,11 +459,18 @@ function buildPromptCard(saved) {
 }
 /** 当前输出查看器的键盘翻页监听器 (每次重建查看器时先摘掉上一个, 避免多代监听器同时触发) */
 let outputViewerOnKey = null;
+// 悬停自动翻页的定时器/延迟: 上一轮 buildOutputViewer 的局部变量, 重建查看器时必须先清掉,
+// 否则它会持续调用旧 updateView() 把 lastOutputPath 写回上一代图片 (点"发送到图生图"发旧图的根因)
+let autoTimer = null;
+let autoDelay = null;
 
 /** 构建输出图片查看器: 单图显示 + 左右切换 + 下方缩略图导航 */
 function buildOutputViewer(container, images) {
   clear(container);
   if (outputViewerOnKey) { document.removeEventListener("keydown", outputViewerOnKey); outputViewerOnKey = null; }
+  // 清掉上一轮查看器可能仍在跑的悬停自动翻页定时器/延迟 (否则会把 lastOutputPath 写回上一代图片)
+  if (autoTimer) { clearInterval(autoTimer); autoTimer = null; }
+  if (autoDelay) { clearTimeout(autoDelay); autoDelay = null; }
   container.classList.remove("gallery", "count-1", "count-2", "count-3", "count-4");
   container.classList.add("output-viewer");
   if (!images || images.length === 0) {
@@ -494,8 +501,7 @@ function buildOutputViewer(container, images) {
   try { edgeScroll(thumbStrip); } catch {}
 
   // 自动翻页 (悬停左右边缘)
-  let autoTimer = null;
-  let autoDelay = null;
+  // autoTimer / autoDelay 已提升为模块级变量, 在 buildOutputViewer 开头重建查看器时已被清掉
   function stopAuto() {
     if (autoTimer) { clearInterval(autoTimer); autoTimer = null; }
     if (autoDelay) { clearTimeout(autoDelay); autoDelay = null; }
