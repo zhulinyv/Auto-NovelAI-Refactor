@@ -677,7 +677,7 @@ def bg_random_wallpaper(payload: dict = None):
                 except Exception as e:
                     last = e
                     logger.warning(f"在线壁纸 Lolicon 请求失败 (trust_env={trust_env}): {e}")
-                    logger.opt(exception=True).debug("在线壁纸 Lolicon 请求失败堆栈:")
+                    # logger.opt(exception=True).debug("在线壁纸 Lolicon 请求失败堆栈:")
             raise last
 
         try:
