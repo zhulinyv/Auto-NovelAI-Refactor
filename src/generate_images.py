@@ -244,9 +244,7 @@ def _prepare_inpaint_inputs(inpaint: dict | None, width: int, height: int):
                 image = _resize_editor_image(image, background.size)
             return _resize_editor_image(image.crop(box), gen_size)
 
-        logger.info(
-            f"裁剪重绘: 外框 {crop_w}×{crop_h} @ ({crop_x}, {crop_y}) → " f"生成分辨率 {gen_size[0]}×{gen_size[1]}"
-        )
+        logger.info(f"裁剪重绘: 外框 {crop_w}×{crop_h} @ ({crop_x}, {crop_y}) → 生成分辨率 {gen_size[0]}×{gen_size[1]}")
         return (
             _crop_and_fit(background),
             _crop_and_fit(mask),
