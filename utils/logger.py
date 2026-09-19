@@ -17,7 +17,6 @@ from rich.highlighter import Highlighter
 from rich.traceback import Traceback
 
 from utils.events import broker
-from utils.variable import VERSION
 
 console = Console(color_system="windows" if sys.platform == "win32" else "auto")
 
@@ -47,6 +46,8 @@ logger.remove()
 
 def _terminal_sink(message):
     """终端日志: 普通消息一行带颜色; 异常只渲染 rich 面板 (红框), 不再输出普通文本 traceback。"""
+    from utils.variable import VERSION  # 用时导入: variable 依赖 config, config 依赖 logger, 顶层导入会成环
+
     record = message.record
     level = record["level"].name
     color = LEVEL_COLORS.get(level, "white")
