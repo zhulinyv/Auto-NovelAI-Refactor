@@ -7,6 +7,7 @@ import json
 import os
 import platform
 import re
+import shutil
 import subprocess
 import threading
 import time
@@ -872,15 +873,34 @@ _GPU_CACHE = {"t": 0.0, "data": None}
 # 取不到 (无独显 / 驱动异常 / 超时) 则退避 _GPU_TTL_FAIL 秒, 避免每次都真去起进程。前端见 web/js/components.js
 _GPU_TTL_OK = 8.0
 _GPU_TTL_FAIL = 60.0
+# nvidia-smi 不在 PATH (无独显 / 未装驱动) 是环境常态而非故障: 退避拉长到 10 分钟再探一次
+_GPU_TTL_NO_SMI = 600.0
+_GPU_CACHE["ttl"] = _GPU_TTL_FAIL
+# 同一类采样失败只上报一次: 前端每 10 秒轮询, 没必要反复刷同一条消息/堆栈
+_GPU_LOGGED: set[str] = set()
+
+
+def _gpu_note(key: str, msg: str, stack: bool = False) -> None:
+    """同一类采样失败只在首次上报, 避免周期性轮询反复刷同一条日志。"""
+    if key in _GPU_LOGGED:
+        return
+    _GPU_LOGGED.add(key)
+    logger.debug(msg)
+    if stack:
+        logger.opt(exception=True).debug("nvidia-smi 采样失败堆栈:")
 
 
 def _gpu_stats():
-    """通过 nvidia-smi 查询 GPU 占用; 结果按 _GPU_TTL_OK 缓存, 失败时保留上一次的有效值。"""
+    """通过 nvidia-smi 查询 GPU 占用; 成功按 _GPU_TTL_OK 复用, 失败时保留上一次的有效值。"""
     now = time.time()
-    ttl = _GPU_TTL_OK if _GPU_CACHE["data"] is not None else _GPU_TTL_FAIL
-    if now - _GPU_CACHE["t"] < ttl:
+    if now - _GPU_CACHE["t"] < _GPU_CACHE["ttl"]:
         return _GPU_CACHE["data"]
     try:
+        if shutil.which("nvidia-smi") is None:
+            # 没有 NVIDIA 独显或没装驱动: 起子进程必然 FileNotFoundError, 直接预检跳过
+            _gpu_note("no-smi", "未检测到 nvidia-smi (无 NVIDIA 显卡或未装驱动), 已跳过 GPU 采样")
+            _GPU_CACHE.update(t=now, ttl=_GPU_TTL_NO_SMI)
+            return _GPU_CACHE["data"]
         out = subprocess.run(
             [
                 "nvidia-smi",
@@ -894,17 +914,20 @@ def _gpu_stats():
         )
         line = out.stdout.strip().splitlines()[0]
         name, util, mem_used, mem_total = [x.strip() for x in line.split(",")]
-        _GPU_CACHE["data"] = {
-            "name": name,
-            "util": float(util),
-            "mem_used": float(mem_used),
-            "mem_total": float(mem_total),
-        }
+        _GPU_CACHE.update(
+            data={
+                "name": name,
+                "util": float(util),
+                "mem_used": float(mem_used),
+                "mem_total": float(mem_total),
+            },
+            t=now,
+            ttl=_GPU_TTL_OK,
+        )
     except Exception as e:
-        # 无独立显卡 / nvidia-smi 不可用 / 超时: 保留上一次的有效值, 首次就失败则维持 None
-        logger.debug(f"nvidia-smi 采样失败: {e}")
-        logger.opt(exception=True).debug("nvidia-smi 采样失败堆栈:")
-    _GPU_CACHE["t"] = now
+        # 采样超时 / 输出解析异常: 保留上一次的有效值, 首次就失败则维持 None
+        _gpu_note("smi-error", f"nvidia-smi 采样失败: {e}", stack=True)
+        _GPU_CACHE.update(t=now, ttl=_GPU_TTL_OK if _GPU_CACHE["data"] is not None else _GPU_TTL_FAIL)
     return _GPU_CACHE["data"]
 
 

@@ -518,13 +518,23 @@ def install_requirements(path: str) -> None:
     if not in_venv:
         cmd.append("--user")
     cmd += ["--quiet", "--disable-pip-version-check"]
-    proc = subprocess.run(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        check=False,
-        timeout=600,
-    )
+    try:
+        proc = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            check=False,
+            timeout=600,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+        )
+    except subprocess.TimeoutExpired:
+        # 装不上依赖不该拖垮整个插件加载: 记一行错误, 下次启动会自然重试
+        logger.error(f"插件依赖安装超时 ({Path(path).name}): 超过 600 秒仍未结束, 本次已跳过")
+        return
+    except OSError as e:
+        logger.error(f"插件依赖安装中断 ({Path(path).name}): {e}")
+        logger.opt(exception=True).debug("插件依赖安装中断堆栈:")
+        return
     if proc.returncode == 0:
         if fp:
             try:
