@@ -262,6 +262,10 @@
 /* 输出区右上角「刷新」按钮: 徽标 (anlas-wrap) 允许被压缩, 按钮保持自身宽度/不折行 */
 .anlas-refresh { flex: 0 0 auto; white-space: nowrap; }
 
+/* 选择框按钮带矢量图标时: 图标与文字垂直居中并留间距 */
+.btn-with-icon { display: inline-flex; align-items: center; gap: 6px; }
+.btn-with-icon svg { display: block; flex-shrink: 0; }
+
 /* 对话框本体 (电源菜单 / 确认框): 不透明底色, 与队列弹窗一致 */
 .dialog-solid { background: var(--panel-solid); }
 

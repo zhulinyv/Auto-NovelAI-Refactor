@@ -381,7 +381,21 @@ export function confirmDialog(message, { danger = false } = {}) {
   });
 }
 
-/** 选择框: 在一组选项中选一个 (Esc/点击遮罩 = null)。choices: [{ label, value, danger?, primary? }] */
+/** 电源图标 (feather "power" 描边风, 内联 SVG): 不依赖 emoji 字体 / 本地 Twemoji 资源,
+ *  在所有平台渲染一致, 避免缺字形或本地资源缺失时显示成方框 (如 Windows 某些环境缺 U+23FB)。 */
+export function powerIcon(size = 15) {
+  return elSvg("svg", {
+    viewBox: "0 0 24 24", width: size, height: size, fill: "none",
+    stroke: "currentColor", "stroke-width": "2", "stroke-linecap": "round", "stroke-linejoin": "round",
+    "aria-hidden": "true", focusable: "false",
+  }, [
+    elSvg("path", { d: "M18.36 6.64a9 9 0 1 1-12.73 0" }),
+    elSvg("line", { x1: "12", y1: "2", x2: "12", y2: "12" }),
+  ]);
+}
+
+/** 选择框: 在一组选项中选一个 (Esc/点击遮罩 = null)。choices: [{ label, value, danger?, primary?, icon? }]
+ *  title 可为字符串或 { icon, text } (icon 为 SVG 元素)。 */
 export function choiceDialog(title, message, choices) {
   return new Promise((resolve) => {
     const overlay = el("div", {
@@ -393,15 +407,26 @@ export function choiceDialog(title, message, choices) {
       overlay.remove();
       resolve(v);
     };
+    const titleNode = el("div", { class: "card-title" });
+    if (title && typeof title === "object" && title.icon) {
+      titleNode.append(title.icon, document.createTextNode(title.text ?? ""));
+    } else {
+      titleNode.textContent = title ?? "";
+    }
     const box = el("div", { class: "card dialog-solid", style: "width:340px;animation:pop-in 0.2s ease;" }, [
-      el("div", { class: "card-title", text: title }),
+      titleNode,
       el("p", { style: "margin-bottom:16px;font-size:13.5px;", text: message }),
       el("div", { style: "display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;" },
-        choices.map((c) => el("button", {
-          class: c.danger ? "btn btn-sm btn-danger" : c.primary ? "btn btn-sm btn-primary" : "btn btn-sm",
-          text: c.label,
-          onclick: () => done(c.value ?? c.label),
-        }))),
+        choices.map((c) => {
+          const btn = el("button", {
+            class: (c.danger ? "btn btn-sm btn-danger" : c.primary ? "btn btn-sm btn-primary" : "btn btn-sm")
+              + (c.icon ? " btn-with-icon" : ""),
+            text: c.label,
+            onclick: () => done(c.value ?? c.label),
+          });
+          if (c.icon) btn.prepend(c.icon);
+          return btn;
+        })),
     ]);
     overlay.append(box);
     overlay.addEventListener("click", (e) => { if (e.target === overlay) done(null); });

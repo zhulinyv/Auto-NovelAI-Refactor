@@ -8,7 +8,7 @@ import { initEmoji } from "./emoji.js";
 import { initHitokoto } from "./hitokoto.js";
 import { initQueueModal } from "./queueModal.js";
 import { fetchState, post, get } from "./api.js";
-import { $, $$, el, bus, toast, confirmDialog, choiceDialog, initFancySelects } from "./ui.js";
+import { $, $$, el, bus, toast, confirmDialog, choiceDialog, initFancySelects, powerIcon } from "./ui.js";
 
 import * as generateView from "./views/generate.js";
 import * as directorView from "./views/director.js";
@@ -158,8 +158,8 @@ async function boot() {
 
   // ---- 电源按钮: 先选择 关闭/重启, 确认后执行 ----
   document.getElementById("app-close")?.addEventListener("click", async () => {
-    const act = await choiceDialog("⏻ 电源菜单", "请选择要执行的操作:", [
-      { label: "⏻ 关闭程序", value: "shutdown", danger: true },
+    const act = await choiceDialog({ icon: powerIcon(17), text: "电源菜单" }, "请选择要执行的操作:", [
+      { icon: powerIcon(14), label: "关闭程序", value: "shutdown", danger: true },
       { label: "🔄 重启服务", value: "restart", primary: true },
     ]);
     if (act === "shutdown") {
