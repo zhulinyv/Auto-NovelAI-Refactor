@@ -135,15 +135,17 @@ async function boot() {
     return;
   }
 
-  // 共享开关刚切换: 后端插件正在重载, 本页加载到的是旧插件列表, 等重载完成后整页刷新一次
+  // 插件还在加载 (后端在启动时把插件放进后台线程加载, 共享开关切换后也会重载):
+  // 页面上先只有静态视图, 等插件就绪后**就地补上侧栏**, 不再整页刷新 ——
+  // 省掉一次完整页面加载 (以及那 800ms 轮询空等), 也不会把已填好的表单 / 已打开的画廊冲掉。
   if (appState.plugins_reload?.reloading) {
-    toast("🧩 插件正在重新加载, 完成后自动刷新...", "info", 8000);
+    toast("🧩 插件正在加载, 完成后会自动出现在侧栏...", "info", 6000);
     const reloadTimer = setInterval(async () => {
       try {
         const s = await get("/api/plugins/reload-status");
         if (!s.reloading) {
           clearInterval(reloadTimer);
-          location.reload();
+          await adoptPlugins();
         }
       } catch { /* 后端忙, 继续等 */ }
     }, 800);
@@ -189,16 +191,10 @@ async function boot() {
   });
 
   // ---- 侧边导航: 静态视图 + 每个插件一个入口 ----
-  const navHolder = document.getElementById("plugin-nav-items");
-  (appState.plugins || []).forEach((plugin) => {
-    const item = el("a", { class: "nav-item", "data-view": `plugin-${plugin.name}` }, [
-      el("span", { class: "nav-icon", text: plugin.icon || "🧩" }),
-      document.createTextNode(plugin.title || plugin.name),
-    ]);
-    navHolder.append(item);
-  });
+  buildPluginNav(appState.plugins || []);
 
   $$(".nav-item").forEach((item) => {
+    if (item.closest("#plugin-nav-items")) return; // 插件入口的点击在 buildPluginNav 里绑定
     item.addEventListener("click", () => showView(item.dataset.view));
   });
 
@@ -240,6 +236,57 @@ function makeStore(name) {
       try { localStorage.setItem(key, JSON.stringify(data)); } catch {}
     },
   };
+}
+
+// ---------------- 插件侧栏: 插件就绪后就地接管 (不再整页刷新) ----------------
+
+/** 重建侧栏中的插件入口 (每个已安装插件一个); 点击切换到对应插件页。 */
+function buildPluginNav(plugins) {
+  const navHolder = document.getElementById("plugin-nav-items");
+  if (!navHolder) return;
+  navHolder.replaceChildren(
+    ...(plugins || []).map((plugin) => {
+      const item = el("a", { class: "nav-item", "data-view": `plugin-${plugin.name}` }, [
+        el("span", { class: "nav-icon", text: plugin.icon || "🧩" }),
+        document.createTextNode(plugin.title || plugin.name),
+      ]);
+      item.addEventListener("click", () => showView(item.dataset.view));
+      return item;
+    })
+  );
+}
+
+/** 当前侧栏里的插件名 (按顺序, 用于判断清单是否真的变了)。 */
+function pluginNavNames() {
+  return Array.from(document.querySelectorAll("#plugin-nav-items .nav-item")).map((n) =>
+    (n.dataset.view || "").slice("plugin-".length)
+  );
+}
+
+/**
+ * 插件加载完成后就地接管 (替代原来的 location.reload())。
+ *
+ * 重新拉一次 /api/state 用新清单重建侧栏; 若用户正停在某个插件页, 顺手用新清单重建该页
+ * (面板可能增删), 该插件已不存在则回退到文生图。清单没变时不弹提示, 避免每次启动都报一条。
+ */
+async function adoptPlugins() {
+  const before = pluginNavNames();
+  let next;
+  try {
+    next = await fetchState();
+  } catch (e) {
+    toast("🧩 插件列表获取失败, 请手动刷新页面: " + e.message, "error", 8000);
+    return;
+  }
+  appState = next;
+  setAppState(next);
+  buildPluginNav(next.plugins || []);
+  const after = pluginNavNames();
+  const active = document.querySelector(".nav-item.active")?.dataset.view || "";
+  if (active.startsWith("plugin-")) {
+    showView(after.includes(active.slice("plugin-".length)) ? active : "generate");
+  }
+  if (before.join("|") !== after.join("|")) toast(`🧩 插件已就绪 (${after.length} 个)`, "success", 4000);
 }
 
 // ---------------- 任务状态栏 (按生图队列快照 + 本地任务计算) ----------------
