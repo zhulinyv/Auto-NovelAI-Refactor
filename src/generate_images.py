@@ -569,13 +569,26 @@ def generate(request: dict) -> tuple[list[str], str]:
             straight_alpha=True,
         )
 
+        # 4.5 留一份"干净"的基础请求给后面 Enhance 用 ——
+        # inpaint() 会把 model 换成 xxx-inpainting、action 换成 infill, 并往 parameters 里塞 mask;
+        # 若 Enhance 直接在这份被改过的请求上改成 img2img, 就会得到"inpainting 模型 + img2img"
+        # 这种官网不接受的组合 (模型与 action 不匹配 -> 报错), 还残留 mask / inpaintImg2ImgStrength。
+        base_json = deepcopy(json_data)
+
         # 5. 图生图 / 重绘
+        crop_ctx = None   # 裁剪重绘的贴回说明; 其它模式恒为 None
         inpaint_inputs = _prepare_inpaint_inputs(inpaint, width, height)
         if inpaint_inputs:
-            inpaint_image, inpaint_mask, inpaint_composite = inpaint_inputs
+            inpaint_image, inpaint_mask, inpaint_composite, crop_ctx = inpaint_inputs
             inpaint_image.save(image_path := "./outputs/temp_inpaint_image.png")
             inpaint_mask.save(mask_path := "./outputs/temp_inpaint_mask.png")
             inpaint_composite.save(composite_path := "./outputs/temp_inpaint_composite.png")
+
+            if crop_ctx:
+                # 裁剪重绘: 送入模型的就是裁剪块, 生成分辨率跟着裁剪块尺寸走 (已对齐 64 的倍数)
+                gen_w, gen_h = crop_ctx["gen"]
+                json_data["parameters"]["width"] = gen_w
+                json_data["parameters"]["height"] = gen_h
 
             if is_fully_transparent(mask_path):
                 func = _model_function_map(model, "i2i")
@@ -636,8 +649,10 @@ def generate(request: dict) -> tuple[list[str], str]:
                 new_width, new_height = _enhance_target_size(model, enhance.get("amount", "1.5x"), width, height)
                 magnitude = int(enhance.get("magnitude", 1))
                 strength_map = {1: 0.2, 2: 0.4, 3: 0.5, 4: 0.6, 5: 0.7}
+                # Enhance 是"整图 img2img", 必须从干净的基础请求重建:
+                # 直接用被重绘改过的 json_data 会带着 -inpainting 模型 + mask 发出去 (详见上面 base_json)
                 json_data = func(
-                    json_data,
+                    deepcopy(base_json),
                     strength=strength_map.get(magnitude, 0.5),
                     noise=0,
                     image=image_to_base64(resize_image(path, output_path="./outputs/temp_enhance_resized.png")),
@@ -649,6 +664,8 @@ def generate(request: dict) -> tuple[list[str], str]:
                 json_data["parameters"]["extra_noise_seed"] = _seed
                 json_data["parameters"]["width"] = new_width
                 json_data["parameters"]["height"] = new_height
+                # 模型与 action 必须是一对合法组合 (尤其别把上一步重绘的 -inpainting 带进来) —— 见 base_json
+                logger.info(f"Enhance 请求: {json_data['model']} / {json_data['action']} -> {new_width}×{new_height}")
                 try:
                     image_data = _generate_with_retry(
                         image_generator, find_and_replace_wildcards_from_dict(json_data), "Enhance"
