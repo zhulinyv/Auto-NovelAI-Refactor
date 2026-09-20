@@ -71,6 +71,14 @@ CROP_SNAP = 64
 # 裁剪重绘: 内缩 a 的最小值 (与前端 cropRect.js 的 CROP_MIN_INSET 一致; 仅请求里缺 inset 时兜底用)
 CROP_MIN_INSET = 32
 
+# 裁剪重绘: 选框自动向外扩展的步长与"生成块"的面积上限
+# (与前端 cropRect.js 的 CROP_EXPAND_STEP / CROP_EXPAND_MAX_AREA / CROP_EXPAND_MAX_AREA_RECT 一致, 改动需两侧同步)
+# 用户框选得小时, 裁剪块的尺寸 (= 送进模型的生成分辨率) 也跟着小, 出图质量差; 于是自动向外扩几圈当
+# 上下文, 扩到宽高乘积贴近上限为止 —— 正方形生成块贴 1024 × 1024, 非正方形贴 1024 × 960。
+CROP_EXPAND_STEP = 64
+CROP_EXPAND_MAX_AREA = 1024 * 1024
+CROP_EXPAND_MAX_AREA_RECT = 1024 * 960
+
 
 # ---------------------------------------------------------------- 辅助函数
 
@@ -138,8 +146,38 @@ def _enhance_target_size(model: str, amount, width: int, height: int) -> tuple[i
 
 
 def _snap_grid(v: int) -> int:
-    """四舍五入到 CROP_SNAP 的整数倍 (与前端 cropRect.js 的 snapGrid 行为一致)"""
-    return int(v / CROP_SNAP + 0.5) * CROP_SNAP
+    """四舍五入到 CROP_SNAP 的整数倍 (与前端 cropRect.js 的 snapGrid 逐值一致)。
+
+    必须用 floor(v + 一半) 的整数写法: 原来的 int(v / CROP_SNAP + 0.5) 只对正数等于四舍五入,
+    负数会朝 0 截断 (-144 被吸到 -64, 前端 snapGrid 给的是 -128)。外框允许伸到图片外之后
+    起点会出现负值, 两侧必须完全一致, 否则后端会把前端算好的 -64 又吸回 0, 裁剪位置整体错开。
+    """
+    return (v + CROP_SNAP // 2) // CROP_SNAP * CROP_SNAP
+
+
+def _size_cap(size: int, inset: int) -> int:
+    """外侧选框单边的尺寸上限 = 图像 + 2 * inset (外框每边最多伸出图片 inset)。
+
+    前端拖手柄 / 拖拽框选时还会按"钉住不动的那条边"再收紧一档 (见 cropRect.js 的 sideCap),
+    但后端只做兜底收敛、不知道锚点, 所以取几何上限 —— 前端能算出来的任何 w/h 在这里都必须原样
+    保留, 否则后端会把前端已经算好的框又夹小一截 (裁剪块与选框对不上, 蒙版整体错位)。
+    """
+    return _grid_max(size + 2 * inset)
+
+
+def _crop_pos(v: int, lo: int, hi: int) -> int:
+    """外框起点的归一化: 界内吸附 CROP_SNAP, 越过边界则精确停在边界上 (与前端 cropPos 逐值一致)。
+
+    边界 lo = -inset、hi = 图宽 - 宽 + inset 正是"内框压住图片边缘"的那两个位置, 一般不是 64 的
+    倍数 —— 这是刻意的, 也正是不能写成"先吸附再夹取"的原因: -inset 被吸附一次就回到网格上
+    (inset=32 时 -32 → 0), 而前端画框已经归一化过一次、这里还要兜底一次, 两次结果就会错开
+    inset 像素 (裁剪位置与选框对不上)。让边界值成为不动点, 幂等才有保证。
+    """
+    if v <= lo:
+        return lo
+    if v >= hi:
+        return hi
+    return min(max(_snap_grid(v), lo), hi)
 
 
 def _floor_grid(v: int) -> int:
@@ -161,8 +199,10 @@ def _crop_rect_from_request(crop, image_size):
     """把请求里的裁剪框换算成图像内的整数框 (x, y, w, h); 缺失或非法返回 None。
 
     只做兜底收敛: 起点与宽高都吸附到 CROP_SNAP (64) 的倍数 (裁剪块尺寸 = 生成分辨率,
-    64 对齐后 return_x64 不会再改动它), 边长 ≥ 2a (内框允许退化到 0×0) 且落在图像内;
-    单边不限, 只约束面积 ≤ CROP_MAX_AREA。
+    64 对齐后 return_x64 不会再改动它), 边长 ≥ 2a (内框允许退化到 0×0); 单边上限 = 图像 + 2a
+    (见 _size_cap), 不设 512 之类的硬上限, 只约束面积。
+    外框允许伸到图片外 —— 每边最多外扩 inset (与前端 cropRect.js 一致): 内框 = 外框每边向内缩 inset,
+    所以这等价于"内框始终落在图片内", 而画笔就能涂到图片边缘那一圈。
     前端已经按 64 的倍数对齐过, 后端再夹一次防止手写请求越界。
     """
     if not isinstance(crop, dict):
@@ -176,8 +216,8 @@ def _crop_rect_from_request(crop, image_size):
     except (TypeError, ValueError):
         inset = CROP_MIN_INSET
     image_w, image_h = image_size
-    # 单边只受图像限制, 不设 512 之类的硬上限: 长宽可任意搭配, 只约束面积
-    max_w, max_h = _grid_max(image_w), _grid_max(image_h)
+    # 单边上限 = 图像 + 2a (外框每边可伸出图片 a, 见 _size_cap); 不设 512 之类的硬上限: 长宽可任意搭配
+    max_w, max_h = _size_cap(image_w, inset), _size_cap(image_h, inset)
     min_w = min(max(CROP_SNAP, _ceil_grid(2 * inset)), max_w)
     min_h = min(max(CROP_SNAP, _ceil_grid(2 * inset)), max_h)
     w = min(max(min_w, _snap_grid(w)), max_w)
@@ -189,9 +229,88 @@ def _crop_rect_from_request(crop, image_size):
                 w = min(max(min_w, w - CROP_SNAP), max_w)
             else:
                 h = min(max(min_h, h - CROP_SNAP), max_h)
-    x = min(max(0, _snap_grid(x)), max(0, _floor_grid(image_w - w)))
-    y = min(max(0, _snap_grid(y)), max(0, _floor_grid(image_h - h)))
+    # 起点: 界内吸附 64, 越界精确停在边界上 —— 外框每边最多伸出图片 inset, 此时内框正好压在图片边缘
+    x = _crop_pos(x, -inset, image_w - w + inset)
+    y = _crop_pos(y, -inset, image_h - h + inset)
     return x, y, w, h
+
+
+def _expand_max_area(w: int, h: int) -> int:
+    """生成块形状对应的面积上限: 正方形 1024×1024, 非正方形 1024×960 (与前端 expandMaxArea 一致)。
+
+    形状按扩展之后的宽高是否相等算: 四条边都能扩时方形框每轮都还是方的, 会一路长到 1024×1024;
+    只有某几条边能扩时框会变成非方的, 上限随即收到 1024×960。
+    """
+    return CROP_EXPAND_MAX_AREA if w == h else CROP_EXPAND_MAX_AREA_RECT
+
+
+def _expand_crop_rect(rect, image_size):
+    """裁剪重绘: 把归一化后的选框向外扩成"生成块" (真正拿去裁剪的范围); 与前端 expandCropRect 逐值一致。
+
+    每轮四条边各向外扩 CROP_EXPAND_STEP (64) 像素, 逐边判定: 只有"扩完后这条边仍落在图片内"才扩它
+    (选框本来就伸到图片外的那几条边因此永远扩不动, 于是只扩对面的边)。每扩完一圈再看一眼宽高乘积:
+    超过该形状的上限就整圈作废 —— 宁可不扩, 也不能超上限。选框已经够大或四条边都扩不动时原样返回,
+    所以这一步是幂等的。
+
+    扩出来的一圈只是给模型的上下文: 蒙版在那里是透明的 (见 _prepare_inpaint_inputs 的 pad_edges=False),
+    之后会变成纯黑 (change_the_mask_color), 模型不会去重绘它。
+    """
+    x, y, w, h = rect
+    image_w, image_h = image_size
+    # 每轮至少扩一条边 64 像素 => 面积严格变大, 又有上限兜着, 循环必然在有限轮内结束
+    # (guard 只是防止常量被改坏之后死循环, 理论上不可达)
+    for _ in range(4096):
+        x0 = x - CROP_EXPAND_STEP if x - CROP_EXPAND_STEP >= 0 else x
+        y0 = y - CROP_EXPAND_STEP if y - CROP_EXPAND_STEP >= 0 else y
+        x1 = x + w + CROP_EXPAND_STEP if x + w + CROP_EXPAND_STEP <= image_w else x + w
+        y1 = y + h + CROP_EXPAND_STEP if y + h + CROP_EXPAND_STEP <= image_h else y + h
+        if (x0, y0, x1, y1) == (x, y, x + w, y + h):
+            break  # 四条边都扩不动了
+        new_w, new_h = x1 - x0, y1 - y0
+        if new_w * new_h > _expand_max_area(new_w, new_h):
+            break  # 再扩一圈就超上限: 到此为止 (这一圈整个作废)
+        x, y, w, h = x0, y0, new_w, new_h
+    return x, y, w, h
+
+
+def _crop_pad_edge(image: Image.Image, box: tuple[int, int, int, int]) -> Image.Image:
+    """按 box 裁剪; box 伸出图片外的部分用最靠边的像素向外延伸填满, 而不是留透明/黑边。
+
+    裁剪块是当"重绘上下文"送进模型的 (外框 = 重绘范围, 内框 = 画笔范围), 紧挨待重绘区域的一片
+    纯透明黑很容易被模型当成真实内容接下去, 反而在图片边缘生成出奇怪的深色带。用边缘像素往外
+    延伸既保持不透明, 又给模型一个说得通的上文。延伸出来的部分在图片之外, 贴回时会被丢掉。
+    """
+    x0, y0, x1, y1 = box
+    w, h = x1 - x0, y1 - y0
+    if x0 >= 0 and y0 >= 0 and x1 <= image.width and y1 <= image.height:
+        return image.crop(box)
+    left, top = max(0, -x0), max(0, -y0)
+    right, bottom = max(0, x1 - image.width), max(0, y1 - image.height)
+    src = image.crop((max(0, x0), max(0, y0), min(image.width, x1), min(image.height, y1)))
+    out = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    out.paste(src, (left, top))
+    if src.width <= 0 or src.height <= 0:
+        return out
+    # 先补左右两条竖边, 再补上下两条横边 —— 后者把四角一起补上 (此时整行/整列已经有内容了)
+    if left:
+        out.paste(
+            out.crop((left, top, left + 1, top + src.height)).resize((left, src.height), Image.Resampling.NEAREST),
+            (0, top),
+        )
+    if right:
+        out.paste(
+            out.crop((left + src.width - 1, top, left + src.width, top + src.height)).resize(
+                (right, src.height), Image.Resampling.NEAREST
+            ),
+            (left + src.width, top),
+        )
+    if top:
+        out.paste(out.crop((0, top, w, top + 1)).resize((w, top), Image.Resampling.NEAREST), (0, 0))
+    if bottom:
+        out.paste(
+            out.crop((0, h - bottom - 1, w, h - bottom)).resize((w, bottom), Image.Resampling.NEAREST), (0, h - bottom)
+        )
+    return out
 
 
 def _prepare_inpaint_inputs(inpaint: dict | None, width: int, height: int):
@@ -199,9 +318,11 @@ def _prepare_inpaint_inputs(inpaint: dict | None, width: int, height: int):
 
     普通图生图 / 局部重绘 / 涂鸦重绘: 三张图统一缩放到请求分辨率, crop 恒为 None。
 
-    裁剪重绘 (mode == "裁剪重绘"): 沿 crop 外框把三张图裁下来当生成输入, 生成分辨率取
-    裁剪块尺寸 (对齐 64 的倍数, NovelAI 的硬要求), 此时 crop 为一份贴回说明:
+    裁剪重绘 (mode == "裁剪重绘"): 先按 crop 归一化出用户选框, 再自动向外扩成"生成块"
+    (见 _expand_crop_rect —— 选框小时也按接近上限的分辨率出图), 沿生成块把三张图裁下来当生成输入,
+    生成分辨率取生成块尺寸 (对齐 64 的倍数, NovelAI 的硬要求), 此时 crop 为一份贴回说明:
         {"rect": (x, y, w, h), "gen": (gw, gh), "full": 完整原图, "size": (width, height)}
+    其中 rect 是生成块 (不是用户选框): 生成图整块贴回那里, 扩出来那一圈因为蒙版是黑的而不会被改动。
     调用方生成完需用 _paste_crop_back 把结果贴回原图, 输出仍是完整原图。
     """
     if not inpaint or not inpaint.get("enabled"):
@@ -235,19 +356,31 @@ def _prepare_inpaint_inputs(inpaint: dict | None, width: int, height: int):
         rect = _crop_rect_from_request(inpaint.get("crop"), background.size)
         if rect is None:
             raise ValueError("裁剪重绘需要先在图片上框选裁剪区域")
+        # 选框 -> 生成块: 小框自动向外扩到接近该形状的上限, 扩出来那圈只作上下文 (蒙版上是黑的)
+        select_rect = rect
+        rect = _expand_crop_rect(rect, background.size)
         crop_x, crop_y, crop_w, crop_h = rect
         box = (crop_x, crop_y, crop_x + crop_w, crop_y + crop_h)
         gen_size = (return_x64(crop_w), return_x64(crop_h))
 
-        def _crop_and_fit(image):
+        def _crop_and_fit(image, pad_edges=True):
+            """按外框裁下并缩到生成分辨率。
+
+            pad_edges: 外框伸到图片外的部分用边缘像素延伸填满 (背景与合成图 —— 它们是给模型看的上下文);
+            蒙版要传 False: 填了就等于把图片外的地方也标成待重绘, 那部分本来就不存在。
+            """
             if image.size != background.size:
                 image = _resize_editor_image(image, background.size)
-            return _resize_editor_image(image.crop(box), gen_size)
+            patch = _crop_pad_edge(image, box) if pad_edges else image.crop(box)
+            return _resize_editor_image(patch, gen_size)
 
-        logger.info(f"裁剪重绘: 外框 {crop_w}×{crop_h} @ ({crop_x}, {crop_y}) → 生成分辨率 {gen_size[0]}×{gen_size[1]}")
+        logger.info(
+            f"裁剪重绘: 选框 {select_rect[2]}×{select_rect[3]} @ ({select_rect[0]}, {select_rect[1]}) "
+            f"→ 生成块 {crop_w}×{crop_h} @ ({crop_x}, {crop_y}) → 生成分辨率 {gen_size[0]}×{gen_size[1]}"
+        )
         return (
             _crop_and_fit(background),
-            _crop_and_fit(mask),
+            _crop_and_fit(mask, pad_edges=False),
             _crop_and_fit(composite),
             {"rect": rect, "gen": gen_size, "full": background, "size": (width, height)},
         )
@@ -264,8 +397,9 @@ def _prepare_inpaint_inputs(inpaint: dict | None, width: int, height: int):
 def _paste_crop_back(patch_path: str, crop_ctx: dict) -> Image.Image:
     """裁剪重绘: 把生成的裁剪块贴回原图对应位置, 返回完整原图尺寸的图像。
 
-    裁剪块先缩回框选尺寸 (生成分辨率对齐过 64, 可能比框选尺寸大), 再按外框坐标贴回,
+    裁剪块先缩回生成块尺寸 (生成分辨率对齐过 64, 可能比生成块尺寸大), 再按生成块坐标贴回,
     最后整体对齐到请求分辨率 —— 与图生图一致, 输出尺寸始终等于面板分辨率。
+    生成块里扩出来的那一圈在蒙版上是黑的, 模型不会重绘它, 所以贴回后它仍是原图内容。
     """
     crop_x, crop_y, crop_w, crop_h = crop_ctx["rect"]
     with Image.open(patch_path) as patch:
@@ -582,7 +716,8 @@ def generate(request: dict) -> tuple[list[str], str]:
             inpaint_composite.save(composite_path := "./outputs/temp_inpaint_composite.png")
 
             if crop_ctx:
-                # 裁剪重绘: 送入模型的就是裁剪块, 生成分辨率跟着裁剪块尺寸走 (已对齐 64 的倍数)
+                # 裁剪重绘: 送入模型的就是生成块 (选框自动外扩出来的那块), 生成分辨率跟着它走
+                # (已对齐 64 的倍数, return_x64 不会再改动)
                 gen_w, gen_h = crop_ctx["gen"]
                 json_data["parameters"]["width"] = gen_w
                 json_data["parameters"]["height"] = gen_h
@@ -635,7 +770,7 @@ def generate(request: dict) -> tuple[list[str], str]:
             if not path:
                 raise NovelAIAPIError("图片保存失败")
             if crop_ctx:
-                logger.info(f"裁剪重绘已贴回原图 ({crop_ctx['rect'][2]}×{crop_ctx['rect'][3]}): {path}")
+                logger.info(f"裁剪重绘已贴回原图 (生成块 {crop_ctx['rect'][2]}×{crop_ctx['rect'][3]}): {path}")
 
             # 7. Enhance (失败自动重试; 仍失败则保留原图继续)
             if enhance.get("enabled"):

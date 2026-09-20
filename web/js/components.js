@@ -12,6 +12,8 @@ import {
   cropRectFromAnchor,
   cropRectFromDrag,
   cropRectFromMove,
+  cropVisibleRect,
+  expandCropRect,
   hitCropHandle,
   hitCropRect,
   innerCropRect as innerRect,
@@ -312,7 +314,7 @@ export function imageEditor(container, { onChange, onImageLoad } = {}) {
       c.globalAlpha = 1;
       c.imageSmoothingEnabled = true;
     }
-    // 裁剪重绘: 在最上层画"外框 + 内缩 a 的内框"的闭环选框
+    // 裁剪重绘: 在最上层画"生成块 (外框自动外扩) + 外框 + 内缩 a 的内框"的闭环选框
     if (isCropActive()) drawCropOverlay();
   }
 
@@ -343,6 +345,9 @@ export function imageEditor(container, { onChange, onImageLoad } = {}) {
   /** 外侧选框合法化 (64 对齐 = 裁剪块即生成分辨率 / 只限面积 1024×1024, 单边不限 / 内框不设最小区域) */
   const normalizeCropRect = (x, y, w, h) =>
     normalizeCrop({ x, y, w, h }, { inset: state.cropInset, imageW: bgCanvas.width, imageH: bgCanvas.height });
+
+  /** 生成块: 外框自动向外扩出来的裁剪范围 (尺寸 = 送进模型的生成分辨率), 与后端同一套算法 */
+  const expandedCropRect = (r) => expandCropRect(r, { imageW: bgCanvas.width, imageH: bgCanvas.height });
 
   /** 画布显示缩放 (屏幕 CSS 像素 / 图像像素): 手柄半径按它换算, 屏幕上大小恒定 */
   function canvasScale() {
@@ -387,10 +392,11 @@ export function imageEditor(container, { onChange, onImageLoad } = {}) {
 
   /** 指针 (图像坐标) 是否压在右下角调整手柄上 */
   function isOnCropHandle(x, y) {
-    return canDragHandle() && hitCropHandle(state.cropRect, x, y, canvasScale());
+    // 外框伸出图片外时圆心会被钳到画布角上, 命中区必须用同一个圆心 (见 cropHandleCenter)
+    return canDragHandle() && hitCropHandle(state.cropRect, x, y, canvasScale(), { w: bgCanvas.width, h: bgCanvas.height });
   }
 
-  /** 裁剪重绘选框: 外框之外压暗, 外框↔内框之间的闭环带标为"仅作重绘上下文", 内框虚线为画笔范围 */
+  /** 裁剪重绘选框: 生成块之外压暗, 生成块↔外框的自动扩展带 + 外框↔内框的内缩环带都标为"仅作重绘上下文", 内框虚线为画笔范围 */
   function drawCropOverlay() {
     const d = cropDrag;
     const rect = (d && d.rect) || state.cropRect;
@@ -402,23 +408,71 @@ export function imageEditor(container, { onChange, onImageLoad } = {}) {
     const c = ctx(compositeCanvas);
     const W = compositeCanvas.width, H = compositeCanvas.height;
     const lw = Math.max(1, W / 500);
+    // 生成块 = 外框 + 自动向外扩出来的一圈 (后端真正拿去裁剪的范围, 尺寸就是生成分辨率)。
+    // 扩出来那圈只是给模型的上下文 —— 蒙版上是黑的, 不重绘; 这里用淡绿标出来, 让用户看得见
+    // "送进模型的其实是这么大一块", 而不是以为自己框的那块变大了。
+    const grown = expandedCropRect(rect);
+    const grew = grown.x !== rect.x || grown.y !== rect.y || grown.w !== rect.w || grown.h !== rect.h;
     c.save();
-    // 外框之外: 不参与重绘
+    // 生成块之外: 根本没被裁进生成图, 压得最暗
     c.fillStyle = "rgba(0, 0, 0, 0.45)";
     c.beginPath();
     c.rect(0, 0, W, H);
-    c.rect(rect.x, rect.y, rect.w, rect.h);
+    c.rect(grown.x, grown.y, grown.w, grown.h);
     c.fill("evenodd");
+    // 生成块 ↔ 外框: 自动扩展出来的上下文 (裁得进生成图, 但蒙版是黑的 —— 不会被重绘)
+    if (grew) {
+      c.fillStyle = "rgba(120, 255, 170, 0.16)";
+      c.beginPath();
+      c.rect(grown.x, grown.y, grown.w, grown.h);
+      c.rect(rect.x, rect.y, rect.w, rect.h);
+      c.fill("evenodd");
+    }
     // 外框 ↔ 内框: 蓝色的闭环带 (会被裁进重绘图片, 但画笔涂不到); 内框为空时整块都是环带
     c.fillStyle = "rgba(96, 200, 255, 0.18)";
     c.beginPath();
     c.rect(rect.x, rect.y, rect.w, rect.h);
     if (hasInner) c.rect(inner.x, inner.y, inner.w, inner.h);
     c.fill("evenodd");
-    // 外框实线 (+ 内框虚线; 内框为空就没有内侧框可画)
+    // 生成块虚线 (淡绿) 排在外框之前画: 扩展不越过图片, 所以这四条边通常都落在画布里; 外框本来就
+    // 伸到图片外的那几条边扩不动、生成块与它重合, 交给下面的琥珀色截断标记, 这里跳过不画。
+    if (grew) {
+      const gvis = cropVisibleRect(grown, { w: W, h: H });
+      c.lineWidth = lw * 1.4;
+      c.strokeStyle = "rgba(120, 255, 170, 0.95)";
+      c.setLineDash([lw * 3, lw * 3]);
+      c.beginPath();
+      if (!gvis.cutTop) { c.moveTo(gvis.x, grown.y); c.lineTo(gvis.x + gvis.w, grown.y); }
+      if (!gvis.cutBottom) { c.moveTo(gvis.x, grown.y + grown.h); c.lineTo(gvis.x + gvis.w, grown.y + grown.h); }
+      if (!gvis.cutLeft) { c.moveTo(grown.x, gvis.y); c.lineTo(grown.x, gvis.y + gvis.h); }
+      if (!gvis.cutRight) { c.moveTo(grown.x + grown.w, gvis.y); c.lineTo(grown.x + grown.w, gvis.y + gvis.h); }
+      c.stroke();
+      c.setLineDash([]);
+    }
+    // 外框实线 (+ 内框虚线; 内框为空就没有内侧框可画)。
+    // 画布尺寸 = 图片尺寸, 所以外框伸到图片外的那一段没有地方画: 直接 strokeRect 的话, 伸出去的
+    // 那几条边整个落在画布之外 —— 界面上看起来就是"外框不见了"(往左/上伸出时左边和上边全在画布外)。
+    // 拆成两笔: 落在画布里的边照原坐标画白色实线; 被图片边界截断的边用琥珀色虚线标在画布边缘上。
+    const vis = cropVisibleRect(rect, { w: W, h: H });
     c.lineWidth = lw * 1.8;
     c.strokeStyle = "rgba(255, 255, 255, 0.95)";
-    c.strokeRect(rect.x, rect.y, rect.w, rect.h);
+    c.beginPath();
+    if (!vis.cutTop) { c.moveTo(vis.x, rect.y); c.lineTo(vis.x + vis.w, rect.y); }
+    if (!vis.cutBottom) { c.moveTo(vis.x, rect.y + rect.h); c.lineTo(vis.x + vis.w, rect.y + rect.h); }
+    if (!vis.cutLeft) { c.moveTo(rect.x, vis.y); c.lineTo(rect.x, vis.y + vis.h); }
+    if (!vis.cutRight) { c.moveTo(rect.x + rect.w, vis.y); c.lineTo(rect.x + rect.w, vis.y + vis.h); }
+    c.stroke();
+    if (vis.cutLeft || vis.cutTop || vis.cutRight || vis.cutBottom) {
+      c.strokeStyle = "rgba(255, 196, 92, 0.95)";   // 琥珀: 与白色实线 (r-b=0) 和蓝色环带 (b>r) 都分得开
+      c.setLineDash([lw * 4, lw * 3]);
+      c.beginPath();
+      if (vis.cutLeft) { c.moveTo(0, vis.y); c.lineTo(0, vis.y + vis.h); }
+      if (vis.cutRight) { c.moveTo(W, vis.y); c.lineTo(W, vis.y + vis.h); }
+      if (vis.cutTop) { c.moveTo(vis.x, 0); c.lineTo(vis.x + vis.w, 0); }
+      if (vis.cutBottom) { c.moveTo(vis.x, H); c.lineTo(vis.x + vis.w, H); }
+      c.stroke();
+      c.setLineDash([]);
+    }
     if (hasInner) {
       c.lineWidth = lw * 1.4;
       c.strokeStyle = "rgba(96, 200, 255, 0.95)";
@@ -428,7 +482,7 @@ export function imageEditor(container, { onChange, onImageLoad } = {}) {
     }
     // 右下角调整手柄 (拖它 = 固定左上角改宽高): 半径按缩放换算, 屏幕上始终同样大小
     if (state.tool === "crop") {
-      const hc = cropHandleCenter(rect);
+      const hc = cropHandleCenter(rect, { w: W, h: H });
       const hr = cropHandleRadius(canvasScale());
       c.beginPath();
       c.arc(hc.x, hc.y, hr, 0, Math.PI * 2);
@@ -574,8 +628,10 @@ export function imageEditor(container, { onChange, onImageLoad } = {}) {
     const { x, y } = getPos(e);
     // 裁剪框选拖拽: 实时合法化外框并预览 (含尺寸标签); 拖右下角手柄时左上角固定不动
     if (cropDrag) {
-      cropDrag.cx = clampX(x);
-      cropDrag.cy = clampY(y);
+      // 裁剪框要能拖到图片外面 (外框最多每边外扩 a, 由 normalizeCropRect 收敛到合法值):
+      // 指针跑出画布时不夹回来, 否则永远拖不出"外框伸到图外、内框贴着图片边缘"的框。
+      cropDrag.cx = x;
+      cropDrag.cy = y;
       cropDrag.mx = e.clientX;
       cropDrag.my = e.clientY;
       cropDrag.rect = cropDrag.kind === "handle" ? rectFromHandleDrag(cropDrag)
@@ -618,7 +674,18 @@ export function imageEditor(container, { onChange, onImageLoad } = {}) {
   compositeCanvas.addEventListener("pointerdown", startStroke);
   compositeCanvas.addEventListener("pointermove", moveStroke);
   compositeCanvas.addEventListener("pointerup", endStroke);
-  compositeCanvas.addEventListener("pointerleave", endStroke);
+  // 兜底: 指针捕获万一没生效 (setPointerCapture 抛错时只有 try/catch 吞掉), 松手又发生在画布外,
+  // 拖拽就会卡在"进行中"; 窗口级再收一次 pointerup —— 画布上那次已经提交过的话 cropDrag 已是 null,
+  // 这里什么也不做 (幂等)。
+  window.addEventListener("pointerup", () => {
+    if (cropDrag) endStroke();
+  });
+  // 指针移出画布: 画笔/橡皮/选区到此结束 (与原来一致); 但裁剪框拖拽不能就此提交 ——
+  // 本功能就是要把外框拖到图片外面去, 一离开画布就提交等于永远拖不出去 (松手才算结束)。
+  compositeCanvas.addEventListener("pointerleave", () => {
+    if (cropDrag) return;
+    endStroke();
+  });
 
   // ---- 画笔/橡皮悬停区域提示 (跟随鼠标的圆圈, 直径 = 画笔大小 × 画布显示缩放) ----
   const brushCursor = el("div", { class: "brush-cursor" });
@@ -727,14 +794,16 @@ export function imageEditor(container, { onChange, onImageLoad } = {}) {
     updateShapeSizeLabel();
   }
 
-  /** 实时尺寸标签: 跟随鼠标显示选区当前宽 x 高 (图像像素); 裁剪框选额外显示内框尺寸 */
+  /** 实时尺寸标签: 跟随鼠标显示选区当前宽 x 高 (图像像素); 裁剪框选额外显示内框与生成块尺寸 */
   function updateShapeSizeLabel() {
     const d = cropDrag || shapeDrag;
     if (!d) return;
     if (cropDrag) {
       const r = cropDrag.rect;
       const inner = innerCropRect(r);
-      shapeSizeLabel.textContent = `外框 ${r.w} × ${r.h} · 内框 ${innerSizeText(inner)} · 内缩 ${state.cropInset}`;
+      const grown = expandedCropRect(r);
+      shapeSizeLabel.textContent =
+        `外框 ${r.w} × ${r.h} · 内框 ${innerSizeText(inner)} · 内缩 ${state.cropInset} · 生成 ${grown.w} × ${grown.h}`;
     } else {
       const w = Math.round(Math.abs(d.cx - d.sx));
       const h = Math.round(Math.abs(d.cy - d.sy));
@@ -968,7 +1037,7 @@ export function imageEditor(container, { onChange, onImageLoad } = {}) {
     [shapeGroup, "rect", "▭ 矩形", "拖拽框选矩形区域, 拖拽时实时显示宽高"],
     [shapeGroup, "ellipse", "◯ 椭圆", "拖拽框选椭圆区域, 拖拽时实时显示宽高"],
     [shapeGroup, "lasso", "✎ 套索", "拖拽圈选任意形状区域 (Esc 取消)"],
-    [shapeGroup, "crop", "▣ 裁剪", "选中即启用裁剪重绘: 拖拽框出重绘区域, 外框为裁剪/重绘范围 (64 的倍数 = 生成分辨率, 面积不超过 1024×1024, 长宽不限), 内框向内缩 a 像素为画笔范围 (不设最小区域); 只能框选一个。框好后切到画笔涂画, 或拖右下角手柄调整大小 (左上角固定); 改选矩形/椭圆/套索即关闭"],
+    [shapeGroup, "crop", "▣ 裁剪", "选中即启用裁剪重绘: 拖拽框出重绘区域, 外框是画笔够不到的那一圈 (64 的倍数, 面积不超过 1024×1024, 长宽不限), 内框向内缩 a 像素为画笔范围 (不设最小区域); 只能框选一个。外框会自动向外扩展成「生成块」(每边每轮扩 64 像素, 扩到接近该形状的上限为止 —— 正方形 1024×1024 / 非正方形 1024×960, 绿色虚线框就是它), 生成分辨率取生成块尺寸; 扩出来那圈只作重绘上下文, 蒙版上是黑的, 不会被重绘。外框每边还可以自己拖到图片外 a 像素 (那几条边用琥珀色虚线标在图片边缘, 也不会再向外扩展): 拖手柄放大到头, 就是内框的右下缘正好压在图片边缘上 (左上角固定不动)。框好后切到画笔涂画, 或拖右下角手柄调整大小; 改选矩形/椭圆/套索即关闭"],
   ];
   for (const [group, tool, label, tip] of TOOL_OPTIONS) {
     const item = el("label", {
@@ -1046,7 +1115,7 @@ export function imageEditor(container, { onChange, onImageLoad } = {}) {
   const cropSec = el("div", { class: "ed-sec ed-crop-sec" });
   const cropInfo = el("div", {
     class: "ed-crop-info",
-    title: "拖框内部平移选框 · 拖右下角手柄缩放 · 在框外拖拽可以重新框选 (选框只能有一个)",
+    title: "拖框内部平移选框 (外框每边可拖到图片外 a) · 拖右下角手柄缩放 (左上角固定, 放到头 = 内框右下缘贴住图片边缘) · 在框外拖拽可以重新框选 (选框只能有一个) · 伸到图片外的边用琥珀色虚线标在图片边缘 · 绿色虚线 = 自动扩展出来的生成块 (生成分辨率取它的尺寸, 扩出来那圈只作上下文、不会被重绘)",
   });
   cropSec.append(
     el("div", { class: "ed-sec-title", text: "✂️ 裁剪重绘" }),
@@ -1075,11 +1144,16 @@ export function imageEditor(container, { onChange, onImageLoad } = {}) {
       return;
     }
     const inner = innerCropRect(r);
+    // 生成块 = 后端真正拿去裁剪的范围 (外框自动向外扩到接近该形状的上限), 尺寸就是生成分辨率 ——
+    // 与"外框/内框"一起报出来, 用户才知道送进模型的到底是多大一块、以及那一圈是自动加上的。
+    const grown = expandedCropRect(r);
+    const grew = grown.w !== r.w || grown.h !== r.h;
     // 这一行只说尺寸, 不夹带任何手势提示 —— 选中「▣ 裁剪」时光标是 move、右下角还有手柄, 用法已经够明显;
     // 切到画笔去涂画时更不该再冒出"选裁剪后可平移/拖手柄"这类跟当前操作无关的提示。
     // 用法说明统一收进悬停 title (见上面 cropInfo 的 title), 坐标只在后端日志
-    // (generate_images.py 的 "裁剪重绘: 外框 w×h @ (x, y)")。
-    cropInfo.textContent = `📏 外框 ${r.w} × ${r.h} · 内框 ${innerSizeText(inner)}`;
+    // (generate_images.py 的 "裁剪重绘: 选框 w×h @ (x, y) → 生成块 ...")。
+    cropInfo.textContent =
+      `📏 外框 ${r.w} × ${r.h} · 内框 ${innerSizeText(inner)} · 生成 ${grown.w} × ${grown.h}${grew ? " (自动扩展)" : ""}`;
   }
 
   function updateBrushSection() {
