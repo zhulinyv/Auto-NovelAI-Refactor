@@ -51,9 +51,11 @@ logger.success(
     )
 )
 
-# 启动提示音: 进入加载阶段即后台播放, 与插件加载并行以节省时间
-if env.start_sound:
-    threading.Thread(target=playsound, args=("./assets/llss.mp3",), daemon=True).start()
+# 启动提示音挪到"服务已起、窗口即将打开"那一刻再放 (见文件末尾) ——
+# 原来在这里 (import 阶段) 就放: 那会儿离窗口出现还有好几秒, 而提示音只有 2.6s、开头又是轻声
+# (0.1s 处就进正片, 中间还有 0.76s 静音), 等用户把注意力挪过来时只剩最后那句响的了,
+# 听感就是"前面一部分根本没放"。顺带还避开两个坑: 双开守卫就在下面 (注定退出的重复实例不必再放一次),
+# 以及紧接着的插件加载 CPU 高峰。
 
 
 def _load_plugins_bg():
@@ -99,7 +101,13 @@ if __name__ == "__main__":
     try:
         import requests
 
-        _resp = requests.get(f"http://127.0.0.1:{env.port}/api/state", timeout=1)
+        # 环回探测必须绕开代理: 配了 proxy (且系统/环境代理例外表里没有 127.*) 时请求会被转发给代理,
+        # 探测失败 -> "已有实例在跑"被判成"没在跑", 于是又起一个实例: 它会再放一次启动提示音,
+        # 接着卡在端口占用上退出 (守护线程被一起收走, 声音半截就断)。utils/wake.py 的同名探测
+        # 早就显式绕开了代理 (ProxyHandler({})), 这里补齐同一处理。
+        _probe = requests.Session()
+        _probe.trust_env = False
+        _resp = _probe.get(f"http://127.0.0.1:{env.port}/api/state", timeout=1)
         _alive = _resp.ok and "version" in _resp.json()
     except Exception:
         _alive = False
@@ -123,6 +131,11 @@ if __name__ == "__main__":
     elif os.environ.get("ANR_SKIP_BROWSER") != "1":
         # 本地模式: 重启后不重新打开浏览器窗口, 由前端刷新原窗口
         threading.Timer(1.5, _open_browser).start()
+    # 启动提示音: 服务已经起来、窗口即将打开 (上面那个 1.5s 定时器) 时才放, 用户正好在屏幕前听全;
+    # 双开守卫已经过了, 注定退出的重复实例不会再放一次; 插件加载的 CPU 高峰也已经甩给后台线程,
+    # 声卡从省电状态醒来的那几百毫秒不至于把开头吃掉。
+    if env.start_sound:
+        threading.Thread(target=playsound, args=("./assets/llss.mp3",), daemon=True).start()
     # 启动后在终端打印一次访问地址 (只保留一条, 不再输出带版本号的 INFO 日志)
     print(f"WebUI 已启动: http://127.0.0.1:{env.port}")
     # 系统托盘: 右键 打开/重启/关闭; 依赖缺失自动降级, 不影响服务启动
