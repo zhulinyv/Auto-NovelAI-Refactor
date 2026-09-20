@@ -204,6 +204,9 @@ async function boot() {
     if (storeNav) storeNav.style.display = "none";
   }
 
+  // 挂件开关要在 initSidebarResize() 之前定下状态 (它内部会调 initSidebarCharm 摆位置)
+  initCharmToggle();
+  initHardReloadUI();
   initSidebarResize();
   showView("generate");
 
@@ -384,6 +387,280 @@ export function refreshState() {
   return fetchState().then((s) => { appState = s; return s; });
 }
 
+// ---------------- 侧边栏挂件 (晴天娃娃) ----------------
+
+// 挂在 #app (position: relative) 下, 不放进 .sidebar: 侧边栏 overflow: hidden, 而挂件顶端要正好落在
+// 顶栏 (深色底面) 的下沿, 放里面会被裁掉。
+// 位置:
+//   top        = 顶栏底边 (需求: 贴靠标题所在的整个深色底面的底部边缘 —— 不是标题文字的底边,
+//                那样挂件会有一截伸进顶栏那一行);
+//   left+width = **贴着右侧**: 右缘固定在「侧边栏右边缘 - CHARM_RIGHT_MARGIN」, 左缘与导航文字右缘
+//                至少留 CHARM_TEXT_GAP。第一版是"在空档里居中", 用户回了一句"离文字太近而离侧边栏
+//                右边缘太远", 所以改成贴右 (需求原话是"放到各个功能选项的右边、文字和滚动条中间";
+//                居中会贴着文字那一侧, 看着像粘在字上)。
+//                它压在导航项右侧的空白上 —— 不占位、不顶开导航。
+// 挂件的**固有宽度**: 拖动侧边栏时它既不缩也不涨 (需求原话: "调整宽度时晴天娃娃会跟着缩小,
+// 改成晴天娃娃不缩小")。既然挂件尺寸不跟着容器走, "放得下挂件"这条约束就得由侧边栏让出来 ——
+// sync() 会算出所需宽度写回 sidebar 的 min-width, 拖拽钳位也用它 (见 sidebarMinWidth())。
+const CHARM_W = 80;
+const CHARM_RIGHT_MARGIN = 6; // 挂件右缘距侧边栏右边缘的余量
+const CHARM_TEXT_GAP = 14; // 挂件左缘距导航文字右缘的最小余量
+// 没有挂件时侧边栏的最小宽度 —— 就是"加挂件之前"的那个值 (与 app.css 的 .sidebar min-width 一致)
+const SIDEBAR_MIN_W = 145;
+
+// initSidebarCharm() 把自己的 sync 存进来, 供折叠/展开之后重新摆位 (见 scheduleCharmSync)
+let sidebarCharmSync = null;
+
+// 挂件可见时"刚好放得下它"的侧边栏宽度: charm 的 sync() 每次算完写进来,
+// 供拖拽钳位 (sidebarMinWidth) 与写回 sidebar.style.minWidth 用。
+let charmMinSidebarW = 0;
+
+/** 侧边栏的最小宽度: 挂件可见时是"刚好容得下它"的那个宽度, 否则回到加挂件之前的 145px。 */
+function sidebarMinWidth() {
+  return charmEnabled && charmMinSidebarW > 0 ? Math.ceil(charmMinSidebarW) : SIDEBAR_MIN_W;
+}
+
+// 折叠/展开之后调一次。为什么必须单独调: .nav-item 有 `transition: all 0.18s`, 展开的**那一瞬间**
+// font-size 还是 0, 量到的文字宽度是 0 —— sync 会以为"量不到文字"而掉到兜底位置 (挂件左移一大截,
+// 压住导航标签); 更麻烦的是此后侧边栏尺寸已经稳定, ResizeObserver 不会再触发, 那个错位置就一直留着。
+// transitionend 更准, 但被切换过 display 的元素未必会派发, 所以再兜一个定时器 (0.18s 过渡 + 余量)。
+function scheduleCharmSync() {
+  if (!sidebarCharmSync) return;
+  requestAnimationFrame(sidebarCharmSync);
+  setTimeout(sidebarCharmSync, 260);
+}
+
+// ---------------- 顶栏「晴天娃娃」开关 ----------------
+
+// 图标用内联 SVG (feather 风), 不用 emoji: 本地 web/assets/emoji/72x72/ 里没有"玩偶/晴天娃娃"
+// 这类码位 (1f9f8 玩偶熊等都没有), 缺字形时在 Win 上会显示成方框。
+// 关闭态 = 同一张图 + 一道斜杠 (与全屏按钮换图标同一套做法)。
+const CHARM_ICON_ON =
+  '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v2.6"/><circle cx="12" cy="9.2" r="4.6"/><path d="M9.1 13 7.4 21.5h9.2L14.9 13"/></svg>';
+const CHARM_ICON_OFF = CHARM_ICON_ON.replace("</svg>", '<path d="M3.2 20.8 20.8 3.2"/></svg>');
+
+// 开关要"重启后也维持": 真源放后端 (与外观设置共用 outputs/bg_state.json, 见 /api/bg/state)。
+// 只靠 localStorage 不行 —— 端口是随机的, 换个端口就是换个 origin, 本地值全没了;
+// 换浏览器同理。这正是外观设置当初也要存后端一份的原因。
+const CHARM_KEY = "anr-charm";
+let charmEnabled = true;
+
+function renderCharmToggle() {
+  const btn = document.getElementById("charm-toggle");
+  if (!btn) return;
+  btn.innerHTML = charmEnabled ? CHARM_ICON_ON : CHARM_ICON_OFF;
+  btn.classList.toggle("off", !charmEnabled);
+  btn.title = charmEnabled ? "隐藏晴天娃娃" : "显示晴天娃娃";
+  btn.setAttribute("aria-label", btn.title);
+}
+
+async function saveCharmEnabled() {
+  try { await post("/api/bg/state", { charm: charmEnabled }); } catch { /* 静默: 本地还留了一份 */ }
+}
+
+/** 应用开关状态 (不落盘 —— save 由调用方决定, 免得把"刚从后端读到的值"又写回去) */
+function setCharmEnabled(on) {
+  charmEnabled = !!on;
+  try { localStorage.setItem(CHARM_KEY, charmEnabled ? "1" : "0"); } catch { /* 无痕模式 */ }
+  renderCharmToggle();
+  if (sidebarCharmSync) sidebarCharmSync(); // 立刻显/隐, 并重算位置
+}
+
+async function initCharmToggle() {
+  // 先用本地值定状态, 免得等后端请求回来时挂件先闪一下再消失
+  setCharmEnabled(localStorage.getItem(CHARM_KEY) !== "0");
+
+  document.getElementById("charm-toggle")?.addEventListener("click", () => {
+    setCharmEnabled(!charmEnabled);
+    saveCharmEnabled();
+    toast(charmEnabled ? "晴天娃娃已显示" : "晴天娃娃已隐藏", "success");
+  });
+
+  try {
+    const s = await get("/api/bg/state");
+    if (typeof s?.charm === "boolean") setCharmEnabled(s.charm);
+    else await saveCharmEnabled(); // 后端还没这个字段: 把本地值迁上去
+  } catch { /* 后端未就绪: 用本地值 */ }
+}
+
+function initSidebarCharm() {
+  const app = document.getElementById("app");
+  const sidebar = document.getElementById("sidebar");
+  const charm = document.getElementById("sidebar-charm");
+  const topbar = document.querySelector(".topbar");
+  const nav = document.getElementById("sidebar-nav");
+  if (!app || !sidebar || !charm || !topbar) return;
+
+  // 上一次量到的"导航文字右缘"。展开侧边栏的瞬间 .nav-item 的 font-size 过渡 (0 -> 14px) 还没跑完,
+  // 这时量到的文字宽度是 0 -> navTextRight() 返回 null -> 会误判成"量不到文字"而掉到兜底位置。
+  // 导航项是 white-space: nowrap + 左对齐, 文字右缘不随侧边栏宽度变化, 所以沿用旧值一定是安全的。
+  let lastTextRight = null;
+
+  // 导航项里文字的实际右边缘 (取最靠右的那个) —— 挂件的左边界, 保证不会压到任何一个标签
+  const navTextRight = () => {
+    if (!nav) return null;
+    let right = -Infinity;
+    nav.querySelectorAll(".nav-item").forEach((item) => {
+      const t = [...item.childNodes].find((n) => n.nodeType === 3 && n.textContent.trim());
+      if (!t) return;
+      const rg = document.createRange();
+      rg.selectNodeContents(t);
+      const rc = rg.getBoundingClientRect();
+      if (rc.width > 0) right = Math.max(right, rc.right);
+    });
+    return Number.isFinite(right) ? right : null;
+  };
+
+  const sync = () => {
+    // 用户用顶栏按钮关掉了挂件, 或者侧边栏收起成 50px 图标栏 (那时会缩成一团, 也没了空档)
+    if (!charmEnabled || sidebar.classList.contains("collapsed")) {
+      charm.hidden = true;
+      // 挂件不在 -> 侧边栏的最小宽度回到"加挂件之前"的 145px。
+      // (收起态由 collapse 自己写 50px, 所以这里别去动它, 否则收起会被顶回 145px)
+      if (!sidebar.classList.contains("collapsed")) sidebar.style.minWidth = "";
+      return;
+    }
+    const cs = getComputedStyle(sidebar);
+    const padL = parseFloat(cs.paddingLeft) || 0;
+    const clientLeft = sidebar.clientLeft || 0;
+
+    // 量不到时沿用上一次的有效值 (展开瞬间 font-size 过渡没跑完, 文字实测宽度是 0)
+    const measured = navTextRight();
+    if (measured != null) lastTextRight = measured;
+    const textRight = measured != null ? measured : lastTextRight;
+
+    // 左界 (导航文字右缘) 距侧边栏左边缘的距离; 真的一次都量不到就退回内容盒左缘
+    const leftInset = textRight == null
+      ? clientLeft + padL
+      : textRight - sidebar.getBoundingClientRect().left;
+
+    // 挂件宽度固定 -> "容得下它"必须由侧边栏让出来: 把最小宽度顶到刚好放得下
+    // 「左界 + CHARM_TEXT_GAP + 挂件宽 + 右余量 + 右边框」。
+    // (反过来说: 侧边栏被拖到再窄也不会把挂件压小 —— 它会被这条 min-width 挡住。)
+    charmMinSidebarW = leftInset + CHARM_TEXT_GAP + CHARM_W + CHARM_RIGHT_MARGIN + clientLeft;
+    sidebar.style.minWidth = Math.ceil(charmMinSidebarW) + "px";
+
+    // 写完 min-width 再量: 侧边栏可能刚被顶宽 (读 style 会触发同步重排, 所以下面读到的已是新宽度)
+    const barBox = sidebar.getBoundingClientRect();
+    const appBox = app.getBoundingClientRect();
+    // 右界 = 侧边栏右边缘往内留 CHARM_RIGHT_MARGIN (需求: 别离侧边栏右边缘太远)
+    const rightBound = barBox.right - clientLeft - CHARM_RIGHT_MARGIN;
+    const leftBound = barBox.left + leftInset;
+    // 正常情况下余量恰好 == CHARM_W (最小宽度刚把它撑满)。保留这个 min() 是兜底:
+    // 万一 min-width 没生效 (比如被别处的 !important 盖掉), 也宁可压小, 也别越界压到标签。
+    const w = Math.max(0, Math.min(CHARM_W, rightBound - leftBound - CHARM_TEXT_GAP));
+
+    charm.hidden = false;
+    charm.style.width = w + "px";
+    charm.style.left = Math.round(rightBound - w - appBox.left) + "px";
+    charm.style.top = Math.round(topbar.getBoundingClientRect().bottom - appBox.top) + "px";
+  };
+
+  sync();
+  // 折叠/展开之后要重新摆一次 (见 scheduleCharmSync)
+  sidebarCharmSync = sync;
+  // 图片没加载完时高度是 0, 会让量算偏; 加载完再量一次
+  const img = charm.querySelector("img");
+  if (img && !img.complete) img.addEventListener("load", sync, { once: true });
+  window.addEventListener("resize", sync);
+  // 侧边栏被拖动 / 折叠 / 恢复保存宽度, 顶栏换行, 导航文字改变都会动这些尺寸, 统一在这里跟一次
+  if (window.ResizeObserver) {
+    const ro = new ResizeObserver(sync);
+    ro.observe(sidebar);
+    ro.observe(topbar);
+    if (nav) ro.observe(nav);
+  }
+}
+
+// ---------------- 挂件「回到顶部」(按住拉长绳子, 松手回弹) ----------------
+
+/** 把右侧内容区滚回顶部。挂件长在侧边栏那一侧, 但要滚的是内容区 (#main)。 */
+function scrollMainToTop() {
+  // 尊重"减少动态效果": 平滑滚动会让晕动症用户不适
+  const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const behavior = reduce ? "auto" : "smooth";
+  const main = document.getElementById("main");
+  if (main) main.scrollTo({ top: 0, behavior });
+  // 兜底: 万一某个视图把滚动条留在了文档上 (body 没锁滚动), 一起归位
+  const doc = document.scrollingElement;
+  if (doc && doc !== main && doc.scrollTop > 0) doc.scrollTo({ top: 0, behavior });
+}
+
+/**
+ * 挂件 = 「回到顶部」按钮: 按住时绳子拉长、挂件下落, 松手回弹并把内容区滚回顶部。
+ *
+ * 视觉反馈 (pulling 类) 与真正的动作 (滚动) 刻意分开: 动作只挂在 click 上 ——
+ * 鼠标、程序化 element.click() 都会派发 click, 而 pointer 事件不会。
+ * 于是"按住不放"只会看到绳子变长, 不会误触发滚动; 真点一下才滚。
+ * 键盘得自己补: div[role=button] 不像原生 <button> 那样会替我们派发 click。
+ */
+function initCharmTop() {
+  const charm = document.getElementById("sidebar-charm");
+  if (!charm) return;
+  const setPulling = (on) => charm.classList.toggle("pulling", on);
+  const activate = () => {
+    setPulling(false);
+    scrollMainToTop();
+  };
+
+  charm.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return; // 只认左键 / 触摸
+    setPulling(true);
+    // 捕获指针: 拖到挂件外面再松手也能收到 pointerup, 绳子不会一直挂着
+    try {
+      charm.setPointerCapture(e.pointerId);
+    } catch {
+      /* 不支持指针捕获时靠 pointercancel / blur 兜底 */
+    }
+  });
+  const release = () => setPulling(false);
+  charm.addEventListener("pointerup", release);
+  charm.addEventListener("pointercancel", release); // 被系统抢走 (切窗口 / 右键菜单)
+  charm.addEventListener("blur", release); // 按住时窗口失焦
+
+  // 键盘: Enter / Space 按住给同样的视觉反馈; 松开时自己触发动作 (没有原生 click)
+  charm.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    if (e.key === " ") e.preventDefault(); // 免得 Space 顺手把内容区往下滚
+    setPulling(true);
+  });
+  charm.addEventListener("keyup", (e) => {
+    if (e.key === "Enter" || e.key === " ") activate();
+  });
+
+  charm.addEventListener("click", activate);
+}
+
+// ---------------- 顶栏「强制刷新」(Ctrl+F5) ----------------
+
+// 只刷 CSS/JS/favicon: 这正是 Ctrl+F5 关心的"代码有没有更新"。
+// 页面里还有上百个 emoji <img>, 全部 cache:"reload" 一遍纯属浪费。
+const HARD_RELOAD_SEL = 'link[rel="stylesheet"][href], link[rel="icon"][href], script[src]';
+
+function initHardReloadUI() {
+  const btn = document.getElementById("hard-reload");
+  if (!btn) return;
+  btn.addEventListener("click", async () => {
+    if (btn.disabled) return;
+    btn.disabled = true;
+    toast("正在强制刷新 (绕过缓存)…", "warning");
+    try {
+      // fetch 的 cache:"reload" 会跳过 HTTP 缓存强制回源, 并把新响应写回缓存;
+      // 文档本身交给 location.reload() —— 按规范 reload 导航对主文档就是绕过缓存的。
+      const urls = new Set();
+      document.querySelectorAll(HARD_RELOAD_SEL).forEach((n) => {
+        const u = n.href || n.src;
+        if (u && u.startsWith(location.origin)) urls.add(u);
+      });
+      await Promise.race([
+        Promise.allSettled([...urls].map((u) => fetch(u, { cache: "reload" }))),
+        new Promise((r) => setTimeout(r, 2500)), // 个别资源卡住也不能让页面一直不刷新
+      ]);
+    } catch { /* 刷新本身不依赖这些请求成功 */ }
+    location.reload();
+  });
+}
+
 // ---------------- 侧边栏拖拽调整宽度 ----------------
 
 function initSidebarResize() {
@@ -391,9 +668,8 @@ function initSidebarResize() {
   const resizer = document.getElementById("sidebar-resizer");
   const collapseBtn = document.getElementById("sidebar-collapse");
   if (!sidebar) return;
-  // 键名带 -v2: 旧默认宽度(170px)在导航文字右侧留白过宽, 新默认收窄到 145px,
-  // 沿用旧键名会让历史保存值覆盖掉新默认值
-  const saved = localStorage.getItem("anr-sidebar-width-v2");
+  // 键名带 -v4: 默认宽度放宽到 200px (给右侧挂件留出空档), 沿用旧键名会让历史保存值覆盖掉新默认值
+  const saved = localStorage.getItem("anr-sidebar-width-v4");
   if (saved) sidebar.style.width = saved + "px";
 
   // 恢复折叠状态
@@ -412,15 +688,17 @@ function initSidebarResize() {
       const startX = e.clientX;
       const startW = sidebar.offsetWidth;
       const onMove = (ev) => {
-        // 最小宽度与 CSS .sidebar min-width / 默认宽度保持一致 (145px, 即导航文字右侧只留约一个汉字)
-        const w = Math.min(340, Math.max(145, startW + (ev.clientX - startX)));
+        // 最小宽度: 有挂件时 = "刚好容得下它"的宽度 (挂件不跟着缩, 见 sidebarMinWidth);
+        // 没挂件时回到加挂件之前的 145px。上限 340 与 CSS .sidebar max-width 一致。
+        const minW = sidebar.classList.contains("collapsed") ? 50 : sidebarMinWidth();
+        const w = Math.min(340, Math.max(minW, startW + (ev.clientX - startX)));
         sidebar.style.width = w + "px";
       };
       const onUp = () => {
         document.removeEventListener("mousemove", onMove);
         document.removeEventListener("mouseup", onUp);
         resizer.classList.remove("active");
-        localStorage.setItem("anr-sidebar-width-v2", String(sidebar.offsetWidth));
+        localStorage.setItem("anr-sidebar-width-v4", String(sidebar.offsetWidth));
       };
       document.addEventListener("mousemove", onMove);
       document.addEventListener("mouseup", onUp);
@@ -438,13 +716,20 @@ function initSidebarResize() {
         sidebar.style.minWidth = "50px";
         localStorage.setItem("anr-sidebar-collapsed", "1");
       } else {
-        const w = parseInt(sidebar.dataset.prevWidth, 10) || parseInt(saved, 10) || 145;
+        const w = parseInt(sidebar.dataset.prevWidth, 10) || parseInt(saved, 10) || 200;
         sidebar.style.width = w + "px";
         sidebar.style.minWidth = "";
         localStorage.setItem("anr-sidebar-collapsed", "0");
       }
+      // font-size 的过渡跑完之前量到的文字宽是 0, 要等它结束再摆一次, 否则挂件会停在兜底位置
+      scheduleCharmSync();
     });
   }
+
+  // 宽度 / 折叠状态都恢复好了再摆挂件 (它要量侧边栏的内容盒)
+  initSidebarCharm();
+  // 挂件同时是「回到顶部」按钮 (按住拉长绳子, 松手回弹并滚回顶部)
+  initCharmTop();
 }
 
 boot();

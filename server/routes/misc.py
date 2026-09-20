@@ -754,7 +754,7 @@ def bg_random_wallpaper(payload: dict = None):
 @router.get("/bg/state")
 async def bg_state_get():
     """读取状态 (背景 + 自定义颜色/模糊), 跨端口与浏览器保留。"""
-    data = {"single": None, "folder": None, "interval": 120, "api": False}
+    data = {"single": None, "folder": None, "interval": 120, "api": False, "charm": True}
     if _BG_STATE_FILE.exists():
         try:
             data.update(json.loads(_BG_STATE_FILE.read_text(encoding="utf-8")))
@@ -767,7 +767,8 @@ async def bg_state_get():
 async def bg_state_save(payload: dict):
     """保存状态 (部分更新: 只更新提供的字段, 未提供的保留原值)。
 
-    支持字段: single / folder / interval (背景) 与 color / blur (外观)。
+    支持字段: single / folder / interval (背景), color / blur / art (外观)
+    与 charm (侧边栏晴天娃娃开关, 需要跨端口/浏览器/重启保留)。
     """
     data: dict = {}
     if _BG_STATE_FILE.exists():
@@ -801,6 +802,8 @@ async def bg_state_save(payload: dict):
     if "art" in payload:
         art = payload.get("art")
         data["art"] = art if isinstance(art, dict) and art.get("pid") else None
+    if "charm" in payload:
+        data["charm"] = bool(payload.get("charm"))
     _BG_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     _BG_STATE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     return {"ok": True}
@@ -942,9 +945,16 @@ def _os_name():
         return platform.system()
 
 
+def _python_version():
+    """Python 版本: 非 CPython 实现 (PyPy 等) 带上实现名, 方便对照环境差异。"""
+    version = platform.python_version()
+    impl = platform.python_implementation()
+    return version if impl == "CPython" else f"{impl} {version}"
+
+
 @router.get("/system/stats")
 def system_stats():
-    """系统版本与资源占用 (CPU / 内存 / GPU): 运行日志栏展示, 前端每 10 秒轮询。
+    """系统版本 / Python 版本与资源占用 (CPU / 内存 / GPU): 运行日志栏展示, 前端每 10 秒轮询。
 
     同步 def: _gpu_stats 里的 nvidia-smi 是阻塞子进程, 放线程池执行,
     不再周期性占用事件循环 (同 browse_images / hitokoto 的处理方式)。
@@ -954,6 +964,7 @@ def system_stats():
     return {
         # 应用版本不在此重复返回: 前端统一读 /api/state 的 version (真源同为 utils/variable.VERSION)
         "os": _os_name(),
+        "python": _python_version(),
         "arch": platform.machine(),
         "cpu_percent": psutil.cpu_percent(interval=None),
         "cpu_cores": psutil.cpu_count(logical=True),

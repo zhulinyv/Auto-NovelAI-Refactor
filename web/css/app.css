@@ -56,15 +56,21 @@
   padding: 0 0 1px;
 }
 .icon-btn:hover { transform: scale(1.1); background: var(--hover); }
+/* 开关类按钮的"关"状态 (如晴天娃娃): 图标本身会换成带斜杠的版本, 这里再压暗一层做双保险 */
+.icon-btn.off { opacity: 0.42; }
+.icon-btn.off:hover { opacity: 0.78; }
 
 .layout { display: flex; flex: 1; min-height: 0; gap: 12px; }
 
 /* ------- 侧边栏 ------- */
 .sidebar {
   position: relative;
-  /* 默认宽度 = 最小宽度: 图标(18px)+间距(9px)+四字标题(56px)+左右 padding + 约一个汉字的右侧留白。
-     再宽就会在导航文字右侧留下一大片空白 (见 #sidebar-nav / .nav-item)。 */
-  width: var(--sidebar-width, 145px);
+  /* 最小宽度 145px: 图标(18px)+间距(9px)+四字标题(56px)+左右 padding + 约一个汉字的右侧留白
+     (再窄会折行)。这是**没有晴天娃娃时**的值 —— 挂件可见时 app.js 会把"刚好容得下挂件"的宽度
+     写成 inline min-width (挂件尺寸固定、不随侧边栏缩放, 所以这条约束只能由侧边栏让出来),
+     挂件隐藏后又收回这里的 145px。
+     默认值 200px: 给右侧的挂件留出空档 —— 挂件贴着右边缘摆, 右界 = 侧边栏右边缘 - CHARM_RIGHT_MARGIN。 */
+  width: var(--sidebar-width, 200px);
   min-width: 145px;
   max-width: 340px;
   flex-shrink: 0;
@@ -78,6 +84,61 @@
   gap: 6px;
   overflow: hidden; /* 滚动交给 #sidebar-nav, 收起按钮固定在底部不再重叠 */
 }
+
+/* 侧边栏挂件 (晴天娃娃): 挂在 #app 下而不是 .sidebar 里 —— 侧边栏是 overflow: hidden,
+   而挂件顶端要正好落在顶栏 (深色底面) 的下沿, 放里面会被裁掉。
+   left / top / width 由 app.js 量算: top = 顶栏底边; 水平方向贴右 (右缘固定, 宽度 = 固有宽度 CHARM_W,
+   拖侧边栏时不缩不涨)。
+   它同时还是一枚「回到顶部」按钮: 按住时绳子被拉长、挂件下落, 松手回弹并把 #main 滚回顶部。
+   于是 pointer-events 由 none 改成 auto —— 现在只挡住自己那一小块 (导航文字右侧原本的空白)。 */
+.sidebar-charm {
+  position: absolute;
+  z-index: 4; /* 高于侧边栏与顶栏, 低于拖拽柄(5)与收起按钮(6) */
+  pointer-events: auto;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: none; /* 按在挂件上时不要把鼠标/手指动作当成滚动 */
+  filter: drop-shadow(0 2px 5px rgb(0 0 0 / 0.14));
+
+  /* 被拉出来的那一截绳子: 几何与颜色照 web/assets/charm/sidebar-charm.png 实测
+     (量尺 _charm_rope_probe.py: 实心部分在 x 139..154 / 图宽 256, 填充 #946e6c, 两侧略深)。
+     对不上就会看出接缝 —— 改这里务必同步改测试里的 ROPE 常量。
+     用 % 表示宽度: 它跟的是挂件自身的宽度, 所以延长段和图片里的那截绳子永远同宽。 */
+  --charm-pull: 16px;
+  --charm-pull-dur: 0.16s;
+  --charm-rope-left: 54.297%;
+  --charm-rope-w: 6.25%;
+  --charm-rope-img: linear-gradient(90deg, #8d6a67 0%, #85615f 13%, #987371 38%, #946e6c 63%, #977572 81%, #644343 94%);
+}
+/* 绳子的延长段: 顶端固定在挂件顶部 (= 顶栏下沿), 高度 0 时不可见 */
+.sidebar-charm .charm-rope {
+  position: absolute;
+  top: 0;
+  left: var(--charm-rope-left);
+  width: var(--charm-rope-w);
+  height: 0;
+  background: var(--charm-rope-img);
+  transition: height var(--charm-pull-dur) ease-out;
+}
+.sidebar-charm img {
+  position: relative;
+  z-index: 1; /* 压在绳子延长段的末端上 (下面故意多 2px 重叠), 免得缝里透出背景 */
+  display: block;
+  width: 100%;
+  height: auto;
+  user-select: none;
+  transform: translateY(0);
+  transition: transform var(--charm-pull-dur) ease-out;
+}
+.sidebar-charm.pulling { cursor: grabbing; }
+/* 拉住: 绳子加长 + 挂件同步下落。两者过渡时长一致, 所以看不出谁先动 */
+.sidebar-charm.pulling .charm-rope { height: calc(var(--charm-pull) + 2px); }
+.sidebar-charm.pulling img { transform: translateY(var(--charm-pull)); }
+.sidebar-charm:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; border-radius: 8px; }
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-charm .charm-rope, .sidebar-charm img { transition-duration: 0.01s; }
+}
+
 .sidebar-resizer {
   position: absolute; top: 0; right: -3px; bottom: 0;
   width: 6px; cursor: col-resize; background: transparent;

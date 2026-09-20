@@ -121,7 +121,7 @@ export function initLogConsole() {
   const logActions = document.querySelector(".log-actions");
   if (logActions) logActions.prepend(autoScroll);
 
-  // ---- 系统状态行: 系统版本 + CPU/内存/GPU 占用 ----
+  // ---- 系统状态行: 系统版本 + Python 版本 + CPU/内存/GPU 占用 ----
   // 刷新间隔 10 秒: GPU 那路要 fork nvidia-smi 子进程, 不宜过密;
   // 后端 _gpu_stats 另有 8 秒 TTL 去重 (server/routes/misc.py), 二者不要互相"对齐"成同一个数
   const sysStats = el("span", { class: "sys-stats", id: "sys-stats", title: "系统资源占用" });
@@ -131,8 +131,9 @@ export function initLogConsole() {
   async function refreshStats() {
     try {
       const d = await get("/api/system/stats");
-      const parts = [d.os, `💻 CPU ${Math.round(d.cpu_percent)}%`,
-        `🧠 内存 ${Math.round(d.mem_percent)}% (${d.mem_used_gb}/${d.mem_total_gb}G)`];
+      // 顺序即「环境 → 资源」; 图标: 🖥️ 本机系统 / 🐍 Python / ⚙️ 处理器 / 🧠 记忆(内存) / 🎮 显卡
+      const parts = [`🖥️ ${d.os}`, d.python && `🐍 Python ${d.python}`, `⚙️ CPU ${Math.round(d.cpu_percent)}%`,
+        `🧠 内存 ${Math.round(d.mem_percent)}% (${d.mem_used_gb}/${d.mem_total_gb}G)`].filter(Boolean);
       if (d.gpu) parts.push(`🎮 GPU ${Math.round(d.gpu.util)}% (${fmtGb(d.gpu.mem_used)}/${fmtGb(d.gpu.mem_total)})`);
       sysStats.textContent = parts.join(" │ ");
       sysStats.title = (d.gpu ? `GPU: ${d.gpu.name}\n` : "") +

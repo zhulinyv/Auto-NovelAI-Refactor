@@ -28,11 +28,26 @@
         <button id="bg-toggle" class="icon-btn" title="自定义背景" aria-label="自定义背景">🖼️</button>
         <button id="appearance-toggle" class="icon-btn" title="外观设置 (颜色/模糊)" aria-label="外观设置">🎨</button>
         <button id="theme-toggle" class="icon-btn" title="切换深浅色主题" aria-label="切换主题">🌙</button>
+        <!-- 晴天娃娃开关: 图标由 app.js 按状态换成"带斜杠"版本 (与全屏按钮同一套换图标做法),
+             不用 emoji —— 本地 emoji 资源里没有玩偶码位, 缺字形会显示成方框 -->
+        <button id="charm-toggle" class="icon-btn" title="隐藏晴天娃娃" aria-label="隐藏晴天娃娃"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v2.6"/><circle cx="12" cy="9.2" r="4.6"/><path d="M9.1 13 7.4 21.5h9.2L14.9 13"/></svg></button>
         <button id="fullscreen-toggle" class="icon-btn" title="全屏显示" aria-label="全屏显示"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg></button>
         <button id="copy-link" class="icon-btn" title="复制访问链接 (共享开启时自动复制可共享的外链)" aria-label="复制访问链接"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></button>
+        <button id="hard-reload" class="icon-btn" title="强制刷新页面 (Ctrl+F5, 绕过缓存重新加载)" aria-label="强制刷新页面"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg></button>
         <button id="app-close" class="icon-btn" title="退出程序: 结束后端进程并关闭页面" aria-label="退出程序"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><path d="M12 2v10"/></svg></button>
       </div>
     </header>
+
+    <!-- 侧边栏挂件 (晴天娃娃): 顶端贴靠顶栏 (那个深色底面) 的下沿, 水平方向**贴着侧边栏的右边缘**
+         (右缘留一点余量、左缘与功能项标签文字留出安全间距), 不占位、不顶开导航。
+         挂在 #app 下而不是 .sidebar 里 —— 侧边栏是 overflow: hidden, 贴着顶栏下沿的头顶会被裁掉;
+         位置与宽度由 app.js 量算 (见 initSidebarCharm); 它同时还是一枚「回到顶部」按钮:
+         按住时绳子被拉长、挂件下落, 松手回弹并把右侧内容区滚回顶部 (见 initCharmTop)。 -->
+    <div class="sidebar-charm" id="sidebar-charm" role="button" tabindex="0"
+         title="回到顶部" aria-label="回到顶部">
+      <span class="charm-rope" aria-hidden="true"></span>
+      <img src="/assets/charm/sidebar-charm.png" alt="" draggable="false" />
+    </div>
 
     <div class="layout">
       <!-- 侧边导航 -->
