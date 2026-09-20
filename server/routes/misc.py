@@ -117,6 +117,18 @@ async def get_state():
     }
 
 
+@router.get("/ready")
+def ready():
+    """轻量就绪探针: 只回版本号, 不碰 last.json 等大对象。
+
+    给开始菜单唤醒脚本 (utils/wake.py) 的 0.5s 轮询用。为什么不复用 /api/state:
+    那里会把 last.json (含 base64 图片, 实测单次响应 4MB+) 整个序列化返回 ——
+    高频探测既拖慢启动, 又容易被调用方按固定长度截断而误判成"后端未就绪"。
+    version 与 /api/state 同源 (utils.variable.VERSION), 判据不变 (200 + 含 version)。
+    """
+    return {"version": VERSION}
+
+
 # ---------------------------------------------------------------- 上次参数 (实时读取 last.json)
 
 
