@@ -139,6 +139,131 @@
   .sidebar-charm .charm-rope, .sidebar-charm img { transition-duration: 0.01s; }
 }
 
+/* 挂件气泡: 单击晴天娃娃时随机说一句丧气话 (文案在 app.js 的 CHARM_BUBBLE_LINES)。
+   position: fixed —— 它挂在 body 下 (不在 #app / .sidebar 里), 所以既不会被那两层的 overflow 裁掉,
+   也不受它们层叠上下文的影响; 位置由 app.js 按挂件的实测矩形算 (见 placeCharmBubble)。
+   pointer-events: none: 它悬在挂件右侧那片区域上, 不许挡住底下任何东西的点击。 */
+.charm-bubble {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 2147483500; /* 与 toast 同档: 高于所有面板/弹窗 */
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--panel-solid) 96%, var(--border));
+  color: var(--text);
+  font-size: 12.5px;
+  line-height: 1.6;
+  white-space: nowrap; /* 文案都很短, 掐成一行才像"一口气嘟囔出来" */
+  pointer-events: none;
+  box-shadow: var(--shadow-lg);
+  animation: charm-bubble-in 0.18s ease;
+}
+/* 指向挂件的小尖角 (默认在左边, 因为气泡默认摆在挂件右侧) */
+.charm-bubble::before {
+  content: "";
+  position: absolute;
+  top: 14px;
+  left: -5px;
+  width: 8px;
+  height: 8px;
+  background: inherit;
+  border-left: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  transform: rotate(45deg);
+}
+/* 右边放不下 -> app.js 给气泡加 .left 翻到挂件左侧, 尖角跟着换到右边 */
+.charm-bubble.left::before {
+  left: auto;
+  right: -5px;
+  border-left: 0;
+  border-bottom: 0;
+  border-right: 1px solid var(--border);
+  border-top: 1px solid var(--border);
+}
+@keyframes charm-bubble-in {
+  from { opacity: 0; transform: translateX(-6px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+/* 彩蛋遮罩: 连点挂件 4 次 -> 整个窗口闪几下 -> 用一张图盖满整个窗口, 4 秒后恢复 (见 app.js 的
+   playCharmEgg)。同样是"挂在 body 下的 fixed", 所以 inset: 0 才真的等于"整个项目窗口"。
+   z-index 比 toast(2147483000) 还高: 彩蛋期间它要盖住一切。 */
+.charm-egg {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483600;
+  background: #030000;
+  /* 暗红呼吸光晕: 比纯黑更像"有什么东西在底下亮着" */
+  background-image: radial-gradient(circle at 50% 50%, #1f0000 0%, #000000 70%);
+  overflow: hidden;
+  /* 宋体 / 楷体天生带冷峻诡异感; 只作用在这层, 不会漏到下面的应用界面 */
+  font-family: "SimSun", "STKaiti", "KaiTi", "Songti SC", serif;
+  opacity: 0;
+  transition: opacity 0.4s ease; /* 收尾淡出, 时长与 app.js 的 CHARM_FADE_MS 一致 */
+  pointer-events: none;
+  user-select: none;
+}
+/* 彩蛋期间可点: 点一下整屏血字立刻重洗一遍 (见 app.js 里挂的 click) */
+.charm-egg.on { opacity: 1; pointer-events: auto; }
+
+/* 血色脉冲覆盖层: 整块慢慢呼吸, 让画面"活"着。放在自己的伪元素上, 免得跟遮罩本身的
+   opacity 过渡抢同一个属性。 */
+.charm-egg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 0, 0, 0.05);
+  animation: charm-egg-pulse 2s infinite alternate;
+  pointer-events: none;
+  z-index: 9999;
+}
+@keyframes charm-egg-pulse {
+  0% { opacity: 0.1; }
+  100% { opacity: 0.4; }
+}
+
+/* 血字挂在 .charm-egg-words 这一层里, 但**每一段各有各的命**: 忽闪、抽搐、到点自己灭掉
+   (曲线全在 app.js 的 animateCharmEggWord 里逐条现掷)。
+   mix-blend-mode: screen 加在每段字上, 所以重叠处会互相加亮, 像血迹叠在一起;
+   这跟"整层淡入淡出"是两回事 —— 现在没有整层过渡了, 那样太整齐, 不像闹鬼像转场。 */
+.charm-egg-words {
+  position: absolute;
+  inset: 0;
+  filter: contrast(1.2) saturate(1.5); /* 全局微弱的血色滤镜 */
+}
+.charm-egg-word {
+  position: absolute;
+  white-space: nowrap;
+  transform-origin: center center;
+  pointer-events: none;
+  /* 核心恐怖效果: 多层血色发光 + 阴影 */
+  text-shadow:
+    0 0 2px #ff0000,
+    0 0 10px #8b0000,
+    0 0 20px #000000,
+    2px 2px 5px #000000;
+  /* 重叠处更红更亮, 像干涸的血迹 */
+  mix-blend-mode: screen;
+}
+/* 闪烁: 亮 3 个灭段后停在亮 = "闪 3 下"。steps(1, end) 让 opacity 硬切 —— 那才叫"闪",
+   用渐变会变成淡入淡出。每个关键帧只写一个百分比: 分组写法 (如 "24%, 36% { opacity: 0 }") 在
+   steps 下取的是段首值, 容易把灭段数算错。
+   总时长 1.2s / 3 个灭段 ≈ 2.9Hz, 卡在"每秒不超过 3 次闪光"的无障碍建议之内; 改这里
+   必须同步改 app.js 的 CHARM_FLASH_MS。 */
+.charm-egg.flash { animation: charm-egg-blink 1.2s steps(1, end) 1 both; }
+@keyframes charm-egg-blink {
+  0% { opacity: 1; }
+  14% { opacity: 0; }
+  28% { opacity: 1; }
+  42% { opacity: 0; }
+  56% { opacity: 1; }
+  70% { opacity: 0; }
+  84% { opacity: 1; }
+  100% { opacity: 1; }
+}
+
 .sidebar-resizer {
   position: absolute; top: 0; right: -3px; bottom: 0;
   width: 6px; cursor: col-resize; background: transparent;

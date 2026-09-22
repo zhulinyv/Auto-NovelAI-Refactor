@@ -464,6 +464,7 @@ function setCharmEnabled(on) {
   try { localStorage.setItem(CHARM_KEY, charmEnabled ? "1" : "0"); } catch { /* 无痕模式 */ }
   renderCharmToggle();
   if (sidebarCharmSync) sidebarCharmSync(); // 立刻显/隐, 并重算位置
+  resetCharmInteraction(); // 挂件都藏起来了, 气泡不该还留着; 连点计数也一并清零
 }
 
 async function initCharmToggle() {
@@ -631,6 +632,677 @@ function initCharmTop() {
   charm.addEventListener("click", activate);
 }
 
+// ---------------- 挂件彩蛋 (单击说句话 / 连点 4 次闪屏盖图) ----------------
+
+// 单击挂件时气泡里随机蹦一句 —— 都很短, 且尽量丧 (需求原话: "极度悲伤消极, 最好简短")。
+// 只写"自怨自艾 / 被遗忘 / 多余"这一档情绪, 不碰自伤自杀那类说法, 免得看起来像在诱导。
+const CHARM_BUBBLE_LINES = [
+  "没有人会记得我。",
+  "我好像不该存在。",
+  "算了, 反正没人看。",
+  "又只剩我一个了。",
+  "我只是个多余的摆件。",
+  "天亮也不会变好。",
+  "我连难过都打扰别人。",
+  "从来没有人回头看我。",
+  "对不起, 我什么都做不好。",
+  "反正最后都会被丢掉。",
+  "我的存在毫无意义。",
+  "就算掉下去也没人发现。",
+  "谁都不会为我停下来。",
+  "我只配挂在角落里。",
+  "你也不开心么。"
+];
+
+const CHARM_BUBBLE_MS = 2200; // 气泡停留时长
+const CHARM_BUBBLE_GAP = 12; // 气泡与挂件之间的空隙
+const CHARM_STREAK = 4; // 连点几下触发彩蛋 (需求: 4 次)
+const CHARM_STREAK_MS = 1650; // 两次点击间隔超过它就重新数 —— 需求是"连续", 不是累计
+const CHARM_FLASH_MS = 1200; // 闪烁段时长 (与 app.css 的 charm-egg-blink 一致)
+const CHARM_HOLD_MS = 4000; // 图盖满整窗且不闪动的时长 (最初需求 2 秒, 后来要求"延长一点" -> 4 秒)
+const CHARM_FADE_MS = 400; // 淡出时长 (与 .charm-egg 的 transition 一致)
+
+// 彩蛋音乐 (web/assets/charm/charm-egg-climax-{early,mid,late}.mp3):
+//   三段都从《Story Of A Poor Blue Rabbit》里截的高潮段, 各 8.5 秒, 每次触发随机挑一段 (见 pickCharmEggTrack)。
+//   响度已经互相对齐 (RMS 都是 -15.05 dBFS, 峰值 -2.3 ~ -1.2 dBFS), 所以随机换段不会忽大忽小。
+//   淡入淡出和左右交替都交给 Web Audio 实时做, 不烙进文件 —— 改时长只要动这几个常量, 不用重切音频。
+const CHARM_EGG_AUDIO_MS = 8500; // 片段总长 (须与 mp3 实际时长一致)
+const CHARM_EGG_FADE_IN_MS = CHARM_FLASH_MS; // 淡入与闪烁段等长: 图盖满的那一刻音量刚好到顶
+const CHARM_EGG_FADE_OUT_MS = 3000; // 淡出时长
+// 彩蛋本身 5.6 秒就恢复原样了 (闪 1.2 + 盖 4.0 + 淡出 0.4), 音乐比它多响 2.9 秒 —— 需求要的就是这个尾巴。
+// 注意 CHARM_HOLD_MS 一动, 上面这两个秒数都得跟着改。
+
+// 左右交替 (auto-pan / ping-pong): 只在"图盖满整个窗口"那一段生效 —— 闪烁一结束就开始甩,
+// 彩蛋收工 (图彻底消失) 的那一刻停下, 前后各留 CHARM_EGG_PAN_RAMP_MS 过渡。
+// 时间点由 playCharmEggAudio 按实际闪烁时长算, 不写死在这里 (开了"减少动态效果"时闪烁是 0)。
+const CHARM_EGG_PAN_PERIOD_MS = 600; // 一个完整来回 (左→右→左) 的时长; 4.4 秒的窗口里甩 7 个多来回
+const CHARM_EGG_PAN_RAMP_MS = 150; // 进出这段的过渡时长, 免得左右甩硬切进来
+
+// 满屏血字轮换的节奏: 每隔这么久换掉一批段落 (每段自己还有更快的忽明忽暗, 见 animateCharmEggWord)。
+// 这个间隔管的是"构图多久变一次", 不是"字多久闪一次" —— 太快会变成整屏在抖, 太慢又会显死。
+const CHARM_EGG_CHURN_MIN_MS = 1500;
+const CHARM_EGG_CHURN_MAX_MS = 2600;
+
+let charmLineIndex = -1; // 上一句的下标 (避免连着两次蹦同一句)
+let charmBubbleTimer = null;
+let charmStreak = 0; // 当前"连续点击"计数 —— 靠计时器清零, 不累计
+let charmStreakTimer = null;
+let charmEggPlaying = false;
+// 彩蛋音乐的状态 (Web Audio 链路懒建, 见 charmEggAudioGraph)
+let charmEggCtx = null;
+let charmEggGain = null;
+let charmEggAudioTimer = null;
+let charmEggRampId = 0; // 兜底淡入淡出的代号: 重播/收工都会 +1, 让上一轮的 rAF 自己退出
+let charmEggPan = null; // 左右交替那几个节点 (见 charmEggAudioGraph)
+let charmEggGraphDead = false; // 建链路失败过就不再重试, 免得每触发一次都白建一堆节点
+let charmEggTrackIndex = -1; // 上一段素材的下标 (避免连着两次响同一段)
+let charmEggChaosTimer = null; // 满屏血字的"轮换"计时器 (见 startCharmEggChaos)
+let charmEggStyle = null; // 本轮触发的整屏气质参数 (见 newCharmEggStyleSet)
+
+/** 收掉气泡 + 把连点计数清零 (挂件显隐变化、窗口尺寸变化时调) */
+function resetCharmInteraction() {
+  if (charmBubbleTimer) {
+    clearTimeout(charmBubbleTimer);
+    charmBubbleTimer = null;
+  }
+  const bubble = document.getElementById("charm-bubble");
+  if (bubble) bubble.classList.add("hidden");
+  if (charmStreakTimer) {
+    clearTimeout(charmStreakTimer);
+    charmStreakTimer = null;
+  }
+  charmStreak = 0;
+}
+
+/** 随机挑一句 (不与上一句重复) */
+function pickCharmLine() {
+  if (CHARM_BUBBLE_LINES.length < 2) return CHARM_BUBBLE_LINES[0] || "";
+  let i = charmLineIndex;
+  while (i === charmLineIndex) i = Math.floor(Math.random() * CHARM_BUBBLE_LINES.length);
+  charmLineIndex = i;
+  return CHARM_BUBBLE_LINES[i];
+}
+
+/**
+ * 把气泡摆到挂件右侧 (右边放不下就翻到左侧), 顶端与挂件对齐。
+ * 气泡是 position: fixed 且挂在 body 下, 所以位置得自己按挂件的实测矩形算。
+ * 先归零 left/top 再量: 气泡宽度随文案变, 不归零量出来的是上一次的位置。
+ */
+function placeCharmBubble(bubble, charm) {
+  const cb = charm.getBoundingClientRect();
+  bubble.style.left = "0px";
+  bubble.style.top = "0px";
+  const bb = bubble.getBoundingClientRect();
+  const vw = window.innerWidth;
+  let left = cb.right + CHARM_BUBBLE_GAP;
+  let flipped = false;
+  if (left + bb.width > vw - 8) {
+    left = cb.left - CHARM_BUBBLE_GAP - bb.width; // 右边放不下 -> 翻到挂件左侧
+    flipped = true;
+  }
+  if (left < 8) left = Math.max(8, vw - 8 - bb.width); // 两边都挤不下: 贴着右边, 至少不出屏
+  bubble.classList.toggle("left", flipped);
+  bubble.style.left = Math.round(left) + "px";
+  bubble.style.top = Math.round(cb.top + 6) + "px";
+}
+
+/** 挂件说一句话 (单击触发; 再点一次就换一句并重新计时) */
+function sayCharmLine() {
+  const bubble = document.getElementById("charm-bubble");
+  const charm = document.getElementById("sidebar-charm");
+  if (!bubble || !charm || charm.hidden) return;
+  bubble.textContent = pickCharmLine();
+  bubble.classList.remove("hidden");
+  placeCharmBubble(bubble, charm);
+  if (charmBubbleTimer) clearTimeout(charmBubbleTimer);
+  charmBubbleTimer = setTimeout(() => {
+    charmBubbleTimer = null;
+    bubble.classList.add("hidden");
+  }, CHARM_BUBBLE_MS);
+}
+
+// ---------------- 彩蛋音乐 (连点 4 次时响起的那段高潮) ----------------
+
+/** 三段备选素材 (index.html 里那三个 <audio class="charm-egg-audio">) */
+function charmEggAudioEls() {
+  return $$("audio.charm-egg-audio");
+}
+
+/** 随机挑一段 (不与上一段重复; 只有一段时就没得挑) */
+function pickCharmEggTrack(els) {
+  if (!els.length) return null;
+  if (els.length < 2) return els[0];
+  let i = charmEggTrackIndex;
+  while (i === charmEggTrackIndex) i = Math.floor(Math.random() * els.length);
+  charmEggTrackIndex = i;
+  return els[i];
+}
+
+/**
+ * 建好 (或复用) 彩蛋音乐的 Web Audio 链路: 三段 <audio> -> 左右交替 -> 总音量 -> 扬声器。
+ * 用 GainNode 而不是逐帧推 <audio>.volume: linearRampToValueAtTime 是采样级平滑的, 淡入淡出
+ * 不会留下"台阶声"; 链路建一次就够, 之后每次触发只是重排一遍音量包络。
+ *
+ * AudioContext 必须在用户手势里创建/恢复 (自动播放策略), 而彩蛋本来就是"连点 4 次"点出来的,
+ * 天然满足 —— 所以这里懒建, 不在页面加载时建, 免得平白挂一个被浏览器挂起的音频上下文。
+ * 返回 null 表示这条路走不通 (没有 AudioContext / 建链路抛错), 调用方退回逐帧推 volume。
+ */
+function charmEggAudioGraph() {
+  if (charmEggGain) return charmEggGain;
+  if (charmEggGraphDead) return null;
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return null;
+  const els = charmEggAudioEls();
+  if (!els.length) return null;
+  try {
+    if (!charmEggCtx) charmEggCtx = new Ctx();
+    const ctx = charmEggCtx;
+
+    const out = ctx.createGain();
+    out.gain.value = 0; // 总音量 (淡入淡出), 先哑着等 playCharmEggAudio 排包络
+
+    // 左右交替: 把两个声道拆开, 各过一只增益, 再让一正一反两只探针推着它们此消彼长。
+    // 这里刻意**不用 StereoPannerNode** —— 它处理立体声时, 硬甩到一侧会把 L+R 相加;
+    // 而这段音乐左右相关度 0.93 (几乎是单声道), 实测那样峰值会从 -1.2 dBFS 冲到 +4.5 dBFS 直接削波。
+    // 拆开各管各的就没有任何相加:
+    //   左增益 = base + depthL * sin   (depthL 为正)
+    //   右增益 = base + depthR * sin   (depthR 为负 -> 反相)
+    // 一个涨另一个就落。base 与 depth 绝对值始终相加为 1, 所以两只增益永远落在 [0, 1] 里,
+    // 峰值不可能超过原始电平, 削波从数学上就不可能发生 (见 scheduleCharmEggPan)。
+    const splitter = ctx.createChannelSplitter(2);
+    const merger = ctx.createChannelMerger(2);
+    const gainL = ctx.createGain();
+    const gainR = ctx.createGain();
+    gainL.gain.value = 1; // 未生效时 = 原样直通
+    gainR.gain.value = 1;
+    const depthL = ctx.createGain();
+    const depthR = ctx.createGain();
+    depthL.gain.value = 0; // 深度 0 = 探针不起作用
+    depthR.gain.value = 0;
+    const lfo = ctx.createOscillator();
+    lfo.type = "sine";
+    lfo.frequency.value = 1000 / CHARM_EGG_PAN_PERIOD_MS;
+    lfo.connect(depthL).connect(gainL.gain);
+    lfo.connect(depthR).connect(gainR.gain);
+    splitter.connect(gainL, 0).connect(merger, 0, 0); // 左声道 -> merger 第 0 路
+    splitter.connect(gainR, 1).connect(merger, 0, 1); // 右声道 -> merger 第 1 路
+    merger.connect(out).connect(ctx.destination);
+    // 探针一直转着, 由 depth 的包络决定它什么时候起作用。相位是自由的, 但 depth 每次都从 0 爬起来,
+    // 所以每一遍都是从中间往外甩, 听不出差别。
+    lfo.start();
+
+    // 每个 <audio> 只能 createMediaElementSource 一次 (再来一次抛 InvalidStateError),
+    // 所以放最后一步: 前面都成了才动它们; 万一抛了, 元素照旧按 volume 播, 兜底还能用。
+    // 三段素材全并到同一个 splitter 上: 每次触发只有被挑中的那段在播, 另外两段静着,
+    // 于是三段共用同一条淡入淡出 + 左右交替链路, 不用为每段各建一套。
+    for (const el of els) ctx.createMediaElementSource(el).connect(splitter);
+
+    charmEggPan = { lfo, gainL, gainR, depthL, depthR };
+    charmEggGain = out;
+    if (ctx.state === "suspended") ctx.resume();
+    return charmEggGain;
+  } catch {
+    charmEggGraphDead = true; // 别再重试: 半截链路已经建出来了, 重试只会再漏一堆节点
+    return null;
+  }
+}
+
+/** 没有 Web Audio 时的兜底: 用 rAF 按同一条包络逐帧推 <audio>.volume */
+function rampCharmEggVolume(audio) {
+  const id = ++charmEggRampId;
+  const t0 = performance.now();
+  audio.volume = 0;
+  const step = () => {
+    if (id !== charmEggRampId) return; // 已经被重播/收工叫停, 这一轮自己退出
+    const el = performance.now() - t0;
+    let v;
+    if (el < CHARM_EGG_FADE_IN_MS) v = el / CHARM_EGG_FADE_IN_MS;
+    else if (el < CHARM_EGG_AUDIO_MS - CHARM_EGG_FADE_OUT_MS) v = 1;
+    else v = (CHARM_EGG_AUDIO_MS - el) / CHARM_EGG_FADE_OUT_MS;
+    audio.volume = Math.min(1, Math.max(0, v));
+    if (el < CHARM_EGG_AUDIO_MS) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+/** 立刻收掉彩蛋音乐 (重播前 / 到点都在用) */
+function stopCharmEggAudio() {
+  charmEggRampId += 1;
+  if (charmEggAudioTimer) {
+    clearTimeout(charmEggAudioTimer);
+    charmEggAudioTimer = null;
+  }
+  if (charmEggGain && charmEggCtx) {
+    const t = charmEggCtx.currentTime;
+    charmEggGain.gain.cancelScheduledValues(t);
+    charmEggGain.gain.setValueAtTime(0, t); // 先掐成静音再 pause, 免得漏出一点尾巴
+  }
+  // 三段一起收: 同时只有一段在播, 一起收拾最省心, 也顺手把挑中的那段倒回开头
+  for (const audio of charmEggAudioEls()) {
+    try {
+      audio.pause();
+    } catch { /* 忽略 */ }
+    try {
+      audio.currentTime = 0;
+    } catch { /* 元数据还没到时赋值会抛, 不影响下次从头播 */ }
+    audio.volume = 1; // 还原, 免得下次走兜底时从一个奇怪的值起步
+  }
+}
+
+/**
+ * 排"左右交替"的音量包络。窗口 = [flashMs, flashMs + 按住 + 淡出] —— 正好是图盖满整个窗口那段:
+ * 闪烁结束的那一刻开始甩, 彩蛋收工 (图彻底消失) 的那一刻停, 前后各留 CHARM_EGG_PAN_RAMP_MS 过渡。
+ *
+ * 四条包络一起走 (gainL / gainR 是静态值, depthL / depthR 是探针深度):
+ *   gainL:  1 ─> 0.5 ─> 1        depthL: 0 ─> +0.5 ─> 0
+ *   gainR:  1 ─> 0.5 ─> 1        depthR: 0 ─> -0.5 ─> 0
+ * 于是 gainL = base + depthL*sin, gainR = base + depthR*sin。base 与 |depth| 一起爬, 两者之和
+ * 恒为 1, 所以任何时刻两只增益都落在 [0, 1] 内 —— 峰值不超过原始电平, 不会削波。
+ */
+function scheduleCharmEggPan(t0, flashMs) {
+  const pan = charmEggPan;
+  if (!pan || !charmEggCtx) return;
+  const ramp = CHARM_EGG_PAN_RAMP_MS / 1000;
+  const from = t0 + flashMs / 1000;
+  const to = t0 + (flashMs + CHARM_HOLD_MS + CHARM_FADE_MS) / 1000;
+  // 每条都按 "直通值 ->(过渡) 生效值 ->(保持) ->(过渡) 直通值" 排一遍
+  const plan = [
+    [pan.gainL.gain, 1, 0.5], // 左声道静态增益
+    [pan.gainR.gain, 1, 0.5], // 右声道静态增益
+    [pan.depthL.gain, 0, 0.5], // 左声道探针深度
+    [pan.depthR.gain, 0, -0.5], // 右声道探针深度 (负 -> 与左声道反相)
+  ];
+  for (const [param, idle, active] of plan) {
+    param.cancelScheduledValues(t0);
+    param.setValueAtTime(idle, t0);
+    param.setValueAtTime(idle, from);
+    param.linearRampToValueAtTime(active, from + ramp);
+    param.setValueAtTime(active, Math.max(from + ramp, to - ramp)); // 窗口比两段过渡还短时不倒挂
+    param.linearRampToValueAtTime(idle, to);
+  }
+}
+
+/**
+ * 随机挑一段素材, 从头播一遍: 淡入 -> 满音量 -> 淡出, 中间"图盖满窗口"那段左右交替。
+ * 包络时刻 (相对触发那一刻):
+ *   0 ─[淡入 CHARM_EGG_FADE_IN_MS]─> 满音量 ─> 5.5s 起淡出 ─> 8.5s 收干净
+ *   1.2s ─[左右交替 CHARM_HOLD_MS + CHARM_FADE_MS]─> 5.6s 停 (见 scheduleCharmEggPan)
+ * 淡入和闪烁同时开始, 所以闪烁结束、图刚盖满窗口的那一刻音量正好到顶。
+ *
+ * flashMs 是闪烁的**实际**时长 (开了"减少动态效果"时是 0): 左右交替的起止以它为准,
+ * 这样不管闪不闪, 交替都老老实实卡在"图盖满窗口"那一段里。
+ *
+ * 视觉彩蛋 5.6 秒就结束了, 这段时间里挂件可以再次被连点 (charmEggPlaying 只管视觉那一段),
+ * 所以这里先 stopCharmEggAudio(): 上一遍还没放完就直接掐掉重头来, 不会两条音乐叠在一起。
+ * 兜底计时器按总长 +300ms 收尾 —— 淡出理论上刚好归零, 但后台标签页里定时器会被节流,
+ * 不能指望 ramp 一定跑完。
+ */
+function playCharmEggAudio(flashMs = CHARM_FLASH_MS) {
+  const audio = pickCharmEggTrack(charmEggAudioEls());
+  if (!audio) return;
+  stopCharmEggAudio(); // 它会把挑中的那段倒回 0 秒, 下面 play() 就是从头发声
+  const gain = charmEggAudioGraph();
+  if (gain) {
+    const t0 = charmEggCtx.currentTime;
+    gain.gain.cancelScheduledValues(t0);
+    gain.gain.setValueAtTime(0, t0);
+    gain.gain.linearRampToValueAtTime(1, t0 + CHARM_EGG_FADE_IN_MS / 1000);
+    // 满音量保持到淡出起点 (常量保证 淡入+淡出 < 总长, 两个斜坡不会打架)
+    gain.gain.setValueAtTime(1, t0 + (CHARM_EGG_AUDIO_MS - CHARM_EGG_FADE_OUT_MS) / 1000);
+    gain.gain.linearRampToValueAtTime(0, t0 + CHARM_EGG_AUDIO_MS / 1000);
+    scheduleCharmEggPan(t0, flashMs); // 左右交替只作用在"图盖满窗口"那一段
+  } else {
+    // 兜底: 逐帧推 volume, 淡入淡出一样, 只是精度差些; 左右交替得拆声道, 这条路上做不了, 直接跳过
+    rampCharmEggVolume(audio);
+  }
+  // play() 会从头播; 被自动播放策略拦下时静默放弃, 彩蛋的视觉部分照常
+  audio.play().catch(() => { /* 忽略 */ });
+  charmEggAudioTimer = setTimeout(stopCharmEggAudio, CHARM_EGG_AUDIO_MS + 300);
+}
+
+// ---------------- 彩蛋遮罩里的"病态文字深渊" ----------------
+
+// 词库按字号分三档 (照搬素材页的分法): 字越大 -> 词越核心越病态。
+// 只写"偏执 / 占有欲 / 被抛弃"这一档情绪, 不碰具体自伤自杀的说法, 免得看起来像在诱导。
+const CHARM_EGG_WORDS_BIG = [
+  "你是我的", "永远在一起", "不许离开", "只能看我", "我比他们更爱你",
+  "把你关起来", "找到你了", "我们是什么关系", "求求你不要离开我",
+  "死", "血", "恨", "囚禁", "宝宝", "别想跑", "只属于我",
+];
+const CHARM_EGG_WORDS_MID = [
+  "为什么不回消息", "你哪里做错了我可以改", "眼里只能有我",
+  "你离我不开我", "我永远不会抛弃你", "不要无视我的爱", "我好想你",
+  "别甩掉我", "你只能看着我一人", "你为什么不喜欢我", "回我消息",
+];
+const CHARM_EGG_WORDS_SMALL = [
+  "等你好久了", "我在看着你", "别离开我", "只爱我一个人好不好",
+  "你害怕了吗", "不要背叛我", "永远不许逃", "我只有你了",
+  "你为什么看别人", "把你的眼睛挖出来", "我们融为一体吧",
+];
+
+/** [a, b) 之间的随机数 —— 下面满屏掷点用得太频繁, 单独包一层省得到处写 Math.random */
+function charmEggRand(a, b) {
+  return a + Math.random() * (b - a);
+}
+
+/** 从数组里随机取一个 */
+function charmEggPick(arr) {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+/**
+ * 把整屏血字从头重排一遍。
+ *
+ * **每一遍都要重新掷"全局"参数**, 这是"随机"的关键 —— 不能只随机每个字的位置就完事,
+ * 那样每次触发看起来还是同一屏。这里连: 节点数量、色相漂移、倾角范围、模糊概率、
+ * 四档字号的阈值、背景光晕的位置, 全都是每遍现掷的, 所以两次触发的气质会明显不同。
+ *
+ * 只用 documentFragment 拼好再一次挂上去: 逐个 appendChild 会让浏览器反复重排。
+ */
+/** 掷一套"整屏气质"参数: 配色、倾角、模糊比例、字号分位都由它定, 一次触发掷一次 */
+function newCharmEggStyleSet() {
+  return {
+    hueBase: charmEggRand(-14, 20), // 偏纯红 -> 偏橙红, 负值带一点洋红
+    tiltMax: charmEggRand(35, 78), // 倾角上限 (度)
+    blurChance: charmEggRand(0.4, 0.8), // 多大的比例是失焦的
+    cutBig: charmEggRand(0.90, 0.96), // 以下三档是字号分位
+    cutMid: charmEggRand(0.70, 0.85),
+    cutSmall: charmEggRand(0.32, 0.62),
+  };
+}
+
+/**
+ * 造一段话 (还没挂进 DOM, 也还没上动画)。
+ * 气质参数由调用方传入: 轮换时补进来的新段落会沿用**当前这一套**, 免得新旧两批的
+ * 配色和倾角范围对不上, 一眼就看出是后来补的。
+ */
+function buildCharmEggWord(set) {
+  const el = document.createElement("div");
+  el.className = "charm-egg-word";
+  // 位置故意放到 -4% ~ 104%: 让字能压出画面边缘, 四边不会留出一圈干净的空白
+  el.style.left = charmEggRand(-4, 104).toFixed(2) + "%";
+  el.style.top = charmEggRand(-4, 104).toFixed(2) + "%";
+  el.style.color =
+    "hsl(" + Math.round(set.hueBase + charmEggRand(-8, 12)) + " " +
+    Math.round(charmEggRand(70, 100)) + "% " + Math.round(charmEggRand(16, 54)) + "%)";
+  el.style.opacity = charmEggRand(0.15, 0.85).toFixed(2);
+  const rot = (Math.random() - 0.5) * 2 * set.tiltMax;
+  // 偶尔横向或纵向挤扁一下, 像字被拉扯过
+  const sx = Math.random() > 0.8 ? charmEggRand(0.6, 1.4) : 1;
+  const sy = Math.random() > 0.8 ? charmEggRand(0.6, 1.4) : 1;
+  el.style.transform = "translate(-50%, -50%) rotate(" + rot.toFixed(1) + "deg) scale(" + sx.toFixed(2) + ", " + sy.toFixed(2) + ")";
+  if (Math.random() < set.blurChance) el.style.filter = "blur(" + charmEggRand(0.4, 3.4).toFixed(1) + "px)";
+  el.style.letterSpacing = charmEggRand(0, 5).toFixed(1) + "px";
+  // 字号分档: 字越大越靠前, 小字密密麻麻铺在后面当底噪
+  const r = Math.random();
+  if (r > set.cutBig) {
+    el.style.fontSize = charmEggRand(5, 9).toFixed(2) + "rem";
+    el.style.fontWeight = "900";
+    el.style.zIndex = 100;
+    el.textContent = charmEggPick(CHARM_EGG_WORDS_BIG);
+  } else if (r > set.cutMid) {
+    el.style.fontSize = charmEggRand(2.5, 4.5).toFixed(2) + "rem";
+    el.style.fontWeight = "bold";
+    el.style.zIndex = 50;
+    el.textContent = charmEggPick(Math.random() < 0.75 ? CHARM_EGG_WORDS_MID : CHARM_EGG_WORDS_BIG);
+  } else if (r > set.cutSmall) {
+    el.style.fontSize = charmEggRand(1.2, 2.7).toFixed(2) + "rem";
+    el.style.fontWeight = "600";
+    el.style.zIndex = 10;
+    el.textContent = charmEggPick(Math.random() < 0.7 ? CHARM_EGG_WORDS_MID : CHARM_EGG_WORDS_SMALL);
+  } else {
+    el.style.fontSize = charmEggRand(0.8, 1.6).toFixed(2) + "rem";
+    el.style.fontWeight = "400";
+    el.style.zIndex = 1;
+    el.textContent = charmEggPick(CHARM_EGG_WORDS_SMALL);
+  }
+  return el;
+}
+
+/** 铺满一屏 (触发时调一次); 之后由 churnCharmEggWords 按段落轮换 */
+function renderCharmEggChaos(box) {
+  if (!box) return;
+  charmEggStyle = newCharmEggStyleSet(); // 本轮的整屏气质, 轮换补新段落时继续沿用
+  const count = Math.round(charmEggRand(90, 150)); // 密度也随机 (每段自己会忽明忽暗, 不用铺那么满)
+  const frag = document.createDocumentFragment();
+  const words = [];
+  for (let i = 0; i < count; i++) {
+    const el = buildCharmEggWord(charmEggStyle);
+    words.push(el);
+    frag.appendChild(el);
+  }
+  box.appendChild(frag);
+  // 挂进 DOM 之后才上动画: 动画要拿渲染时掷好的 opacity 当"底色", 再在上面忽明忽暗
+  for (const el of words) animateCharmEggWord(el);
+}
+
+/**
+ * 给一段话上"活"的动画。恐怖感的来源不是整屏一起淡进淡出 (那太整齐, 像转场), 而是
+ * **每一段各自忽闪、抽搐、到点自己灭掉** —— 观众会不自觉地去找"下一段什么时候动"。
+ *
+ * 逐段现掷的东西:
+ *   1. 闪法: 有的硬闪 (steps, 像接触不良的灯管), 有的软呼吸 (ease, 像在喘)
+ *   2. 抖动量: 位置、旋转、大小各自轻微游走, 幅度和方向都随机
+ *   3. 寿命: 每段活多久完全不等, 短的不到 1 秒就灭, 长的撑满全场
+ *   4. 明暗节奏: 周期取 0.5~3 倍"基频", 于是整屏永远对不齐拍子, 不会同起同落
+ *
+ * 全部用 Web Animations 的迭代 + 随机 duration/delay, 不写 CSS keyframes —— 每段的曲线都不同,
+ * 写死了反而会看出规律。
+ */
+function animateCharmEggWord(el) {
+  const base = parseFloat(el.style.opacity) || 0.5; // 渲染时掷好的基准亮度
+  const hardBlink = Math.random() < 0.35; // 硬闪 vs 软呼吸
+  const flickAmp = charmEggRand(0.35, 1); // 忽明忽暗的幅度
+  const dim = Math.max(0.02, base * (1 - flickAmp));
+  const bright = Math.min(1, base * (1 + flickAmp * 0.6));
+  // 段落原本的 transform 里已经含了 translate/rotate/scale, 动画只在其上叠很小的位移,
+  // 免得把摆好的构图甩飞
+  const jx = charmEggRand(-6, 6), jy = charmEggRand(-6, 6);
+  const jr = charmEggRand(-3, 3), js2 = charmEggRand(0.94, 1.06);
+
+  // 明暗: 硬闪用 steps 做"啪"地切换, 软呼吸用正弦似的 ease
+  const frames = hardBlink
+    ? [{ opacity: bright }, { opacity: dim }, { opacity: bright }]
+    : [{ opacity: bright }, { opacity: dim }, { opacity: bright }];
+  el.animate(frames, {
+    duration: charmEggRand(420, 2400),
+    iterations: Infinity,
+    easing: hardBlink ? "steps(2, end)" : "ease-in-out",
+    direction: hardBlink ? "normal" : "alternate",
+  });
+  // 抽动: 位置 + 角度 + 轻微缩放**合成一条 transform 动画**。
+  // 不能拆成两条 (一条改 transform、一条改 scale) —— 它们动的是同一个属性, 后者会把前者整个顶掉,
+  // 抖动就会无声地失效。这里把缩放并进 translate/rotate 里一起写。
+  const wobble = Math.random() < 0.4; // 少数才有大小起伏, 多了整屏像在飘
+  const s = wobble ? js2.toFixed(3) : 1;
+  el.animate(
+    [
+      { transform: el.style.transform + " translate(0px, 0px) rotate(0deg) scale(1)" },
+      { transform: el.style.transform + " translate(" + jx.toFixed(1) + "px, " + jy.toFixed(1) + "px) rotate(" + jr.toFixed(2) + "deg) scale(" + s + ")" },
+    ],
+    { duration: charmEggRand(180, 900), iterations: Infinity, direction: "alternate", easing: "ease-in-out" }
+  );
+  // 寿命: 短的自己灭掉, 长的撑到最后。灭的时候用 steps 硬切, 不留渐隐的余地
+  if (Math.random() < 0.55) {
+    el.animate([{ opacity: bright }, { opacity: 0 }], {
+      duration: charmEggRand(260, 1600),
+      delay: charmEggRand(600, 4200),
+      easing: "steps(3, end)",
+      fill: "forwards",
+    });
+  }
+}
+
+/**
+ * 每次触发重掷一次底色光晕 (位置 + 扩散范围), 让整屏构图换一副气质。
+ * 只在触发时掷, **不跟翻涌走** —— 底色是整屏最大的一块面积, 跟着每遍换会显得整页在闪,
+ * 反而盖过了血字本身的翻涌。
+ */
+function randomizeCharmEggGlow() {
+  const egg = document.getElementById("charm-egg");
+  if (!egg) return;
+  egg.style.backgroundImage =
+    "radial-gradient(circle at " + charmEggRand(20, 80).toFixed(0) + "% " + charmEggRand(20, 80).toFixed(0) + "%, #1f0000 0%, #000000 " + charmEggRand(55, 82).toFixed(0) + "%)";
+}
+
+/**
+ * 换掉一批话: 挑一部分已经亮够久的段落, 让它们**各自**抽搐着灭掉, 再从别处冒出新的一批。
+ *
+ * 这里刻意不做"整屏换一版"。整屏换 (哪怕是交叉溶接) 本质上是同步的 —— 所有字同起同落,
+ * 看久了就露出"转场"的痕迹, 太整齐、太礼貌, 跟恐怖感正好相反。改成按段落轮换之后,
+ * 屏上的构图是一直在变但又从不整个断掉, 视线永远抓不住规律。
+ *
+ * 灭的时候不是淡出, 而是"抖着灭": opacity 用 steps 硬切几下再归零, 同时位置抽两下,
+ * 像被掐断的信号。新段落则从很暗的地方不规则地闪起来。
+ */
+function churnCharmEggWords() {
+  const host = document.getElementById("charm-egg-words");
+  if (!host) return;
+  const living = Array.from(host.querySelectorAll(".charm-egg-word"));
+  // 每次换掉 12%~28% 的段落: 太少看不出动静, 太多等于重铺
+  const swapCount = Math.max(4, Math.round(living.length * charmEggRand(0.12, 0.28)));
+  const shuffled = living.sort(() => Math.random() - 0.5).slice(0, swapCount);
+  for (const el of shuffled) killCharmEggWord(el);
+  // 补上等量的新段落, 挂在同一个宿主里 —— 新旧自然混在一起, 分不出批次。
+  // 这里直接拿 buildCharmEggWord 的返回值, 不靠 "最后 N 个" 去猜: 旧段落还在抖着灭,
+  // DOM 顺序不保证新的一定排在末尾。
+  const fresh = [];
+  for (let i = 0; i < swapCount; i++) {
+    const el = buildCharmEggWord(charmEggStyle);
+    fresh.push(el);
+    host.appendChild(el);
+  }
+  for (const el of fresh) animateCharmEggWord(el); // 只给新来的上动画, 老段落继续跑自己那条
+}
+
+/** 让一段话抖着灭掉, 动画结束再摘掉节点 */
+function killCharmEggWord(el) {
+  if (el.dataset.dying) return; // 已经在灭了, 别重复派发
+  el.dataset.dying = "1";
+  const base = parseFloat(el.style.opacity) || 0.5;
+  const jx = charmEggRand(-4, 4), jy = charmEggRand(-4, 4);
+  el.animate(
+    [
+      { opacity: base, transform: el.style.transform + " translate(0px, 0px)" },
+      { opacity: 0, transform: el.style.transform + " translate(" + jx.toFixed(1) + "px, " + jy.toFixed(1) + "px)" },
+    ],
+    { duration: charmEggRand(120, 420), easing: "steps(3, end)", fill: "forwards" }
+  ).finished.then(() => el.remove()).catch(() => el.remove());
+}
+
+/** 铺满一屏血字, 然后在整个彩蛋期间不停轮换 (每段各自活, 而不是整屏一起换) */
+function startCharmEggChaos(reduceMotion) {
+  const host = document.getElementById("charm-egg-words");
+  if (!host) return;
+  stopCharmEggChaos();
+  randomizeCharmEggGlow();
+  renderCharmEggChaos(host);
+  // 开了"减少动态效果"的用户只铺一遍: 画面本身还在, 只是不再翻涌
+  if (reduceMotion) return;
+  const step = () => {
+    churnCharmEggWords();
+    charmEggChaosTimer = setTimeout(step, charmEggRand(CHARM_EGG_CHURN_MIN_MS, CHARM_EGG_CHURN_MAX_MS));
+  };
+  charmEggChaosTimer = setTimeout(step, charmEggRand(CHARM_EGG_CHURN_MIN_MS, CHARM_EGG_CHURN_MAX_MS));
+}
+
+/** 停止重排 (内容留着, 好让它跟着遮罩一起淡出) */
+function stopCharmEggChaos() {
+  if (charmEggChaosTimer) {
+    clearTimeout(charmEggChaosTimer);
+    charmEggChaosTimer = null;
+  }
+}
+
+/** 停止重排并清空节点 (淡出结束后一定要调, 别让两三百个带模糊/发光的节点留在底下白占内存) */
+function clearCharmEggChaos() {
+  stopCharmEggChaos();
+  const host = document.getElementById("charm-egg-words");
+  if (host) host.textContent = "";
+}
+
+/**
+ * 彩蛋: **连续**点挂件 CHARM_STREAK 次 -> 整个窗口闪几下 -> 用满屏血字盖满整个窗口 -> 4 秒后恢复原样。
+ *
+ * 时序全在这一个函数里 (不让 CSS 动画去管"什么时候结束"):
+ *   0 ──[.flash 动画闪 CHARM_FLASH_MS]──> 保持盖满 CHARM_HOLD_MS ──[淡出 CHARM_FADE_MS]──> 复原
+ * 闪烁那段交给 app.css 的 charm-egg-blink: 它结束帧停在 opacity 1, 所以撤掉 .flash 时画面不跳。
+ * 给开了"减少动态效果"的用户省掉闪烁, 直接盖住 (内容一样, 只是没有那几下频闪),
+ * 同时血字也只铺一遍不再翻涌 (见 startCharmEggChaos)。
+ */
+function playCharmEgg() {
+  const egg = document.getElementById("charm-egg");
+  if (!egg || charmEggPlaying) return;
+  charmEggPlaying = true;
+  resetCharmInteraction(); // 气泡别跟彩蛋叠在一起
+  const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const flashMs = reduce ? 0 : CHARM_FLASH_MS;
+  // 音乐与闪烁同一时刻起: 淡入正好铺满闪烁段, 图盖满时音量到顶;
+  // 闪烁实际时长一并传过去, 左右交替的起止才跟得上"图真正盖满窗口"那一刻
+  playCharmEggAudio(flashMs);
+  egg.classList.remove("hidden");
+  egg.classList.add("on");
+  startCharmEggChaos(reduce); // 铺满血字, 并在整个彩蛋期间不停重排
+  // 下一帧再加 .flash: 元素刚从 display: none 变成可见, 在同一个任务里加动画未必跑得起来
+  if (flashMs) requestAnimationFrame(() => egg.classList.add("flash"));
+  setTimeout(() => {
+    egg.classList.remove("flash");
+    setTimeout(() => {
+      egg.classList.remove("on"); // 淡出 (transition: opacity 0.4s)
+      stopCharmEggChaos(); // 先别翻了, 让最后那一屏血字跟着一起淡出
+      setTimeout(() => {
+        egg.classList.add("hidden");
+        clearCharmEggChaos(); // 淡完了才清节点: 两三百个带模糊和发光的 div 别留在底下
+        charmEggPlaying = false;
+      }, CHARM_FADE_MS);
+    }, CHARM_HOLD_MS);
+  }, flashMs);
+}
+
+/**
+ * 挂件的两个彩蛋都挂在 click 上:
+ *   1. 每点一次 -> 气泡里随机说一句丧气话;
+ *   2. 连点 CHARM_STREAK 次 -> playCharmEgg()。
+ * "连续"由 charmStreakTimer 保证: 每点一次就重排那只清零计时器, 隔超过 CHARM_STREAK_MS 再点
+ * 是从 0 数起 (所以慢慢点八下也不会触发, 不是累计)。
+ */
+function initCharmEgg() {
+  const charm = document.getElementById("sidebar-charm");
+  if (!charm) return;
+  charm.addEventListener("click", () => {
+    if (charmEggPlaying) return;
+    sayCharmLine();
+    charmStreak += 1;
+    if (charmStreakTimer) {
+      clearTimeout(charmStreakTimer);
+      charmStreakTimer = null;
+    }
+    if (charmStreak >= CHARM_STREAK) {
+      charmStreak = 0;
+      playCharmEgg();
+      return;
+    }
+    charmStreakTimer = setTimeout(() => {
+      charmStreakTimer = null;
+      charmStreak = 0; // 隔太久 -> 重新数
+    }, CHARM_STREAK_MS);
+  });
+  // 彩蛋期间点一下屏幕 -> 整屏血字立刻重洗一遍 (素材页原本就有点击重排, 顺手留着)。
+  // 遮罩此时 pointer-events: auto, 所以点不到下面的界面, 也不会把这下算进连点计数。
+  const eggBox = document.getElementById("charm-egg");
+  if (eggBox) {
+    eggBox.addEventListener("click", () => {
+      if (!charmEggPlaying) return;
+      churnCharmEggWords(); // 走和自动轮换同一条路径: 抽换一批段落, 不整屏重铺
+    });
+  }
+  // 挂件被挪走 (窗口 resize / 拖侧边栏) 或藏起来时, 气泡会孤零零飘在空处 -> 直接收掉
+  window.addEventListener("resize", () => {
+    const bubble = document.getElementById("charm-bubble");
+    if (bubble && !bubble.classList.contains("hidden")) resetCharmInteraction();
+  });
+}
+
 // ---------------- 顶栏「强制刷新」(Ctrl+F5) ----------------
 
 // 只刷 CSS/JS/favicon: 这正是 Ctrl+F5 关心的"代码有没有更新"。
@@ -730,6 +1402,8 @@ function initSidebarResize() {
   initSidebarCharm();
   // 挂件同时是「回到顶部」按钮 (按住拉长绳子, 松手回弹并滚回顶部)
   initCharmTop();
+  // 挂件的两个彩蛋: 单击说句话; 连点 4 次闪屏 + 用图盖住整个窗口 (见 initCharmEgg)
+  initCharmEgg();
 }
 
 boot();

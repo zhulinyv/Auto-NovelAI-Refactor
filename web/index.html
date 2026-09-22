@@ -106,6 +106,33 @@
 
   <!-- Toast 容器: 挂在 body 下, 不受 #app (z-index:1) 层叠上下文限制, 永远显示在所有弹窗最上层 -->
   <div id="toasts" class="toasts"></div>
+
+  <!-- 挂件气泡: 单击晴天娃娃时随机说一句丧气话 (文案在 app.js 的 CHARM_BUBBLE_LINES)。
+       跟 toast 一样挂在 body 下 —— 免得被 #app / .sidebar 的 overflow 裁掉, 也躲开它们各自的
+       层叠上下文; 代价是位置得自己按挂件的实测矩形算 (见 app.js 的 placeCharmBubble)。 -->
+  <div class="charm-bubble hidden" id="charm-bubble" role="status" aria-live="polite"></div>
+
+  <!-- 彩蛋遮罩: 连点晴天娃娃 4 次 -> 整个窗口闪几下 -> 用满屏血字 ("病态文字深渊") 盖满整个窗口,
+       4 秒后恢复原样。时序全在 app.js 的 playCharmEgg() 里; 这里只负责
+       "position: fixed + inset: 0 = 盖满整窗", 外加一层呼吸的血色。
+       里面那堆字**不是静态标记**: 每次触发都由 app.js 的 renderCharmEggChaos() 现随机生成,
+       而且彩蛋期间会一遍遍重排, 每遍都是一整层淡入盖住上一层 (交叉溶接, 不是硬切),
+       所以连点几次既不会看到同一屏, 换屏也不会像频闪。 -->
+  <div class="charm-egg hidden" id="charm-egg" aria-hidden="true">
+    <div class="charm-egg-words" id="charm-egg-words"></div>
+  </div>
+
+  <!-- 彩蛋音乐: 连点晴天娃娃 4 次时, 和上面那张图同一时刻起播的一段高潮 (见 app.js 的
+       playCharmEggAudio)。三段备选, 每次**随机挑一段**, 所以连着触发不会老听到同一段:
+         前段 17.4s 起 / 中段 34.1s 起 / 结尾 66.4s 起  (都是 8.5 秒, 响度已互相对齐)
+       淡入淡出和左右交替都是 app.js 用 Web Audio 实时做的, 没有烙进文件, 所以改时长不用重切音频。
+       放成页面的静态节点而不是 JS 里 new Audio(): 页面一加载就开始缓冲, 连点到第 4 下时不用等网络;
+       三段一起 preload 也就 600KB, 本地服务端取一次的事。
+       class 是 app.js 找这三段的钩子 (见 charmEggAudioEls), 别改成 id —— 那会退化回只能挑一段。
+       没有 controls 属性, 浏览器不会给它们任何可见占位。 -->
+  <audio class="charm-egg-audio" src="/assets/charm/charm-egg-climax-early.mp3" preload="auto"></audio>
+  <audio class="charm-egg-audio" src="/assets/charm/charm-egg-climax-mid.mp3" preload="auto"></audio>
+  <audio class="charm-egg-audio" src="/assets/charm/charm-egg-climax-late.mp3" preload="auto"></audio>
   <script src="/js/vendor/twemoji.min.js"></script>
   <script type="module" src="/js/app.js"></script>
 </body>
