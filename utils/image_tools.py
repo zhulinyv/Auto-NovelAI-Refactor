@@ -50,16 +50,23 @@ def process_image_by_orientation(image_path):
 
 
 def change_the_mask_color(image_path):
-    """把遮罩转为白色前景 / 黑色背景。"""
+    """把遮罩转为白色前景 / 黑色背景 (唯一的蒙版后处理, 所见即所得)。
+
+    前端画布本身就是 8x8 网格上的二值蒙版 (绘制过的格子 alpha=255, 其余 alpha=0),
+    所以这里只做一次颜色映射, 不改变几何形状:
+        alpha != 0  ->  (255, 255, 255, 255)   白色 = 交给 AI 重绘
+        alpha == 0  ->  (0, 0, 0, 255)        黑色 = 保持原图不变
+
+    用 numpy 向量化: 蒙版是整图尺寸 (最大 1536x2048), 逐像素 Python 循环太慢。
+    """
     with Image.open(image_path) as image:
-        image = image.convert("RGBA")
-        pixels = image.load()
-        width, height = image.size
-        for x in range(width):
-            for y in range(height):
-                r, g, b, a = pixels[x, y]
-                pixels[x, y] = (255, 255, 255, 255) if a != 0 else (0, 0, 0, 255)
-        image.save(image_path)
+        arr = np.array(image.convert("RGBA"))
+        # 用 alpha 通道做二值判定: 非零 -> 白, 零 -> 黑; 三个颜色通道取同一结果
+        fg = (arr[:, :, 3] != 0)[:, :, None]
+        out = np.where(fg, np.uint8(255), np.uint8(0))
+        rgb = np.repeat(out, 3, axis=2)
+        alpha = np.full(arr.shape[:2] + (1,), 255, dtype=np.uint8)
+        Image.fromarray(np.concatenate([rgb, alpha], axis=2)).save(image_path)
     return image_path
 
 
@@ -82,71 +89,19 @@ def resize_image(image_path, output_path=None):
     return output_path or image_path
 
 
-def process_white_regions(image_path, output_path):
-    """把遮罩的白色区域按 8x8 网格扩张, 使遮罩更贴合被绘制区域。"""
-    img = Image.open(image_path)
-    img_array = np.array(img)
-    height, width = img_array.shape[:2]
-    if height % 64 != 0 or width % 64 != 0:
-        raise ValueError("图片尺寸必须是64的倍数")
+def ensure_mask_grid(image_path) -> str:
+    """校验蒙版尺寸是 64 的倍数 (8x8 网格的前提), 原样返回路径。
 
-    if len(img_array.shape) == 3:
-        gray = np.mean(img_array, axis=2)
-        binary = (gray > 128).astype(np.uint8) * 255
-    else:
-        binary = (img_array > 128).astype(np.uint8) * 255
-
-    grid_height, grid_width = height // 8, width // 8
-    white_grids = np.zeros((grid_height, grid_width), dtype=bool)
-    for i in range(grid_height):
-        for j in range(grid_width):
-            if np.any(binary[i * 8 : (i + 1) * 8, j * 8 : (j + 1) * 8] > 0):
-                white_grids[i, j] = True
-
-    visited = np.zeros_like(white_grids, dtype=bool)
-    regions = []
-
-    def bfs(start_i, start_j):
-        region = []
-        queue = [(start_i, start_j)]
-        visited[start_i, start_j] = True
-        while queue:
-            i, j = queue.pop(0)
-            region.append((i, j))
-            for di, dj in [(0, 1), (1, 0), (0, -1), (-1, 0)]:
-                ni, nj = i + di, j + dj
-                if 0 <= ni < grid_height and 0 <= nj < grid_width and white_grids[ni, nj] and not visited[ni, nj]:
-                    visited[ni, nj] = True
-                    queue.append((ni, nj))
-        return region
-
-    for i in range(grid_height):
-        for j in range(grid_width):
-            if white_grids[i, j] and not visited[i, j]:
-                regions.append(bfs(i, j))
-
-    result = binary.copy()
-    brush_half = 2
-    for region in regions:
-        region_i = [pos[0] for pos in region]
-        region_j = [pos[1] for pos in region]
-        min_i, max_i = min(region_i), max(region_i)
-        min_j, max_j = min(region_j), max(region_j)
-        top_distance, bottom_distance = min_i, grid_height - 1 - max_i
-        left_distance, right_distance = min_j, grid_width - 1 - max_j
-        expanded_min_i = max(0, min_i - (top_distance - (top_distance // 8) * 8))
-        expanded_max_i = min(grid_height - 1, max_i + (bottom_distance - (bottom_distance // 8) * 8))
-        expanded_min_j = max(0, min_j - (left_distance - (left_distance // 8) * 8))
-        expanded_max_j = min(grid_width - 1, max_j + (right_distance - (right_distance // 8) * 8))
-        for ci in range(expanded_min_i, expanded_max_i + 1):
-            for cj in range(expanded_min_j, expanded_max_j + 1):
-                s_i, e_i = max(0, ci - brush_half), min(grid_height, ci + brush_half)
-                s_j, e_j = max(0, cj - brush_half), min(grid_width, cj + brush_half)
-                if any(s_i <= pos[0] < e_i and s_j <= pos[1] < e_j for pos in region):
-                    result[s_i * 8 : e_i * 8, s_j * 8 : e_j * 8] = 255
-
-    Image.fromarray(result).save(output_path)
-    return output_path
+    历史上这里调用过 process_white_regions: 把白色区域按 8x8 网格做连通域扩张,
+    边界会被"鼓"到网格线上 —— 前端画的圆形/不规则笔迹经过它之后形状会变, 做不到所见即所得。
+    现在前端画笔本身就吸附在 8x8 网格上 (见 web/js/maskGrid.js 的 strokeCells),
+    蒙版与最终送进模型的内容逐格一致, 所以扩张这一步已经取消, 只保留尺寸校验。
+    """
+    with Image.open(image_path) as image:
+        width, height = image.size
+    if width % 64 != 0 or height % 64 != 0:
+        raise ValueError(f"蒙版尺寸必须是 64 的倍数, 当前为 {width}x{height}")
+    return image_path
 
 
 def _extract_exif_metadata(image):

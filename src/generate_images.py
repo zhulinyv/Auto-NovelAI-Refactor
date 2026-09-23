@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 import random
 from copy import deepcopy
@@ -36,11 +37,11 @@ from utils.helpers import (
 )
 from utils.image_tools import (
     change_the_mask_color,
+    ensure_mask_grid,
     image_to_base64,
     is_fully_transparent,
     is_pure_white,
     process_image_by_orientation,
-    process_white_regions,
     resize_image,
     revert_image_info,
 )
@@ -72,12 +73,15 @@ CROP_SNAP = 64
 CROP_MIN_INSET = 32
 
 # 裁剪重绘: 选框自动向外扩展的步长与"生成块"的面积上限
-# (与前端 cropRect.js 的 CROP_EXPAND_STEP / CROP_EXPAND_MAX_AREA / CROP_EXPAND_MAX_AREA_RECT 一致, 改动需两侧同步)
+# (与前端 cropRect.js 的 CROP_EXPAND_STEP / CROP_EXPAND_MAX_AREA 一致, 改动需两侧同步)
 # 用户框选得小时, 裁剪块的尺寸 (= 送进模型的生成分辨率) 也跟着小, 出图质量差; 于是自动向外扩几圈当
-# 上下文, 扩到宽高乘积贴近上限为止 —— 正方形生成块贴 1024 × 1024, 非正方形贴 1024 × 960。
+# 上下文。上限是单一的 1024 × 1024 面积上限 (不看形状), 按边独立扩展:
+# 某条边贴到图片边界就跳过它、继续扩其它边, 所以像 832 × 1216 这种整图面积没超上限的图片
+# 能够被扩到覆盖整张图。
 CROP_EXPAND_STEP = 64
 CROP_EXPAND_MAX_AREA = 1024 * 1024
-CROP_EXPAND_MAX_AREA_RECT = 1024 * 960
+# 兼容旧名 (历史上非正方形用更小的上限 1024 × 960); 现在统一到同一个上限。
+CROP_EXPAND_MAX_AREA_RECT = CROP_EXPAND_MAX_AREA
 
 
 # ---------------------------------------------------------------- 辅助函数
@@ -236,40 +240,169 @@ def _crop_rect_from_request(crop, image_size):
 
 
 def _expand_max_area(w: int, h: int) -> int:
-    """生成块形状对应的面积上限: 正方形 1024×1024, 非正方形 1024×960 (与前端 expandMaxArea 一致)。
-
-    形状按扩展之后的宽高是否相等算: 四条边都能扩时方形框每轮都还是方的, 会一路长到 1024×1024;
-    只有某几条边能扩时框会变成非方的, 上限随即收到 1024×960。
-    """
-    return CROP_EXPAND_MAX_AREA if w == h else CROP_EXPAND_MAX_AREA_RECT
+    """生成块的面积上限。现在只看面积、不看形状 (保留函数是为了与前端 expandMaxArea 对齐调用点)。"""
+    return CROP_EXPAND_MAX_AREA
 
 
 def _expand_crop_rect(rect, image_size):
     """裁剪重绘: 把归一化后的选框向外扩成"生成块" (真正拿去裁剪的范围); 与前端 expandCropRect 逐值一致。
 
-    每轮四条边各向外扩 CROP_EXPAND_STEP (64) 像素, 逐边判定: 只有"扩完后这条边仍落在图片内"才扩它
-    (选框本来就伸到图片外的那几条边因此永远扩不动, 于是只扩对面的边)。每扩完一圈再看一眼宽高乘积:
-    超过该形状的上限就整圈作废 —— 宁可不扩, 也不能超上限。选框已经够大或四条边都扩不动时原样返回,
-    所以这一步是幂等的。
+    期望的行为是**四边一起扩**, 只有某条边贴到图片边界才让其它边继续; 而不是"只扩某一边"。
+    为此分三步走:
+      1) 对称扩展: 每轮把所有还能扩的边一起扩一步。整圈会超面积上限时, 退而求其次选
+         "左右都扩"或"上下都扩", 再不行才单边 —— 始终优先保持左右/上下对称;
+      2) 单边填满: 对称路子走完后, 用单边贪心把剩余面积吃满 (某边到边界时这一步尤其重要);
+      3) 重新居中: 扩展是 64 步进的, 停下来时整块可能"卡在半格" (例如左右各剩 32px 用不上)。
+         在图片内重新居中可以把这些余量释放出来, 居中后又有余量就回到第 1 步继续扩。
+         每一步都校验过面积, 所以结果不会超过上限。
+    面积上限是单一的 1024x1024 (不看形状), 所以 832x1216 这种"整图面积没超上限"的图片
+    能够被扩到覆盖整张图。
+
+    选框已经够大或四条边都扩不动时原样返回, 所以这一步是幂等的。
 
     扩出来的一圈只是给模型的上下文: 蒙版在那里是透明的 (见 _prepare_inpaint_inputs 的 pad_edges=False),
     之后会变成纯黑 (change_the_mask_color), 模型不会去重绘它。
     """
-    x, y, w, h = rect
     image_w, image_h = image_size
-    # 每轮至少扩一条边 64 像素 => 面积严格变大, 又有上限兜着, 循环必然在有限轮内结束
-    # (guard 只是防止常量被改坏之后死循环, 理论上不可达)
-    for _ in range(4096):
-        x0 = x - CROP_EXPAND_STEP if x - CROP_EXPAND_STEP >= 0 else x
-        y0 = y - CROP_EXPAND_STEP if y - CROP_EXPAND_STEP >= 0 else y
-        x1 = x + w + CROP_EXPAND_STEP if x + w + CROP_EXPAND_STEP <= image_w else x + w
-        y1 = y + h + CROP_EXPAND_STEP if y + h + CROP_EXPAND_STEP <= image_h else y + h
-        if (x0, y0, x1, y1) == (x, y, x + w, y + h):
-            break  # 四条边都扩不动了
-        new_w, new_h = x1 - x0, y1 - y0
-        if new_w * new_h > _expand_max_area(new_w, new_h):
-            break  # 再扩一圈就超上限: 到此为止 (这一圈整个作废)
-        x, y, w, h = x0, y0, new_w, new_h
+    step = CROP_EXPAND_STEP
+    ox, oy, ow, oh = rect  # 用户原始选框 (居中时不能把内容露出去)
+    x, y, w, h = rect
+
+    def _room(v: int) -> int:
+        """该方向还剩多少可扩空间 (向下取整到步长; 贴着或伸出图片外的方向为 0)"""
+        return max(0, v // step * step)
+
+    def _recenter_if_useful(cx: int, cy: int, cw: int, ch: int):
+        """在图片内重新居中, 但**只在它确实能换来更大面积时**才挪。
+
+        注意两点:
+          1) 不能用内置 round() —— Python 用的是"银行家舍入"(round(6.5) == 6), 而前端的
+             Math.round 是"四舍五入"(Math.round(6.5) == 7)。恰好 .5 时两者差一格,
+             实测会让前后端算出不同的居中位置。统一用 floor(v + 0.5) 与 JS 对齐。
+          2) 居中是最后手段。它会把整块挪到图片中央, 从而破坏第 1 步做出的左右/上下对称
+             (表现: 四周明明都有空间, 却只往某一边扩)。所以只有"挪过去之后还能继续扩"
+             时才执行, 否则保持对称结果不动。
+        """
+
+        def _round_half_up(v: float) -> int:
+            return int(math.floor(v + 0.5))
+
+        nx = _round_half_up((image_w - cw) / 2 / step) * step
+        ny = _round_half_up((image_h - ch) / 2 / step) * step
+        nx = max(0, min(nx, image_w - cw))
+        ny = max(0, min(ny, image_h - ch))
+        if nx > ox or ny > oy or nx + cw < ox + ow or ny + ch < oy + oh:
+            return None  # 会把原始选框露出去
+        if nx == cx and ny == cy:
+            return None  # 已经在中央, 不用挪
+        rl = max(0, nx // step * step)
+        rt = max(0, ny // step * step)
+        rr = max(0, (image_w - (nx + cw)) // step * step)
+        rb = max(0, (image_h - (ny + ch)) // step * step)
+        can_grow_w = (rl >= step or rr >= step) and ((cw + step) * ch <= CROP_EXPAND_MAX_AREA)
+        can_grow_h = (rt >= step or rb >= step) and (cw * (ch + step) <= CROP_EXPAND_MAX_AREA)
+        if not can_grow_w and not can_grow_h:
+            return None  # 挪过去也长不了, 别破坏对称
+        return nx, ny, cw, ch
+
+    for _ in range(64):
+        before = (x, y, w, h)
+
+        # ---- 第 1 + 2 步: 对称扩展 -> 单边填满 ----
+        rl, rt = _room(x), _room(y)
+        rr, rb = _room(image_w - (x + w)), _room(image_h - (y + h))
+
+        # 第 1 步: 对称优先 (整圈 > 左右/上下 > 单边)
+        for _g in range(100000):
+            avail = []
+            if rl >= step:
+                avail.append("l")
+            if rr >= step:
+                avail.append("r")
+            if rt >= step:
+                avail.append("t")
+            if rb >= step:
+                avail.append("b")
+            if not avail:
+                break
+            combos = []
+            for mask in range(1, 16):
+                sides = []
+                if mask & 1:
+                    sides.append("l")
+                if mask & 2:
+                    sides.append("r")
+                if mask & 4:
+                    sides.append("t")
+                if mask & 8:
+                    sides.append("b")
+                if any(s not in avail for s in sides):  # 该边已经贴到图片边界
+                    continue
+                nw = w + (step if "l" in sides else 0) + (step if "r" in sides else 0)
+                nh = h + (step if "t" in sides else 0) + (step if "b" in sides else 0)
+                if nw * nh > CROP_EXPAND_MAX_AREA:
+                    continue
+                sym = (2 if ("l" in sides and "r" in sides) else 0) + (2 if ("t" in sides and "b" in sides) else 0)
+                combos.append((sym, len(sides), nw * nh, sides, nw, nh))
+            if not combos:
+                break
+            # 对称性 > 扩的边数 > 面积 (与前端排序规则一致)
+            combos.sort(key=lambda c: (-c[0], -c[1], -c[2]))
+            _, _, _, sides, nw, nh = combos[0]
+            for s in sides:
+                if s == "l":
+                    x -= step
+                    w += step
+                    rl -= step
+                elif s == "r":
+                    w += step
+                    rr -= step
+                elif s == "t":
+                    y -= step
+                    h += step
+                    rt -= step
+                else:
+                    h += step
+                    rb -= step
+
+        # 第 2 步: 单边贪心, 把剩余面积吃满
+        for _g in range(100000):
+            cands = []
+            if rl >= step:
+                cands.append(("l", w + step, h))
+            if rr >= step:
+                cands.append(("r", w + step, h))
+            if rt >= step:
+                cands.append(("t", w, h + step))
+            if rb >= step:
+                cands.append(("b", w, h + step))
+            ok = [c for c in cands if c[1] * c[2] <= CROP_EXPAND_MAX_AREA]
+            if not ok:
+                break
+            ok.sort(key=lambda c: -(c[1] * c[2]))
+            side, nw, nh = ok[0]
+            if side == "l":
+                x -= step
+                w += step
+                rl -= step
+            elif side == "r":
+                w += step
+                rr -= step
+            elif side == "t":
+                y -= step
+                h += step
+                rt -= step
+            else:
+                h += step
+                rb -= step
+
+        # ---- 第 3 步: 只有在"居中后还能继续扩"时才重新居中 ----
+        rc = _recenter_if_useful(x, y, w, h)
+        if rc is not None:
+            x, y, w, h = rc
+        # 这一轮没有任何变化 => 已收敛 (幂等的前提)
+        if (x, y, w, h) == before:
+            break
     return x, y, w, h
 
 
@@ -321,9 +454,10 @@ def _prepare_inpaint_inputs(inpaint: dict | None, width: int, height: int):
     裁剪重绘 (mode == "裁剪重绘"): 先按 crop 归一化出用户选框, 再自动向外扩成"生成块"
     (见 _expand_crop_rect —— 选框小时也按接近上限的分辨率出图), 沿生成块把三张图裁下来当生成输入,
     生成分辨率取生成块尺寸 (对齐 64 的倍数, NovelAI 的硬要求), 此时 crop 为一份贴回说明:
-        {"rect": (x, y, w, h), "gen": (gw, gh), "full": 完整原图, "size": (width, height)}
+        {"rect": (x, y, w, h), "gen": (gw, gh), "full": 完整原图}
     其中 rect 是生成块 (不是用户选框): 生成图整块贴回那里, 扩出来那一圈因为蒙版是黑的而不会被改动。
-    调用方生成完需用 _paste_crop_back 把结果贴回原图, 输出仍是完整原图。
+    调用方生成完需用 _paste_crop_back 把结果贴回原图, 输出尺寸就是原图尺寸 ——
+    面板上设置的 width/height 在裁剪重绘下**不参与**成图尺寸 (它只被生成块尺寸覆盖掉)。
     """
     if not inpaint or not inpaint.get("enabled"):
         return None
@@ -382,7 +516,7 @@ def _prepare_inpaint_inputs(inpaint: dict | None, width: int, height: int):
             _crop_and_fit(background),
             _crop_and_fit(mask, pad_edges=False),
             _crop_and_fit(composite),
-            {"rect": rect, "gen": gen_size, "full": background, "size": (width, height)},
+            {"rect": rect, "gen": gen_size, "full": background},
         )
 
     size = (width, height)
@@ -395,11 +529,12 @@ def _prepare_inpaint_inputs(inpaint: dict | None, width: int, height: int):
 
 
 def _paste_crop_back(patch_path: str, crop_ctx: dict) -> Image.Image:
-    """裁剪重绘: 把生成的裁剪块贴回原图对应位置, 返回完整原图尺寸的图像。
+    """裁剪重绘: 把生成的裁剪块贴回原图对应位置, 返回**原图尺寸**的图像。
 
-    裁剪块先缩回生成块尺寸 (生成分辨率对齐过 64, 可能比生成块尺寸大), 再按生成块坐标贴回,
-    最后整体对齐到请求分辨率 —— 与图生图一致, 输出尺寸始终等于面板分辨率。
-    生成块里扩出来的那一圈在蒙版上是黑的, 模型不会重绘它, 所以贴回后它仍是原图内容。
+    裁剪块先缩回生成块尺寸 (生成分辨率对齐过 64, 可能比生成块尺寸大), 再按生成块坐标贴回。
+    输出尺寸 = 上传图片的尺寸 (画布尺寸, 已是 64 的倍数), **不再改写成面板上设置的分辨率** ——
+    裁剪重绘只改动框选的那一块, 其余像素原样保留, 所以结果就该保持原图大小。
+    生成块里扩出来的那一圈在蒙版上是黑的, 模型不会重绘它, 贴回后仍是原图内容。
     """
     crop_x, crop_y, crop_w, crop_h = crop_ctx["rect"]
     with Image.open(patch_path) as patch:
@@ -408,7 +543,7 @@ def _paste_crop_back(patch_path: str, crop_ctx: dict) -> Image.Image:
         patch = patch.resize((crop_w, crop_h), Image.Resampling.LANCZOS)
     full = crop_ctx["full"].copy()
     full.paste(patch, (crop_x, crop_y))
-    return _resize_editor_image(full, crop_ctx["size"])
+    return full
 
 
 def _build_character_data(characters: list[dict]) -> tuple[list, list, list]:
@@ -736,16 +871,22 @@ def generate(request: dict) -> tuple[list[str], str]:
                 "strength": float(inpaint.get("strength", 0.7)),
                 "noise": float(inpaint.get("noise", 0)),
                 "inpaint_i2i_strength": float(inpaint.get("mask_strength", 1)),
+                # 涂鸦重绘的底图是"合成图" (底图 + 用户涂鸦), 局部重绘用干净底图。
+                # doodle 标志由前端单独给出 —— 裁剪重绘时 mode 会变成 "裁剪重绘",
+                # 光看 mode 就分不出是不是涂鸦了 (旧请求没有这个字段, 按 mode 兜底)。
                 "image": image_to_base64(
-                    resize_image(composite_path if inpaint.get("mode") == "涂鸦重绘" else image_path)
+                    resize_image(
+                        composite_path if (inpaint.get("doodle") or inpaint.get("mode") == "涂鸦重绘") else image_path
+                    )
                 ),
                 "extra_noise_seed": _seed,
                 "color_correct": False,
             }
             if _type == "inpaint":
-                image_kwargs["mask"] = image_to_base64(
-                    resize_image(process_white_regions(change_the_mask_color(mask_path), mask_path))
-                )
+                # 蒙版后处理只有两步: 尺寸校验 (8x8 网格的前提) + 颜色映射 (白=重绘 / 黑=保留)。
+                # 前端画布就是 8x8 网格上的二值蒙版, 所以这里不再做任何形状扩张 —— 所见即所得。
+                # 注意顺序: 先校验再映射, 校验失败时不会留下被改写过的半成品文件。
+                image_kwargs["mask"] = image_to_base64(resize_image(change_the_mask_color(ensure_mask_grid(mask_path))))
             json_data = func(json_data, **image_kwargs)
 
         # 6. 保存请求并生成 (wildcards 只解析一次, 重试沿用同一份请求)
@@ -778,7 +919,10 @@ def generate(request: dict) -> tuple[list[str], str]:
                 func = _model_function_map(model, "i2i")
                 if func is None:
                     raise NovelAIAPIError(f"该模型不支持 Enhance: {model}")
-                new_width, new_height = _enhance_target_size(model, enhance.get("amount", "1.5x"), width, height)
+                # Enhance 的放大基数必须取**成图的实际尺寸**: 裁剪重绘的输出是原图尺寸,
+                # 与面板上设置的 width/height 无关 —— 拿面板分辨率算会放大出一个不该有的大小。
+                out_w, out_h = crop_ctx["full"].size if crop_ctx else (width, height)
+                new_width, new_height = _enhance_target_size(model, enhance.get("amount", "1.5x"), out_w, out_h)
                 magnitude = int(enhance.get("magnitude", 1))
                 strength_map = {1: 0.2, 2: 0.4, 3: 0.5, 4: 0.6, 5: 0.7}
                 # Enhance 是"整图 img2img", 必须从干净的基础请求重建:

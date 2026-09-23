@@ -924,7 +924,11 @@ a.btn { text-decoration: none; }
 }
 .editor-restore-btn:hover { background: #6c8cff; }
 
-/* 画笔/橡皮悬停区域提示圈 (跟随鼠标, 直径 = 画笔大小 × 画布显示缩放) */
+/* 画笔/橡皮悬停预览。
+   涂鸦重绘 (自由绘制): 一个圆 (Square Brush 勾选时是方框), 直径 = 画笔大小 × 画布显示缩放。
+   局部重绘 (网格模式): 预览是"这一笔覆盖区域"的**轮廓** —— 只画外露的边, 不填内部,
+   所以再大的笔刷也只有一圈线, 不会出现密密麻麻的网格。落点吸附格心, 指针在同一格内
+   移动时预览不动, 直观表达"只在网格上落笔"。 */
 .editor-canvas-wrap .brush-cursor {
   position: absolute;
   z-index: 9;
@@ -935,7 +939,55 @@ a.btn { text-decoration: none; }
   pointer-events: none;
   transform: translate(-50%, -50%);
 }
+/* Square Brush: 自由绘制下也变成方形 */
+.editor-canvas-wrap .brush-cursor.square { border-radius: 2px; }
 .editor-canvas-wrap .brush-cursor.eraser { border-style: dashed; }
+/* 网格模式: 容器本身完全不可见 (宽高为 0), 形状全部由内部的轮廓线表达。
+   两条注意点:
+   1) 必须取消 translate(-50%,-50%) —— 那是给"以指针为圆心"的圆形预览用的;
+      网格模式下 JS 已经把 left/top 算成容器左上角, 再平移一半就错位了。
+   2) 必须同时清掉 border 与 box-shadow: 容器宽高是 0, 只要还剩边框就会在原点画出
+      一个 1.5px 的白色小点 (橡皮的 border-style:dashed 正好会把它带回来)。
+      所以这里的选择器带上 .eraser, 保证优先级压过上面那条。 */
+.editor-canvas-wrap .brush-cursor.grid-mode,
+.editor-canvas-wrap .brush-cursor.grid-mode.eraser,
+.editor-canvas-wrap .brush-cursor.grid-mode.square {
+  border: none;
+  box-shadow: none;
+  border-radius: 0;
+  transform: none;
+  width: 0;
+  height: 0;
+  outline: none;
+}
+.editor-canvas-wrap .brush-cursor-cells {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: none;
+  pointer-events: none;
+}
+/* 轮廓的每一段边: 细线, 只描边不填充 */
+.editor-canvas-wrap .brush-cursor-edge {
+  position: absolute;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.55);
+}
+.editor-canvas-wrap .brush-cursor.eraser .brush-cursor-edge {
+  background: rgba(255, 170, 170, 0.95);
+}
+
+/* Square Brush 勾选 (与「颜色」同处一行, 见 .ed-brush-opts) */
+.editor-tools .ed-square-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-dim, #9aa4b2);
+  cursor: pointer;
+  user-select: none;
+}
+.editor-tools .ed-square-label input { accent-color: #6c8cff; cursor: pointer; }
 
 /* 选区拖拽时的实时尺寸标签 (矩形/椭圆/套索, 显示宽 × 高) */
 .editor-canvas-wrap .shape-size-label {
@@ -1058,16 +1110,16 @@ a.btn { text-decoration: none; }
   background: color-mix(in srgb, var(--primary) 15%, transparent);
   color: var(--primary);
 }
-.ed-color-row {
-  display: flex;
+.ed-color-inline {
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  gap: 6px;
   font-size: 12.5px;
   color: var(--text-2);
   font-weight: 600;
+  cursor: pointer;
 }
-.ed-color-row input[type="color"] { width: 46px; height: 28px; border-radius: var(--radius-sm); padding: 2px; }
+.ed-color-inline input[type="color"] { width: 40px; height: 24px; border-radius: var(--radius-sm); padding: 2px; cursor: pointer; }
 .ed-size-row {
   display: flex;
   align-items: center;
@@ -1077,20 +1129,14 @@ a.btn { text-decoration: none; }
   font-weight: 600;
 }
 .ed-size-row .slider-row { flex: 1; min-width: 0; }
+/* Square Brush + 颜色 同一行: 左侧开关, 右侧颜色 (局部重绘时颜色隐藏) */
+.ed-brush-opts { justify-content: space-between; flex-wrap: wrap; }
 .ed-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
   padding-top: 12px;
   border-top: 1px dashed var(--border);
-}
-/* 裁剪重绘 (局部重绘): 选中「▣ 裁剪」时出现 —— 内缩 a 滑条 + 选框尺寸提示 */
-.ed-crop-sec { padding-top: 12px; border-top: 1px dashed var(--border); }
-.ed-crop-info {
-  font-size: 11.5px;
-  line-height: 1.5;
-  color: var(--text-2);
-  word-break: break-word;
 }
 .ed-actions .btn { padding-left: 6px; padding-right: 6px; white-space: nowrap; font-size: 12.5px; }
 /* ------- 角色卡片 ------- */

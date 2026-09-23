@@ -19,11 +19,12 @@
 //     也就是打到头时内框的对面那条边正好压在图片边缘上。收紧是必须的: 尺寸再大, 位置夹取的上界
 //     (图宽-宽+a) 就会比下界 (-a) 还小, 夹取只好把固定的那条边自己推出去 —— 拖手柄时表现为
 //     左上角突然向左跳 a 像素 ("左上角固定"失效)。
-//   - 生成块 = 外框自动向外扩出来的裁剪范围 (见 expandCropRect): 外框太小 (宽高乘积不到该形状的上限)
-//     时, 每轮四条边各向外扩 CROP_EXPAND_STEP (64) 像素, 扩到宽高乘积贴近上限为止 —— 正方形生成块
-//     贴 1024×1024, 非正方形贴 1024×960。裁剪块的尺寸就是生成分辨率, 所以这一步等于"小框也按大分辨率
-//     出图"; 扩出来的一圈只是给模型的上下文 —— 蒙版上它是黑的 (不重绘), 贴回时也就不会被改动。
-//     某条边扩完会伸到图片外时这一轮就不扩它 (只扩对面的边), 所以扩展永远不越过图片。
+//   - 生成块 = 外框自动向外扩出来的裁剪范围 (见 expandCropRect): 外框面积不到上限时,
+//     按边向外扩 CROP_EXPAND_STEP (64) 像素, 扩到面积贴近上限为止 —— 上限是单一的 1024×1024
+//     (不看形状)。裁剪块的尺寸就是生成分辨率, 所以这一步等于"小框也按大分辨率出图";
+//     扩出来的一圈只是给模型的上下文 —— 蒙版上它是黑的 (不重绘), 贴回时也就不会被改动。
+//     某条边已经贴到图片边界就跳过它、继续扩还有余量的其它边, 所以扩展永远不越过图片,
+//     且不会因为"一条边到边界"就整体停住。
 //   - 归一化必须幂等 (前端画框算一次, 后端收到请求还会再兜底算一次, 同一个框喂回去必须原样返回):
 //     被夹到边界上的 -a / 图宽-宽+a 一般不是 64 的倍数, 若写成"先吸附再夹取", 这个值会被下一次
 //     吸附拉回网格 (a=32 时 -32 → 0), 两端算出来的裁剪位置就错开 a 像素 —— 所以越界一律"精确停在
@@ -264,32 +265,44 @@ export function cropVisibleRect(rect, bounds) {
 // ---------------------------------------------------------------- 自动扩展生成块
 //
 // 裁剪块的尺寸就是送进模型的生成分辨率: 框选得小 (比如 512×512), 生成分辨率也跟着小, 出图质量与
-// 整图生成差得远。所以在用户选框之外再自动向外扩几圈当上下文, 让生成分辨率尽量贴近该形状的上限:
-// 正方形生成块贴 1024×1024, 非正方形贴 1024×960。扩出来的一圈在蒙版上是黑的 (不重绘), 贴回原图时
-// 自然不会被改动 —— 用户看到的改动范围仍然只是自己框选的那块。
+// 整图生成差得远。所以在用户选框之外再自动向外扩几圈当上下文, 让生成分辨率尽量贴近上限。
+// 扩出来的一圈在蒙版上是黑的 (不重绘), 贴回原图时自然不会被改动 ——
+// 用户看到的改动范围仍然只是自己框选的那块。
 //
-// 三个必须与后端 src/generate_images.py 的 CROP_EXPAND_* / _expand_crop_rect 逐值一致的细节:
-//   1) 步长: 每轮每条边各向外扩 64 像素 (与外框的 64 网格同源, 扩完尺寸仍是 64 的倍数);
-//   2) 某条边扩完会伸到图片外 -> 这一轮就不扩它, 只扩对面的边 (选框本来就伸到图片外的那几条边
-//      因此永远扩不动) —— 扩展只往图片里长, 与"用户把外框拖到图片外"是两回事;
-//   3) 每扩完一圈都重新看一眼宽高乘积: 超过该形状的上限就整圈作废 (宁可不扩, 也不能超上限)。
-//      形状按"扩完之后"的宽高是否相等算: 四条边都能扩时方形框每轮都还是方的, 会一路长到 1024×1024;
-//      只有某几条边能扩时框会变成非方的, 上限随即收到 1024×960。
+// 规则 (与后端 src/generate_images.py 的 CROP_EXPAND_* / _expand_crop_rect 逐值一致):
+//   1) 步长: 每次每条边各向外扩 64 像素 (与外框的 64 网格同源, 扩完尺寸仍是 64 的倍数);
+//   2) 单一面积上限 1024×1024 (不看形状): 只要面积不超过它, 就继续扩 ——
+//      所以 832×1216 这种"整图面积没超上限"的图片是能够被扩到覆盖整张图的;
+//   3) **按边独立扩展**: 某条边已经贴到图片边界就跳过它, 继续扩还有余量的其它边 ——
+//      不做"四边同步"的对称扩展 (那样一条边到边界就会整体停住, 白白浪费上限);
+//   4) 每步都挑"面积增幅最大"的那条边来扩, 因此能快速逼近上限; 四边都扩不动时结束。
+//      由于每一步都检查过面积, 结果**不会超过上限**。
+//   5) 扩展只往图片里长: 选框本来就伸到图片外的那几条边不参与扩展。
 
-export const CROP_EXPAND_STEP = 64;                    // 自动扩展的步长 (每边每轮)
-export const CROP_EXPAND_MAX_AREA = 1024 * 1024;       // 正方形生成块的面积上限 (宽 == 高)
-export const CROP_EXPAND_MAX_AREA_RECT = 1024 * 960;   // 非正方形生成块的面积上限
+export const CROP_EXPAND_STEP = 64;                  // 自动扩展的步长 (每次每条边)
+export const CROP_EXPAND_MAX_AREA = 1024 * 1024;     // 生成块的面积上限 (单一上限, 不看形状)
+// 兼容旧名 (历史上非正方形用更小的上限 1024×960); 现在统一到同一个上限。
+export const CROP_EXPAND_MAX_AREA_RECT = CROP_EXPAND_MAX_AREA;
 
-/** 生成块形状对应的面积上限: 正方形 1024×1024, 非正方形 1024×960 (与后端 _expand_max_area 一致) */
-export function expandMaxArea(w, h) {
-  const nw = Math.max(0, Number(w) || 0);
-  const nh = Math.max(0, Number(h) || 0);
-  return nw === nh ? CROP_EXPAND_MAX_AREA : CROP_EXPAND_MAX_AREA_RECT;
+/** 生成块的面积上限。现在只看面积、不看形状 (保留函数是为了与后端 _expand_max_area 对齐调用点) */
+export function expandMaxArea(_w, _h) {
+  return CROP_EXPAND_MAX_AREA;
 }
 
 /**
  * 自动扩展: 把归一化后的外框向外扩成"生成块" (后端真正拿去裁剪的范围)。
+ *
+ * 期望的行为是**四边一起扩**, 只有某条边贴到图片边界才让其它边继续; 而不是"只扩某一边"。
+ * 为此分三步走:
+ *   1) 对称扩展: 每轮把所有还能扩的边一起扩一步。整圈会超面积上限时, 退而求其次选
+ *      "左右都扩"或"上下都扩", 再不行才单边 —— 始终优先保持左右/上下对称。
+ *   2) 单边填满: 对称路子走完后, 用单边贪心把剩余面积吃满 (某边到边界时这一步尤其重要)。
+ *   3) 重新居中: 扩展是 64 步进的, 停下来时整块可能"卡在半格" (例如左右各剩 32px 用不上)。
+ *      在图片内重新居中可以把这些余量释放出来, 居中后又有余量就回到第 1 步继续扩。
+ *      每一步都校验过面积, 所以结果不会超过上限。
+ *
  * 外框已经够大 (面积 ≥ 上限) 或四条边都扩不动时原样返回, 所以这一步是幂等的。
+ *
  * @param {{x:number,y:number,w:number,h:number}} rect 归一化后的外框 (允许已经伸到图片外)
  * @param {{imageW:number,imageH:number}} ctx 图片尺寸 (扩展不许越过它)
  * @returns {{x:number,y:number,w:number,h:number}} 生成块 (未扩展时与入参逐值一致)
@@ -297,25 +310,111 @@ export function expandMaxArea(w, h) {
 export function expandCropRect(rect, { imageW, imageH }) {
   const imgW = Math.max(0, Number(imageW) || 0);
   const imgH = Math.max(0, Number(imageH) || 0);
-  let { x, y, w, h } = rect;
-  if (!(w > 0) || !(h > 0)) return { x, y, w, h };
-  // 每轮至少扩一条边 64 像素 => 面积严格变大, 又有上限兜着, 循环必然在有限轮内结束;
-  // guard 只是防止常量被改坏之后死循环 (理论上不可达)。
-  for (let guard = 0; guard < 4096; guard++) {
-    // 四条边逐条判定: 只有"扩完还落在图片内"才扩它 (本来就伸到图片外的那几条边借此自动跳过)
-    const x0 = x - CROP_EXPAND_STEP >= 0 ? x - CROP_EXPAND_STEP : x;
-    const y0 = y - CROP_EXPAND_STEP >= 0 ? y - CROP_EXPAND_STEP : y;
-    const x1 = x + w + CROP_EXPAND_STEP <= imgW ? x + w + CROP_EXPAND_STEP : x + w;
-    const y1 = y + h + CROP_EXPAND_STEP <= imgH ? y + h + CROP_EXPAND_STEP : y + h;
-    if (x0 === x && y0 === y && x1 === x + w && y1 === y + h) break;   // 四条边都扩不动了
-    const nw = x1 - x0;
-    const nh = y1 - y0;
-    if (nw * nh > expandMaxArea(nw, nh)) break;   // 再扩一圈就超上限: 到此为止 (这一圈整个作废)
-    x = x0;
-    y = y0;
-    w = nw;
-    h = nh;
+  let cur = { x: rect.x, y: rect.y, w: rect.w, h: rect.h };
+  if (!(cur.w > 0) || !(cur.h > 0)) return cur;
+  const step = CROP_EXPAND_STEP;
+
+  // 在图片内重新居中: 尺寸不变 (面积不变), 只挪位置, 用来释放"卡在半格"的余量。
+  // 居中后不能把用户原来的选框露到生成块之外, 否则拒绝这次居中。
+  //
+  // 重要: 居中是**最后手段**, 只在它确实能换来更大面积时才用 ——
+  // 否则它会把整块挪到图片中央, 破坏第 1 步好不容易做出的左右/上下对称
+  // (表现: 明明四周都有空间, 却只往上/左扩, 甚至某边完全不扩)。
+  const recenterIfUseful = (r) => {
+    const cx = Math.round((imgW - r.w) / 2 / step) * step;
+    const cy = Math.round((imgH - r.h) / 2 / step) * step;
+    const nx = Math.max(0, Math.min(cx, imgW - r.w));
+    const ny = Math.max(0, Math.min(cy, imgH - r.h));
+    if (nx > rect.x || ny > rect.y) return null;                  // 会把选框露出去
+    if (nx + r.w < rect.x + rect.w || ny + r.h < rect.y + rect.h) return null;
+    if (nx === r.x && ny === r.y) return null;                    // 已经在中央
+    // 居中后能不能继续扩? 不能的话就别挪 (挪了只会破坏对称)
+    const moved = { x: nx, y: ny, w: r.w, h: r.h };
+    const rl = Math.max(0, Math.floor(nx / step) * step);
+    const rt = Math.max(0, Math.floor(ny / step) * step);
+    const rr = Math.max(0, Math.floor((imgW - (nx + r.w)) / step) * step);
+    const rb = Math.max(0, Math.floor((imgH - (ny + r.h)) / step) * step);
+    const canGrowW = (rl >= step || rr >= step)
+      && ((r.w + step) * r.h <= CROP_EXPAND_MAX_AREA);
+    const canGrowH = (rt >= step || rb >= step)
+      && (r.w * (r.h + step) <= CROP_EXPAND_MAX_AREA);
+    if (!canGrowW && !canGrowH) return null;                       // 挪了也长不了
+    return moved;
+  };
+
+  for (let round = 0; round < 64; round++) {
+    const before = { ...cur };
+
+    // ---- 第 1 + 2 步: 对称扩展 -> 单边填满 ----
+    const room = (v) => Math.max(0, Math.floor(v / step) * step);
+    let { x, y, w, h } = cur;
+    let rl = room(x);
+    let rt = room(y);
+    let rr = room(imgW - (x + w));
+    let rb = room(imgH - (y + h));
+
+    const apply = (sides) => {
+      for (const s of sides) {
+        if (s === "l") { x -= step; w += step; rl -= step; }
+        else if (s === "r") { w += step; rr -= step; }
+        else if (s === "t") { y -= step; h += step; rt -= step; }
+        else { h += step; rb -= step; }
+      }
+    };
+    const mk = (sides) => ({
+      sides,
+      nw: w + (sides.includes("l") ? step : 0) + (sides.includes("r") ? step : 0),
+      nh: h + (sides.includes("t") ? step : 0) + (sides.includes("b") ? step : 0),
+    });
+
+    // 第 1 步: 对称优先 (整圈 > 左右/上下 > 单边)
+    for (let g = 0; g < 100000; g++) {
+      const avail = [];
+      if (rl >= step) avail.push("l");
+      if (rr >= step) avail.push("r");
+      if (rt >= step) avail.push("t");
+      if (rb >= step) avail.push("b");
+      if (!avail.length) break;
+      const combos = [];
+      for (let mask = 1; mask < 16; mask++) {
+        const sides = [];
+        if (mask & 1) sides.push("l");
+        if (mask & 2) sides.push("r");
+        if (mask & 4) sides.push("t");
+        if (mask & 8) sides.push("b");
+        if (sides.some((s) => !avail.includes(s))) continue;   // 该边已经贴到图片边界
+        const c = mk(sides);
+        if (c.nw * c.nh > CROP_EXPAND_MAX_AREA) continue;
+        c.sym = ((sides.includes("l") && sides.includes("r")) ? 2 : 0)
+              + ((sides.includes("t") && sides.includes("b")) ? 2 : 0);
+        combos.push(c);
+      }
+      if (!combos.length) break;
+      combos.sort((a, b) => (b.sym - a.sym)
+        || (b.sides.length - a.sides.length)
+        || (b.nw * b.nh - a.nw * a.nh));
+      apply(combos[0].sides);
+    }
+    // 第 2 步: 单边贪心, 把剩余面积吃满
+    for (let g = 0; g < 100000; g++) {
+      const cands = [];
+      if (rl >= step) cands.push(mk(["l"]));
+      if (rr >= step) cands.push(mk(["r"]));
+      if (rt >= step) cands.push(mk(["t"]));
+      if (rb >= step) cands.push(mk(["b"]));
+      const ok = cands.filter((c) => c.nw * c.nh <= CROP_EXPAND_MAX_AREA);
+      if (!ok.length) break;
+      ok.sort((a, b) => (b.nw * b.nh - a.nw * a.nh));
+      apply(ok[0].sides);
+    }
+    cur = { x, y, w, h };
+
+    // ---- 第 3 步: 只有在"居中后还能继续扩"时才重新居中 ----
+    const c = recenterIfUseful(cur);
+    if (c) cur = c;
+    // 这一轮没有任何变化 => 已经收敛 (幂等的前提)
+    if (cur.x === before.x && cur.y === before.y && cur.w === before.w && cur.h === before.h) break;
   }
-  return { x, y, w, h };
+  return cur;
 }
 

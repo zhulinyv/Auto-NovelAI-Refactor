@@ -941,14 +941,23 @@ function buildParamsTab(body, saved) {
   const editorWrap = el("div");
   editor = imageEditor(editorWrap, {
     onChange: () => updateInpaintVisibility(),
-    // 上传基础图片后: 分辨率自动改为图片尺寸最接近的 64 倍数
-    onImageLoad: (img) => {
-      const w = round64(img.naturalWidth || img.width);
-      const h = round64(img.naturalHeight || img.height);
+    // 上传基础图片后: 分辨率自动对齐到图片尺寸最接近的 64 倍数。
+    // 编辑器内部已经把不是 64 倍数的图片居中裁剪过了 (cropToAlign64), 这里读到的
+    // naturalWidth/Height 仍是原图尺寸, 所以要用 round64 收敛 —— 两边算法一致, 结果必然相同。
+    onImageLoad: (img, info) => {
+      const srcW = img.naturalWidth || img.width;
+      const srcH = img.naturalHeight || img.height;
+      // 用编辑器给出的权威尺寸 (居中裁剪后的 64 倍数), 避免两边各算一次出现分歧
+      const w = info && info.dw ? info.dw : round64(srcW);
+      const h = info && info.dh ? info.dh : round64(srcH);
       C.width.set(w);
       C.height.set(h);
       syncResolution();
-      toast(`📐 分辨率已随图片对齐: ${w} × ${h}`, "info");
+      if (info && info.cropped) {
+        toast(`📐 原图 ${srcW} × ${srcH} 已居中裁剪为 ${w} × ${h} (64 的倍数), 分辨率已同步`, "info", 6000);
+      } else {
+        toast(`📐 分辨率已随图片对齐: ${w} × ${h}`, "info");
+      }
     },
   });
   inpaintCtlRow = el("div", { class: "grid grid-3 hidden", style: "margin-top:12px;" });
@@ -1349,7 +1358,7 @@ function validateResolution(width, height) {
   return null;
 }
 
-/** 刷新分辨率行下方的像素数提示, 超上限时标红 */
+/** 刷新分辨率行下方的像素数提示, 超上限时标红 (裁剪重绘例外, 见下) */
 function updateResHint() {
   if (!resHintEl) return;
   const w = Number(C.width?.get());
@@ -1361,6 +1370,16 @@ function updateResHint() {
   }
   const pixels = Math.round(w) * Math.round(h);
   const over = pixels > MAX_RESOLUTION_PIXELS;
+  // 裁剪重绘: 成图取原图尺寸、送进模型的是生成块 (面积 ≤ 1024×1024), 面板宽高不参与出图,
+  // 所以超上限也不算"无法生成" —— 这里只提示一下, 不标红。
+  const cropRedraw = !!editor?.isCropActive?.();
+  if (over && cropRedraw) {
+    resHintEl.textContent =
+      `像素 ${pixels.toLocaleString()} / 上限 ${MAX_RESOLUTION_PIXELS.toLocaleString()} — 超出 ${MAX_RESOLUTION_LABEL}, 但裁剪重绘按生成块出图, 成图仍是原图尺寸, 可以生成`;
+    resHintEl.className = "";
+    resHintEl.style.color = "var(--text-2)";
+    return;
+  }
   resHintEl.textContent = over
     ? `⚠️ 像素 ${pixels.toLocaleString()} / 上限 ${MAX_RESOLUTION_PIXELS.toLocaleString()} — 超出 ${MAX_RESOLUTION_LABEL}, 无法生成`
     : `像素 ${pixels.toLocaleString()} / 上限 ${MAX_RESOLUTION_PIXELS.toLocaleString()} (${MAX_RESOLUTION_LABEL})`;
@@ -1416,6 +1435,8 @@ function syncResolution() {
 function updateInpaintVisibility() {
   if (!inpaintCtlRow) return;
   inpaintCtlRow.classList.toggle("hidden", !editor.hasImage());
+  // 裁剪重绘的框选状态会影响分辨率上限的判定 (见 onGenerate / updateResHint), 这里一并刷新
+  updateResHint();
 }
 
 // ---------------- 收集请求 ----------------
@@ -1478,9 +1499,14 @@ async function collectRequest() {
 async function onGenerate() {
   // 先校验分辨率: 不合法 (超过 1536×2048) 直接拦下, 不发请求, 也不做 inpaint 导出等重活。
   // 取值规则与 collectRequest 一致: 空值回落到 832×1216 (后端默认), 不把"留空"当成非法。
+  //
+  // 例外: 裁剪重绘已框选时跳过这个上限 —— 那种情况下真正送进模型的是"生成块"
+  // (面积 ≤ 1024×1024), 成图尺寸又是原图尺寸, 面板上填的宽高根本不参与出图,
+  // 所以没必要因为面板填大了就把用户拦在门外。
+  const cropRedraw = !!editor?.isCropActive?.();
   const gateW = Number(C.width.get()) || 832;
   const gateH = Number(C.height.get()) || 1216;
-  const resError = validateResolution(gateW, gateH);
+  const resError = cropRedraw ? null : validateResolution(gateW, gateH);
   if (resError) {
     infoEl.textContent = "❌ " + resError;
     toast(resError, "error", 7000);
