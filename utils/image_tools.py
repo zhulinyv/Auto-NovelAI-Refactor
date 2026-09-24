@@ -171,6 +171,42 @@ def _extract_exif_metadata(image):
     }
 
 
+# image.info 里的二进制块 (ICC 色彩配置 / 原始 EXIF 数据流), 不作为文本元数据参与解析
+_BINARY_INFO_KEYS = {"icc_profile", "icc profile", "exif", "thumbnail", "photoshop"}
+
+# 非 PNG 格式的元数据键名不统一 (JPEG 注释段只暴露为小写的 comment), 归一成 NovelAI 的大写键
+_INFO_KEY_ALIASES = {
+    "comment": "Comment",
+    "description": "Description",
+    "software": "Software",
+    "source": "Source",
+}
+
+
+def _fallback_info(image) -> dict:
+    """兜底: 用 image.info 构造元数据字典。
+
+    JPEG 等格式把 NovelAI 的参数整个写在 JPEG COM 注释段里, Pillow 暴露为
+    image.info["comment"] 且是 bytes。旧实现把所有 bytes 值一律剔除, 等于把
+    唯一的 NAI 参数载体丢掉了 —— 这里改为解码后保留。
+    """
+    info: dict = {}
+    for key, value in (image.info or {}).items():
+        lower = key.lower() if isinstance(key, str) else key
+        if lower in _BINARY_INFO_KEYS:
+            continue
+        decoded = value
+        if isinstance(value, (bytes, bytearray)):
+            try:
+                decoded = bytes(value).decode("utf-8", "replace")
+            except Exception:
+                continue
+        if decoded is None or isinstance(decoded, (bytes, bytearray)):
+            continue
+        info[_INFO_KEY_ALIASES.get(lower, key)] = decoded
+    return info
+
+
 def get_image_information(image):
     """读取图片的全部元数据 (优先解析 NovelAI 的 LSB 隐藏数据, 其次 EXIF)。"""
     if isinstance(image, (str, Path)):
@@ -185,9 +221,9 @@ def get_image_information(image):
         pnginfo = extract_data(image)
     except Exception:
         pnginfo = None
-    # 兜底返回 image.info, 但剔除不可 JSON 序列化的 bytes (避免接口 500)
+    # 兜底返回 image.info: 文本元数据保留 (含解码后的 comment), 真二进制块剔除 (避免接口 500)
     if pnginfo is None:
-        pnginfo = {k: v for k, v in image.info.items() if not isinstance(v, (bytes, bytearray))}
+        pnginfo = _fallback_info(image)
     return pnginfo
 
 
