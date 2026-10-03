@@ -69,7 +69,9 @@ class Field:
     no_drag: bool = False  # type="filearea" 时仅允许点击选择文件, 禁用拖拽
     direct_path: bool = False  # type="filearea" 时用原生对话框取真实路径, 不上传
     hidden: bool = False  # 默认隐藏 (前端可通过彩蛋键位解锁显示, 如 naiv4vibebundle 的 Konami 码)
-    column: str = "left"  # "left"|"right"|"right_bottom" — "left" 表单列; "right" 右列(输出/图表/说明); "right_bottom" 右列底部(排在输出区之后, 如"说明"放结果下方)
+    column: str = (
+        "left"  # "left"|"right"|"right_bottom" — "left" 表单列; "right" 右列(输出/图表/说明); "right_bottom" 右列底部(排在输出区之后, 如"说明"放结果下方)
+    )
     inputs: list[str] = field(default_factory=list)  # type="chart" 时监听变化的参数 id 列表
     corner_of: str = ""  # type="select" 时作为角标下拉附属于指定字段 (如提示词预设)
     row_group: str = ""  # 相邻字段同一 row_group 时渲染到同一行 (如 variety 与 decrisp 并排)
@@ -86,7 +88,9 @@ class Action:
 
     id: str
     label: str
-    inputs: list[str] = field(default_factory=list)
+    # None (默认) = 交给 Panel.__post_init__ 自动补成本面板的全部取值字段;
+    # 列表 = 只用列出的字段 (可跨面板引用); 空列表 [] = 显式声明不传任何字段
+    inputs: list[str] | None = None
     handler: Callable = None
     output: str = "auto"  # auto|gallery|image|text|info
     description: str = ""
@@ -96,6 +100,10 @@ class Action:
     uses_novelai: bool = (
         True  # 是否调用 NovelAI API: True 时进入生图队列 (排队/冷却/多 Token 并发), False 时走本地多线程立即执行
     )
+
+
+# 不承载值、不作为动作输入字段的类型 (纯展示)
+NON_VALUE_FIELD_TYPES = frozenset({"section", "info"})
 
 
 @dataclass
@@ -111,6 +119,20 @@ class Panel:
     show_output: bool = True  # False 时不渲染输出区, 结果用右上角通知展示
     inline_actions: bool = False  # True 时动作按钮渲染在面板体内 (而非顶栏)
     reset_defaults: bool = False  # True 时添加"还原默认参数"按钮
+
+    def __post_init__(self) -> None:
+        """为未显式声明 inputs 的动作补上本面板的全部取值字段。
+
+        前端只提交 action.inputs 里列出的字段 (web/js/views/plugins.js)。此前每个动作都
+        手抄一份自己面板的字段 id 列表 (8 个面板合计约 250 个字符串), 一旦忘了登记,
+        该字段就静默传不到后端处理函数。现在默认从 fields 推导:
+        - 显式给了 inputs 的动作完全不变 (包括空列表 = 不传任何字段, 与跨面板引用);
+        - 只有没写 inputs (保持 None) 的动作才自动取本面板所有非展示型字段。
+        """
+        own_ids = [f.id for f in self.fields if f.type not in NON_VALUE_FIELD_TYPES]
+        for action in self.actions:
+            if action.inputs is None:  # 未声明 -> 用本面板全部取值字段
+                action.inputs = list(own_ids)
 
 
 class Plugin:
