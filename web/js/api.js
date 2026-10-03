@@ -27,18 +27,23 @@ export const get = (url, extra) => request("GET", url, undefined, extra);
 export const post = (url, body, extra) => request("POST", url, body ?? {}, extra);
 export const del = (url, extra) => request("DELETE", url, undefined, extra);
 
+/** 发一个不经过 JSON 封装的原始请求 (FormData / 无 body), 统一错误处理。 */
+async function rawRequest(url, { body, method = "POST" } = {}) {
+  const res = await fetch(url, { method, body });
+  if (!res.ok) {
+    let detail = `HTTP ${res.status}`;
+    try { detail = (await res.json()).detail || detail; } catch { /* 非 JSON 错误体 */ }
+    throw new Error(detail);
+  }
+  return res.json();
+}
+
 /** 上传文件, 返回 [{name, path}]; subdir 可选 (如 "director/pixel_snap"), 默认 outputs/uploads */
 export async function uploadFiles(files, subdir = "") {
   const form = new FormData();
   for (const f of files) form.append("files", f);
   const url = subdir ? "/api/upload?subdir=" + encodeURIComponent(subdir) : "/api/upload";
-  const res = await fetch(url, { method: "POST", body: form });
-  if (!res.ok) {
-    let detail = `HTTP ${res.status}`;
-    try { detail = (await res.json()).detail || detail; } catch {}
-    throw new Error(detail);
-  }
-  const data = await res.json();
+  const data = await rawRequest(url, { body: form });
   return data.files;
 }
 
@@ -46,37 +51,19 @@ export async function uploadFiles(files, subdir = "") {
 export async function uploadDir(files) {
   const form = new FormData();
   for (const f of files) form.append("files", f);
-  const res = await fetch("/api/upload-dir", { method: "POST", body: form });
-  if (!res.ok) {
-    let detail = `HTTP ${res.status}`;
-    try { detail = (await res.json()).detail || detail; } catch {}
-    throw new Error(detail);
-  }
-  return res.json();
+  return rawRequest("/api/upload-dir", { body: form });
 }
 
 /** 弹出系统原生文件选择框, 返回真实绝对路径 (后端直接读取, 不上传)。 */
 export async function pickFile(ft = "") {
   const qs = ft ? "?ft=" + encodeURIComponent(ft) : "";
-  const res = await fetch("/api/pick-file" + qs, { method: "POST" });
-  if (!res.ok) {
-    let detail = `HTTP ${res.status}`;
-    try { detail = (await res.json()).detail || detail; } catch {}
-    throw new Error(detail);
-  }
-  const data = await res.json();
+  const data = await rawRequest("/api/pick-file" + qs);
   return data.path || "";
 }
 
 /** 弹出系统原生目录选择框, 返回真实绝对路径。 */
 export async function pickFolder() {
-  const res = await fetch("/api/pick-folder", { method: "POST" });
-  if (!res.ok) {
-    let detail = `HTTP ${res.status}`;
-    try { detail = (await res.json()).detail || detail; } catch {}
-    throw new Error(detail);
-  }
-  const data = await res.json();
+  const data = await rawRequest("/api/pick-folder");
   return data.path || "";
 }
 

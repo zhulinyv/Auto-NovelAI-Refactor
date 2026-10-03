@@ -275,6 +275,24 @@ export function imageDropZone({ label = null, placeholder = "点击选择或拖�
  * 悬停持续慢滚, 点击快速翻页。返回包裹容器。
  * @param {HTMLElement} scrollEl 需要横向滚动的元素
  */
+// 共用的"回到可见时重新自适应"观察器: 元素 -> 回调, 避免为每个输入框各建一个 observer。
+let _autosizeObserver = null;
+const _autosizeCallbacks = new WeakMap();
+function observeAutosize(el, fn) {
+  if (!("IntersectionObserver" in window)) return;
+  _autosizeCallbacks.set(el, fn);
+  if (!_autosizeObserver) {
+    _autosizeObserver = new IntersectionObserver((entries) => {
+      for (const en of entries) {
+        if (!en.isIntersecting) continue;
+        const cb = _autosizeCallbacks.get(en.target);
+        if (cb) requestAnimationFrame(cb);
+      }
+    });
+  }
+  _autosizeObserver.observe(el);
+}
+
 export function edgeScroll(scrollEl) {
   const wrap = el("div", { class: "edge-scroll" });
   if (scrollEl.parentNode) scrollEl.parentNode.insertBefore(wrap, scrollEl);
@@ -284,12 +302,15 @@ export function edgeScroll(scrollEl) {
   const right = el("button", { class: "edge-btn edge-right", type: "button", html: "›", title: "向右滚动" });
   wrap.append(left, right);
 
-  let hoverTimer = null;
+  let hoverRaf = null;
   const speed = 7;
-  function stopHover() { if (hoverTimer) { clearInterval(hoverTimer); hoverTimer = null; } }
+  function stopHover() { if (hoverRaf) { cancelAnimationFrame(hoverRaf); hoverRaf = null; } }
   function startHover(dir) {
     stopHover();
-    hoverTimer = setInterval(() => { scrollEl.scrollLeft += dir * speed; }, 16);
+    // rAF 而不是 16ms setInterval: 与帧同步, 页面不可见/被节流时自动停,
+    // 且不会在标签页后台时继续空转。
+    const step = () => { scrollEl.scrollLeft += dir * speed; hoverRaf = requestAnimationFrame(step); };
+    hoverRaf = requestAnimationFrame(step);
   }
   left.addEventListener("mouseenter", () => startHover(-1));
   right.addEventListener("mouseenter", () => startHover(1));
@@ -824,13 +845,22 @@ const fsApi = new WeakMap();
 export function initFancySelects() {
   if (initFancySelects._installed || typeof MutationObserver === "undefined") return;
   initFancySelects._installed = true;
+  // 性能: 这个 observer 监听整个 document.body 的 subtree, 应用里每一次列表重建
+  // (画廊网格 / 队列弹窗 / 点数下拉 / 通配符网格) 都会触发它。原先对每个新增节点
+  // 无条件跑 querySelectorAll("select"), 即使绝大多数子树里一个 select 都没有。
+  // 改为先用 querySelector 做一次廉价探测, 命中才继续。
   const mo = new MutationObserver((muts) => {
     for (const m of muts) {
-      m.addedNodes && m.addedNodes.forEach((n) => {
-        if (n.nodeType !== 1) return;
-        if (n.tagName === "SELECT") enhanceSelect(n);
-        else if (n.querySelectorAll) n.querySelectorAll("select").forEach(enhanceSelect);
-      });
+      if (m.addedNodes && m.addedNodes.length) {
+        for (const n of m.addedNodes) {
+          if (n.nodeType !== 1) continue;
+          if (n.tagName === "SELECT") { enhanceSelect(n); continue; }
+          // 快速排除: 整棵新增子树里没有 select 时不再做 list 级查询
+          if (n.querySelector && n.querySelector("select")) {
+            n.querySelectorAll("select").forEach(enhanceSelect);
+          }
+        }
+      }
       if (m.type === "childList" && m.target.tagName === "SELECT" && fsApi.has(m.target)) {
         fsApi.get(m.target).rebuild();
       }
@@ -957,12 +987,10 @@ export function makeField(spec, state) {
         };
         input.addEventListener("input", autosizeFn);
         requestAnimationFrame(autosizeFn);
-        // 面板切回可见时自动重新自适应 (如刷新后切到画师设置页)
-        if ("IntersectionObserver" in window) {
-          new IntersectionObserver((entries) => {
-            entries.forEach((en) => { if (en.isIntersecting) requestAnimationFrame(autosizeFn); });
-          }).observe(input);
-        }
+        // 面板切回可见时自动重新自适应 (如刷新后切到画师设置页)。
+        // 原先每个自适应输入框都新建一个 IntersectionObserver 且从不 disconnect
+        // (插件页反复重建时会持续累积); 这里共用一个观察器。
+        observeAutosize(input, autosizeFn);
       }
       const head = el("div", { class: "prompt-head" }, [label]);
       // 提示词字段 (带自动补全): 标题行右侧加 Wildcards 按钮 (预设角标会由插件视图追加到同一行)

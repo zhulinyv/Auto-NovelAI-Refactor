@@ -16,7 +16,19 @@ const actionMeta = new Map();
 const startToasts = new Map();
 // 各面板的 show_if 求值函数: 任意字段变化时统一刷新所有面板 (处理跨面板联动)
 let showIfFns = [];
+// show_if 求值会做大量 querySelector 与 DOM 读写; 每个控件的 input+change 都会触发一次,
+// 一次输入可能带出多次求值。用 requestAnimationFrame 合并成一帧一次。
+let showIfRaf = 0;
 function runAllShowIf() {
+  if (showIfRaf) return;  // 本帧已排队
+  showIfRaf = requestAnimationFrame(() => {
+    showIfRaf = 0;
+    for (const fn of showIfFns) { try { fn(); } catch {} }
+  });
+}
+/** 需要立刻生效时 (如解锁隐藏字段) 同步执行, 不等下一帧 */
+function runAllShowIfNow() {
+  if (showIfRaf) { cancelAnimationFrame(showIfRaf); showIfRaf = 0; }
   for (const fn of showIfFns) { try { fn(); } catch {} }
 }
 // 分布图重绘函数集: 主题切换 (data-theme) 时全部重绘
@@ -40,8 +52,16 @@ const hasLabelEmoji = (label) => /^\p{Extended_Pictographic}/u.test(label || "")
 let konamiUnlocked = false;
 const KONAMI_SEQ = ["ArrowUp", "ArrowUp", "ArrowDown", "ArrowDown", "ArrowLeft", "ArrowRight", "ArrowLeft", "ArrowRight", "b", "a", "b", "a"];
 let konamiIdx = 0;
-window.addEventListener("keydown", (e) => {
-  const key = e.key && e.key.length === 1 ? e.key.toLowerCase() : e.key;
+// 只关心单字符键与方向键: 先做廉价过滤, 避免每个按键都做 toLowerCase 与序列比较
+const KONAMI_KEYS = new Set(KONAMI_SEQ);
+const onKonamiKey = (e) => {
+  const raw = e.key;
+  if (!raw) return;
+  const key = raw.length === 1 ? raw.toLowerCase() : raw;
+  if (!KONAMI_KEYS.has(key)) {
+    konamiIdx = 0;
+    return;
+  }
   if (key === KONAMI_SEQ[konamiIdx]) {
     konamiIdx++;
     if (konamiIdx === KONAMI_SEQ.length) {
@@ -49,13 +69,16 @@ window.addEventListener("keydown", (e) => {
       if (!konamiUnlocked) {
         konamiUnlocked = true;
         toast("🎉 隐藏选项已解锁!", "success");
-        runAllShowIf();
+        runAllShowIfNow();
       }
     }
   } else {
     konamiIdx = key === KONAMI_SEQ[0] ? 1 : 0;
   }
-});
+  // 解锁后不再需要监听 (隐藏字段已全部展开)
+  if (konamiUnlocked) window.removeEventListener("keydown", onKonamiKey);
+};
+window.addEventListener("keydown", onKonamiKey);
 
 // 插件表单值持久化: 记录各面板"待保存"函数, 切换页面前统一 flush, 防止内容丢失
 const pendingSaves = new Set();

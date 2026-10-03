@@ -43,6 +43,7 @@ let anlasWrapEl = null;
 let anlasBadgeEl = null;
 let anlasMenuEl = null;
 let anlasSelected = 0;         // 徽标当前展示的 Token 序号
+let anlasMenuSig = "";         // 已渲染的 Token 列表指纹 (不变则就地更新文本, 不重建 DOM)
 let anlasOutsideBound = false; // 点击外部关闭下拉 (页面级只绑一次)
 let anlasRefreshBtn = null;    // 徽标右侧的「🔄 刷新」按钮 (手动重查剩余点数/用量)
 
@@ -459,6 +460,8 @@ function buildPromptCard(saved) {
 }
 /** 当前输出查看器的键盘翻页监听器 (每次重建查看器时先摘掉上一个, 避免多代监听器同时触发) */
 let outputViewerOnKey = null;
+/** 当前查看器挂在 window 上的尺寸/滚动监听 (rect 缓存失效用), 重建时同样要摘掉 */
+let outputViewerOnViewport = null;
 // 悬停自动翻页的定时器/延迟: 上一轮 buildOutputViewer 的局部变量, 重建查看器时必须先清掉,
 // 否则它会持续调用旧 updateView() 把 lastOutputPath 写回上一代图片 (点"发送到图生图"发旧图的根因)
 let autoTimer = null;
@@ -468,6 +471,7 @@ let autoDelay = null;
 function buildOutputViewer(container, images) {
   clear(container);
   if (outputViewerOnKey) { document.removeEventListener("keydown", outputViewerOnKey); outputViewerOnKey = null; }
+  if (outputViewerOnViewport) outputViewerOnViewport();
   // 清掉上一轮查看器可能仍在跑的悬停自动翻页定时器/延迟 (否则会把 lastOutputPath 写回上一代图片)
   if (autoTimer) { clearInterval(autoTimer); autoTimer = null; }
   if (autoDelay) { clearTimeout(autoDelay); autoDelay = null; }
@@ -486,13 +490,18 @@ function buildOutputViewer(container, images) {
   mainWrap.append(prevBtn, nextBtn, mainImg);
   container.append(mainWrap);
 
-  // 缩略图条
+  // 缩略图条。
+  // 性能: 原先一次就给每张图建 <img> 并设 src, 100 张的批次会同时发起 100 个请求
+  // (还全部指向原图接口)。这里改为懒挂载: 首屏附近的几张立即取图, 其余等滚动到附近再取。
   const thumbStrip = el("div", { class: "output-viewer-thumbs" });
+  const HOVER_PRELOAD = 8;
   const thumbs = images.map((path, i) => {
-    const t = el("div", { class: "thumb-item" + (i === 0 ? " active" : "") }, [
-      el("img", { src: imageUrl(path), loading: "lazy", alt: "第 " + (i + 1) + " 张" }),
-    ]);
+    const img = el("img", { decoding: "async", alt: "第 " + (i + 1) + " 张" });
+    img.dataset.src = imageUrl(path);
+    const t = el("div", { class: "thumb-item" + (i === 0 ? " active" : "") }, [img]);
     t.addEventListener("click", () => { idx = i; updateView(); });
+    // 当前图与左右各若干张立即加载, 保证切换时缩略图已就绪
+    if (Math.abs(i - idx) <= HOVER_PRELOAD) img.src = img.dataset.src;
     thumbStrip.append(t);
     return t;
   });
@@ -520,36 +529,62 @@ function buildOutputViewer(container, images) {
   nextBtn.addEventListener("click", (e) => { e.stopPropagation(); stopAuto(); idx = (idx + 1) % images.length; updateView(); });
   nextBtn.addEventListener("mouseenter", () => startAuto(1));
   nextBtn.addEventListener("mouseleave", stopAuto);
-  // 悬停在主图左右各 30% 区域也触发自动翻页 (与箭头按钮联动), 点击直接切换
+  // 悬停在主图左右各 30% 区域也触发自动翻页 (与箭头按钮联动), 点击直接切换。
+  // 性能: getBoundingClientRect() 会强制同步布局, 原先每个 mousemove 都调用一次
+  // (每秒可达上百次)。这里只在鼠标进入 / 窗口尺寸变化 / 滚动时缓存 rect。
+  let viewRect = null;
+  const refreshRect = () => { viewRect = mainWrap.getBoundingClientRect(); };
+  const relX = (clientX) => {
+    if (!viewRect) refreshRect();
+    if (!viewRect || !viewRect.width) return 0.5;
+    return (clientX - viewRect.left) / viewRect.width;
+  };
+  const onViewportChange = () => { viewRect = null; };
+  // 记录清理函数: 重建查看器时摘掉这一代挂在 window 上的监听, 避免越积越多
+  if (outputViewerOnViewport) outputViewerOnViewport();
+  window.addEventListener("resize", onViewportChange);
+  window.addEventListener("scroll", onViewportChange, { passive: true, capture: true });
+  outputViewerOnViewport = () => {
+    window.removeEventListener("resize", onViewportChange);
+    window.removeEventListener("scroll", onViewportChange, { capture: true });
+    outputViewerOnViewport = null;
+  };
+
   mainWrap.addEventListener("click", (e) => {
-    const rect = mainWrap.getBoundingClientRect();
-    const rel = (e.clientX - rect.left) / rect.width;
+    const rel = relX(e.clientX);
     if (rel < 0.3) { stopAuto(); idx = (idx - 1 + images.length) % images.length; updateView(); }
     else if (rel > 0.7) { stopAuto(); idx = (idx + 1) % images.length; updateView(); }
   });
   mainWrap.addEventListener("mouseenter", (e) => {
-    const rect = mainWrap.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const rel = x / rect.width;
+    refreshRect();
+    const rel = relX(e.clientX);
     if (rel < 0.3) startAuto(-1);
     else if (rel > 0.7) startAuto(1);
   });
   mainWrap.addEventListener("mousemove", (e) => {
-    const rect = mainWrap.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const rel = x / rect.width;
-    if (!autoTimer && !autoDelay) {
-      mainWrap.classList.toggle("auto-flip-left", rel < 0.3);
-      mainWrap.classList.toggle("auto-flip-right", rel > 0.7);
-    }
+    if (autoTimer || autoDelay) return;
+    const rel = relX(e.clientX);
+    mainWrap.classList.toggle("auto-flip-left", rel < 0.3);
+    mainWrap.classList.toggle("auto-flip-right", rel > 0.7);
   });
-  mainWrap.addEventListener("mouseleave", stopAuto);
+  mainWrap.addEventListener("mouseleave", () => { viewRect = null; stopAuto(); });
+
+  /** 只给当前图附近的缩略图挂 src (远端的等靠近了再取, 避免一次发几十个请求) */
+  function ensureThumbLoaded(center) {
+    const from = Math.max(0, center - HOVER_PRELOAD);
+    const to = Math.min(thumbs.length - 1, center + HOVER_PRELOAD);
+    for (let i = from; i <= to; i++) {
+      const img = thumbs[i]?.firstElementChild;
+      if (img && !img.src && img.dataset.src) img.src = img.dataset.src;
+    }
+  }
 
   function updateView() {
     const path = images[idx];
     mainImg.src = imageUrl(path);
     mainImg.alt = "第 " + (idx + 1) + " / " + images.length + " 张";
     thumbs.forEach((t, i) => t.classList.toggle("active", i === idx));
+    ensureThumbLoaded(idx);
     setOutputSelection(path);
   }
 
@@ -1104,6 +1139,7 @@ async function updateAnlasBadge() {
       badge.textContent = "点数: --";
       badge.title = "未配置 Token, 无法查询剩余点数 / 用量";
       if (anlasMenuEl) anlasMenuEl.replaceChildren();
+      anlasMenuSig = "";  // 列表清空: 下次有数据时强制重建
       return;
     }
     // 启动查询尚未完成 (全部为 -1 哨兵值): 短暂自动重试; 查询完成后后端也会推送 anlas:update 主动刷新
@@ -1125,19 +1161,46 @@ async function updateAnlasBadge() {
       ? "点击选择查看的 Token (启动时查询全部, 生成后只更新本次所用 Token)"
       : "剩余点数 / 用量 (启动时查询, 生成后只更新本次所用 Token)";
     if (!anlasMenuEl) return;
-    anlasMenuEl.replaceChildren(
-      ...list.map((t) => {
-        const item = el("div", { class: "anlas-item" + ((t.index ?? 0) === anlasSelected ? " active" : "") }, [
-          el("span", { class: "anlas-status", text: anlasStatusText(t), title: t.active === true ? "订阅有效" : t.active === false ? "订阅无效/未激活" : "尚未查询" }),
-          el("span", { class: "anlas-item-name", text: t.token || "Token" }),
-          el("span", { class: "anlas-item-val", text: (Number.isFinite(Number(t.anlas)) && Number(t.anlas) >= 0 ? `点数: ${Number(t.anlas)} · 用量: ${Number(t.remains)}%` : "未查询到") }),
-          el("span", { class: "anlas-item-recover", text: anlasRecoverText(t) }),
-        ]);
-        item.dataset.idx = String(t.index ?? 0);
-        return item;
-      }),
-      el("div", { class: "anlas-note muted", text: "剩余点数及用量 · 恢复时间在查询时更新" }),
-    );
+    // 只有 Token 列表本身变了 (数量/打码后的名字) 才重建 DOM; 其余情况就地更新文本,
+    // 避免每次 anlas:update / job:done / 3 秒重试都整段 replaceChildren。
+    const sig = list.map((t) => `${t.index ?? 0}:${t.token || ""}`).join("|");
+    if (sig !== anlasMenuSig || anlasMenuEl.childElementCount === 0) {
+      anlasMenuSig = sig;
+      anlasMenuEl.replaceChildren(
+        ...list.map((t) => {
+          const item = el("div", { class: "anlas-item" }, [
+            el("span", { class: "anlas-status" }),
+            el("span", { class: "anlas-item-name", text: t.token || "Token" }),
+            el("span", { class: "anlas-item-val" }),
+            el("span", { class: "anlas-item-recover" }),
+          ]);
+          item.dataset.idx = String(t.index ?? 0);
+          return item;
+        }),
+        el("div", { class: "anlas-note muted", text: "剩余点数及用量 · 恢复时间在查询时更新" }),
+      );
+    }
+    const rows = anlasMenuEl.querySelectorAll(".anlas-item");
+    list.forEach((t, i) => {
+      const row = rows[i];
+      if (!row) return;
+      const idx = t.index ?? 0;
+      const active = idx === anlasSelected;
+      if (active !== row.classList.contains("active")) row.classList.toggle("active", active);
+      const status = row.querySelector(".anlas-status");
+      const title = t.active === true ? "订阅有效" : t.active === false ? "订阅无效/未激活" : "尚未查询";
+      const statusText = anlasStatusText(t);
+      if (status.textContent !== statusText) status.textContent = statusText;
+      if (status.title !== title) status.title = title;
+      const val = Number.isFinite(Number(t.anlas)) && Number(t.anlas) >= 0
+        ? `点数: ${Number(t.anlas)} · 用量: ${Number(t.remains)}%`
+        : "未查询到";
+      const valEl = row.querySelector(".anlas-item-val");
+      if (valEl.textContent !== val) valEl.textContent = val;
+      const rec = anlasRecoverText(t);
+      const recEl = row.querySelector(".anlas-item-recover");
+      if (recEl.textContent !== rec) recEl.textContent = rec;
+    });
   } catch {}
 }
 

@@ -158,7 +158,16 @@ export function initLogConsole() {
     } catch { /* 读取失败静默, 保留上一次内容 */ }
   }
   refreshStats();
-  setInterval(refreshStats, STATS_MS);
+  // 只在页面可见时轮询: 日志面板收起或标签页在后台时不必每 10 秒打一次 /api/system/stats
+  // (该接口会 fork nvidia-smi 子进程)。用 setTimeout 自调度, 每次检查可见性。
+  let statsTimer = null;
+  const scheduleStats = () => {
+    statsTimer = setTimeout(() => {
+      if (document.visibilityState === "visible") refreshStats();
+      scheduleStats();
+    }, STATS_MS);
+  };
+  scheduleStats();
 
   // 全量日志缓冲: 导出时包含启动至今的所有日志 (DOM 只保留最近若干条)
   const logBuffer = [];
@@ -168,10 +177,12 @@ export function initLogConsole() {
     const time = new Date().toLocaleTimeString();
     logBuffer.push({ time, level, message: message ?? "", exception: exception || "" });
     if (count > DOM_MAX) {
-      while (body.firstChild && count > DOM_MAX - 500) {
-        body.removeChild(body.firstChild);
-        count--;
-      }
+      // 一次性批量裁掉超出部分: 原先逐条 removeChild 会在每条新日志上触发多次重排。
+      const drop = count - (DOM_MAX - 500);
+      const frag = document.createDocumentFragment();
+      for (let i = 0; i < drop && body.firstChild; i++) frag.appendChild(body.firstChild);
+      count -= drop;
+      // 片段被丢弃即完成移除 (不插入文档, 直接释放)
     }
     // 级别徽标 (与终端一致, 按级别着色)
     const badge = el("span", { class: `badge badge-${level || "info"}`, text: (level || "info").toUpperCase() });
@@ -1617,8 +1628,20 @@ export function imageEditor(container, { onChange, onImageLoad } = {}) {
   // ---- 撤销 / 恢复 (绘制历史: 每次操作前快照将被修改的画布) ----
   const undoStack = [];
   const redoStack = [];
+  // 撤销历史的内存上限: 原先固定 20 步, 而每一步会快照**每个被改动的画布**
+  // (掩码 + 合成通常是 2 层)。1216x832 的 ImageData 约 4MB, 20 步 x 2 层 ≈ 160MB 常驻。
+  // 改为按总像素数封顶 (约 64MB), 步数上限仍然保留。
   const HISTORY_MAX = 20;
+  const HISTORY_MAX_PIXELS = 16 * 1024 * 1024; // 4M 像素 (约 64MB @ 每像素 4 字节 x 4 层)
+  let historyPixels = 0;
   const snapshotCanvas = (c) => ctx(c).getImageData(0, 0, c.width, c.height);
+  const entryPixels = (entry) => entry.reduce((sum, e) => sum + e.data.width * e.data.height, 0);
+  const trimHistory = (stack) => {
+    while (stack.length > HISTORY_MAX || (historyPixels > HISTORY_MAX_PIXELS && stack.length > 1)) {
+      const dropped = stack.shift();
+      historyPixels -= entryPixels(dropped);
+    }
+  };
 
   function updateHistoryBtns() {
     undoBtn.disabled = undoStack.length === 0;
@@ -1627,18 +1650,22 @@ export function imageEditor(container, { onChange, onImageLoad } = {}) {
   function resetHistory() {
     undoStack.length = 0;
     redoStack.length = 0;
+    historyPixels = 0;
     if (undoBtn) updateHistoryBtns();
   }
   /** 记录一步操作: 传入本次将要修改的画布, 保存修改前快照 */
   function pushHistory(canvases) {
-    undoStack.push(canvases.map((c) => ({ canvas: c, data: snapshotCanvas(c) })));
-    if (undoStack.length > HISTORY_MAX) undoStack.shift();
+    const entry = canvases.map((c) => ({ canvas: c, data: snapshotCanvas(c) }));
+    undoStack.push(entry);
+    historyPixels += entryPixels(entry);
+    trimHistory(undoStack);
     redoStack.length = 0;   // 有新操作后, 不可恢复
     updateHistoryBtns();
   }
   function undoHistory() {
     const entry = undoStack.pop();
     if (!entry) return;
+    historyPixels -= entryPixels(entry);
     redoStack.push(entry.map((e) => ({ canvas: e.canvas, data: snapshotCanvas(e.canvas) })));
     for (const e of entry) ctx(e.canvas).putImageData(e.data, 0, 0);
     renderComposite();
@@ -1647,7 +1674,10 @@ export function imageEditor(container, { onChange, onImageLoad } = {}) {
   function redoHistory() {
     const entry = redoStack.pop();
     if (!entry) return;
-    undoStack.push(entry.map((e) => ({ canvas: e.canvas, data: snapshotCanvas(e.canvas) })));
+    const restored = entry.map((e) => ({ canvas: e.canvas, data: snapshotCanvas(e.canvas) }));
+    undoStack.push(restored);
+    historyPixels += entryPixels(restored);
+    trimHistory(undoStack);
     for (const e of entry) ctx(e.canvas).putImageData(e.data, 0, 0);
     renderComposite();
     updateHistoryBtns();
@@ -2257,21 +2287,29 @@ export function roleList(container, {
     });
   }
 
+  // 增量渲染: 卡片是重量级 DOM (每个含多个控件), 原实现每次增删都全量销毁重建
+  // 并对所有控件做一次 snapshot/restore。现在只增删差异部分, 已填内容天然保留。
+  const btnRow = el("div", { style: "display:flex;gap:8px;margin-bottom:10px;" });
+  const notify = () => { if (onChange) onChange(state.count); };
+  btnRow.append(
+    el("button", { class: "btn btn-sm", text: "➕ 添加", onclick: () => { if (state.count < state.max) { state.count++; render(); notify(); } else toast(maxCountMsg || ("最多 " + state.max + " 个"), "warning"); } }),
+    el("button", { class: "btn btn-sm btn-ghost", text: "➖ 删除", onclick: () => { if (state.count > min) { state.count--; render(); notify(); } } }),
+  );
+
+  let mounted = false;
   function render() {
-    // 先保存当前值, 重建后恢复, 避免添加/删除/限制数量时已填内容丢失
-    const saved = snapshot();
-    clear(container);
-    items.length = 0; // 每次重建时清空, 防止重复累积
-    const notify = () => { if (onChange) onChange(state.count); };
-    const btnRow = el("div", { style: "display:flex;gap:8px;margin-bottom:10px;" }, [
-      el("button", { class: "btn btn-sm", text: "➕ 添加", onclick: () => { if (state.count < state.max) { state.count++; render(); notify(); } else toast(maxCountMsg || ("最多 " + state.max + " 个"), "warning"); } }),
-      el("button", { class: "btn btn-sm btn-ghost", text: "➖ 删除", onclick: () => { if (state.count > min) { state.count--; render(); notify(); } } }),
-    ]);
-    container.append(btnRow);
-    for (let i = 0; i < state.count; i++) {
+    if (!mounted) {
+      container.append(btnRow);
+      mounted = true;
+    }
+    // 多了就删尾部卡片, 少了就补新卡片 —— 中间已有的卡片原样保留
+    while (items.length > state.count) {
+      const removed = items.pop();
+      removed.card.remove();
+    }
+    while (items.length < state.count) {
       container.append(createItem());
     }
-    restore(saved);
   }
 
   render();

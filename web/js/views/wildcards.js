@@ -14,6 +14,9 @@ import { builtinPromptGroups } from "../data/builtinPrompts.js";
 
 let S = null;
 const state = { type: null, name: null, keyword: "", lastIdx: -1 };
+// 封面刚被上传/替换过的卡片名: 只有这些需要给图片 URL 加时间戳绕开缓存。
+// 原先所有封面一律带 &t=Date.now(), 导致每次渲染网格都要重新下载全部封面。
+const coverBustNames = new Set();
 
 /** 卡片多选状态 (弹窗的 "添加选中" 按钮据此批量插入提示词) */
 export const cardSelection = {
@@ -141,7 +144,13 @@ export async function renderPanel(container, ctx, opts = {}) {
 
   // ---------------- 提示词库 (内置分类提示词 + 用户收藏) ----------------
   const plSearch = el("input", { type: "text", class: "wc-search", placeholder: "🔍 搜索提示词..." });
-  plSearch.addEventListener("input", () => { plKeyword = plSearch.value; renderPromptChips(); });
+  // 防抖: renderPromptChips 会重建全部分类的全部 chip (每个 chip 还绑多个监听器),
+  // 逐字符触发很卡; 与下方卡片搜索一致用 150ms 合并。
+  let plSearchTimer = 0;
+  plSearch.addEventListener("input", () => {
+    clearTimeout(plSearchTimer);
+    plSearchTimer = setTimeout(() => { plKeyword = plSearch.value; renderPromptChips(); }, 150);
+  });
   const plInput = el("input", { type: "text", style: "flex:1;min-width:0;", placeholder: "输入关键词或一段提示词, 保存后可随时加入提示词" });
   plInput.addEventListener("keydown", (e) => { if (e.key === "Enter") savePromptLib(); });
   // 分类: 与新建卡片一致的下拉形式, 支持选择已有分类或直接输入新分类
@@ -631,6 +640,8 @@ export async function renderPanel(container, ctx, opts = {}) {
     visibleCards.forEach((card) => frag.append(renderCard(card)));
     grid.append(frag);
     syncSelectionClasses();
+    // 本次渲染已经用时间戳 URL 取到新封面, 之后的渲染恢复用缓存 URL
+    coverBustNames.clear();
   }
 
   // 搜索防抖: 大量卡片时每敲一个字符全量重建网格很卡, 150ms 合并一次
@@ -675,8 +686,10 @@ export async function renderPanel(container, ctx, opts = {}) {
     item.dataset.name = card.name;
     item.append(el("span", { class: "wc-check", text: "✓" }));
     if (card.cover) {
-      // bust=true 强制刷新, 避免覆盖封面后浏览器仍显示旧图
-      item.append(el("div", { class: "wc-cover" }, [el("img", { src: imageUrl(card.cover, true), alt: card.name, loading: "lazy" })]));
+      // 只在"封面刚被替换过"时加时间戳: 原先恒用 bust=true, 等于每次网格渲染都让浏览器
+      // 重新下载全部封面 (缓存完全失效)。_coverBust 由上传/更换封面的代码路径写入。
+      const bust = coverBustNames.has(card.name);
+      item.append(el("div", { class: "wc-cover" }, [el("img", { src: imageUrl(card.cover, !!bust), alt: card.name, loading: "lazy" })]));
     } else {
       item.append(el("div", { class: "wc-cover wc-cover-empty" }, [el("span", { text: card.special ? (card.name === "随机" ? "🎲" : "🔁") : "🃏" })]));
     }
@@ -756,8 +769,10 @@ export async function renderPanel(container, ctx, opts = {}) {
           const res = await fetch(`/api/wildcards/${encodeURIComponent(state.type)}/${encodeURIComponent(name)}/cover`, { method: "POST", body: form });
           if (!res.ok) throw new Error("上传失败");
           const data = await res.json();
-          coverImg.src = imageUrl(data.cover);
+          coverImg.src = imageUrl(data.cover, true);
           coverImg.style.display = "";
+          // 标记本次卡片需要在网格里绕开缓存 (下次渲染后即可恢复用缓存 URL)
+          coverBustNames.add(name);
           toast("封面已保存 🖼️", "success");
           await loadCards();
         } catch (e) {
@@ -776,6 +791,7 @@ export async function renderPanel(container, ctx, opts = {}) {
           const res = await post(url, { image_path: imgPath });
           coverImg.src = imageUrl(res.cover, true); // 强制刷新, 避免已存在封面不更新
           coverImg.style.display = "";
+          coverBustNames.add(name);
           toast("封面已保存 🖼️", "success");
           await loadCards();
         } catch (e) {
