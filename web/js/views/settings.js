@@ -3,10 +3,13 @@
 // ============================================================
 import { $, el, clear, toast, confirmDialog, sliderRow } from "../ui.js";
 import { post, get, waitBackendBack } from "../api.js";
+import { onViewLeave } from "../viewLifecycle.js";
 
 
 let S = null;
 let fields = {};
+/** 共享开启后的"等链接就绪并跳转"轮询 (跨 render 保留, 便于离开视图时停掉) */
+let shareJumpTimer = null;
 
 export async function render(container, ctx) {
   S = ctx;
@@ -31,6 +34,11 @@ export async function render(container, ctx) {
   }
 
   let sharePollTimer = null;
+  // 离开设置页时必须停掉这两个轮询: 否则会一直打 /api/share (跳转轮询最长 10 分钟)
+  onViewLeave("settings", () => {
+    if (sharePollTimer) { clearInterval(sharePollTimer); sharePollTimer = null; }
+    if (shareJumpTimer) { clearInterval(shareJumpTimer); shareJumpTimer = null; }
+  });
   function startSharePolling() {
     if (sharePollTimer) return;
     sharePollTimer = setInterval(async () => {
@@ -213,19 +221,23 @@ export async function render(container, ctx) {
           shareLinkText.textContent = "⏳ 正在建立隧道, 请稍候 (首次使用需下载隧道程序)...";
           shareLinkText.removeAttribute("href");
           let n = 0;
-          const timer = setInterval(async () => {
+          // 用共享变量持有: onViewLeave 里要能停掉它 (原先只在自己回调内部 clearInterval,
+          // 用户切走视图后它仍会继续轮询最多 10 分钟)
+          if (shareJumpTimer) clearInterval(shareJumpTimer);
+          shareJumpTimer = setInterval(async () => {
+            const stop = () => { clearInterval(shareJumpTimer); shareJumpTimer = null; };
             try {
               const st = await get("/api/share");
-              if (st.url) { clearInterval(timer); location.href = st.url; return; }
+              if (st.url) { stop(); location.href = st.url; return; }
               if (st.error) {
-                clearInterval(timer);
+                stop();
                 refreshShareStatus();
                 toast(st.error, "error", 10000);
                 return;
               }
             } catch { /* 后端忙, 继续等 */ }
             if (++n >= 300) {
-              clearInterval(timer);
+              stop();
               toast("外网链接生成超时, 请检查网络后重新保存", "error", 8000);
             }
           }, 2000);

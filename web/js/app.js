@@ -1,14 +1,18 @@
 // ============================================================
 // 应用入口: 主题、日志、事件流、视图路由
 // ============================================================
+
 import { initTheme } from "./theme.js";
 import { initBackground, initBackgroundUI } from "./background.js";
 import { initLogConsole } from "./components.js";
 import { initEmoji } from "./emoji.js";
 import { initHitokoto } from "./hitokoto.js";
 import { initQueueModal } from "./queueModal.js";
-import { fetchState, post, get } from "./api.js";
+import { fetchState, post, get, waitBackendBack } from "./api.js";
 import { $, $$, el, bus, toast, confirmDialog, choiceDialog, initFancySelects, powerIcon } from "./ui.js";
+// 视图清理注册表放在无依赖的叶子模块里: 各视图会在模块求值期调用 onViewLeave,
+// 而 ESM 先求值被导入模块, 注册表若定义在本文件会命中 TDZ (整页崩)。
+import { onViewLeave, runViewCleanups } from "./viewLifecycle.js";
 
 import * as generateView from "./views/generate.js";
 import * as directorView from "./views/director.js";
@@ -178,14 +182,8 @@ async function boot() {
       if (!ok) return;
       toast("🔄 正在重启 WebUI... 连接将短暂断开", "warning");
       try { await post("/api/settings/restart"); } catch { /* 连接断开即重启成功 */ }
-      // 轮询后端恢复 (最多 12 秒), 恢复后刷新页面
-      for (let i = 0; i < 30; i++) {
-        await new Promise((r) => setTimeout(r, 400));
-        try {
-          const res = await fetch("/api/state");
-          if (res.ok) { location.reload(); return; }
-        } catch { /* 后端重启中 */ }
-      }
+      // 复用 api.js 的等待逻辑 (原先这里手写了一份同样的 30 x 400ms /api/state 轮询)
+      if (await waitBackendBack()) { location.reload(); return; }
       toast("后端未响应, 请检查服务状态", "error");
     }
   });
@@ -301,6 +299,13 @@ function isQueueTask(jobId) {
   return !!lastQueue?.tasks?.some((t) => t.id === jobId);
 }
 
+/** 队列任务 id 集合 (一次构建, 供批量剔除本地任务用; 避免逐个 id 做 O(n) 扫描) */
+function queueTaskIds() {
+  const ids = new Set();
+  for (const t of lastQueue?.tasks || []) ids.add(t.id);
+  return ids;
+}
+
 // ---------------- 浏览器标签页标题 ----------------
 
 const BASE_TITLE = "Auto-NovelAI-Refactor 💗";
@@ -325,9 +330,13 @@ let lastJobText = null;
 function updateJobStatus() {
   const node = document.getElementById("job-status");
   if (!node) return;
-  // 队列快照晚于 job:start 到达时, 运行中队列任务可能被误记为本地任务, 在此剔除
-  for (const id of [...otherJobs.keys()]) {
-    if (isQueueTask(id)) otherJobs.delete(id);
+  // 队列快照晚于 job:start 到达时, 运行中队列任务可能被误记为本地任务, 在此剔除。
+  // 原先对每个本地任务各做一次 tasks.some() 线性扫描 (O(n*m)); 现在一次建集合后按 id 剔除。
+  if (otherJobs.size) {
+    const queueIds = queueTaskIds();
+    for (const id of [...otherJobs.keys()]) {
+      if (queueIds.has(id)) otherJobs.delete(id);
+    }
   }
   const parts = [];
   const q = lastQueue;
@@ -353,7 +362,12 @@ function updateJobStatus() {
   updateTitle(busy);
 }
 
+// 视图级清理 (视图里的定时器/轮询/全局监听在离开后应停止) 由 ./viewLifecycle.js 提供
+let activeView = "";
+
 export function showView(name) {
+  if (activeView && activeView !== name) runViewCleanups(activeView);
+  activeView = name;
   $$(".nav-item").forEach((n) => n.classList.toggle("active", n.dataset.view === name));
   $$(".view").forEach((v) => { v.style.display = "none"; });
 

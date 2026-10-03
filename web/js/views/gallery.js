@@ -4,7 +4,8 @@
 //   右上角: 排序方式 (名称/修改时间/大小) + 递归展示复选框 + 正序/倒序
 //   悬停突出显示; 双击打开应用内全屏查看器 (图片居中偏左, 右侧按钮:
 //   "使用该图片参数" / "发送到图片生成" / "发送到法术解析" / "删除 (移到回收站)")
-//   浏览期间每 3 秒轮询目录变化 + 生成完成 (job:done/failed) 即时刷新, 内容有变增量更新 (temp_ 文件已排除)
+//   浏览期间轮询目录变化 (前台可见 3 秒 / 后台 30 秒, 离开视图即停止) + 生成完成 (job:done/failed) 即时刷新,
+//   内容有变增量更新 (temp_ 文件已排除)
 // 性能优化 (大量图片时不再卡顿):
 //   - 网格加载 360px WebP 缩略图 (/api/browse/thumb, 后端磁盘缓存), 不再加载原图
 //   - 滚动加载: 每批渲染 100 张, 滚动到底自动续载 (IntersectionObserver 哨兵)
@@ -13,6 +14,7 @@
 import { $, el, elSvg, clear, toast, confirmDialog, bus } from "../ui.js";
 import { get, post, imageUrl } from "../api.js";
 import { showView } from "../app.js";
+import { onViewLeave } from "../viewLifecycle.js";
 import { setGenerateState, sendToImg2img } from "./generate.js";
 import { openWithImage as pnginfoOpenWithImage } from "./pnginfo.js";
 
@@ -549,6 +551,9 @@ async function loadImages() {
 
 const imagesSig = (images) => images.map((i) => `${i.path}:${i.mtime}:${i.size}`).join("|");
 const POLL_MS = 3000;
+// 页面不可见时的轮询间隔: 后台标签页没必要每 3 秒拉两个接口的完整 JSON
+// (目录图片多时单次响应可达数百 KB)。生成完成的实时刷新另由 job:done 事件负责。
+const POLL_MS_HIDDEN = 30000;
 let pollTimer = null;
 
 function browseVisible() {
@@ -556,9 +561,16 @@ function browseVisible() {
   return !!view && view.style.display !== "none";
 }
 
+/** 是否值得轮询: 视图可见 + 页面在前台 + 不在收藏模式 */
+function shouldPoll() {
+  return browseVisible()
+    && !state.favMode
+    && document.visibilityState === "visible"
+    && document.hasFocus();
+}
+
 async function pollOnce() {
-  if (!browseVisible()) return;
-  if (state.favMode) return;   // 收藏模式不轮询目录变化
+  if (!shouldPoll()) return;
   try {
     const [fRes, iRes] = await Promise.all([
       get("/api/browse/folders"),
@@ -587,10 +599,28 @@ async function pollOnce() {
   } catch { /* 轮询失败静默, 下次再试 */ }
 }
 
+// 用 setTimeout 自调度而不是固定 setInterval: 这样能按前后台切换间隔,
+// 也不会在前一次请求还没回来时叠加下一次。
 function startPolling() {
   if (pollTimer) return;
-  pollTimer = setInterval(pollOnce, POLL_MS);
+  const tick = async () => {
+    if (shouldPoll()) await pollOnce();
+    pollTimer = setTimeout(tick, document.visibilityState === "visible" ? POLL_MS : POLL_MS_HIDDEN);
+  };
+  pollTimer = setTimeout(tick, POLL_MS);
 }
+
+/** 离开图片浏览视图时停止轮询 (回来时 ensureView 不会重跑 render, 由 onShow 重新启动) */
+function stopPolling() {
+  if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
+}
+
+/** 回到前台/重新聚焦时立刻刷新一次, 补上后台期间错过的变化 */
+function refreshSoon() {
+  if (browseVisible()) pollOnce();
+}
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") refreshSoon(); });
+window.addEventListener("focus", refreshSoon);
 
 /** 🔄 刷新按钮: 文件夹树 + 图片网格一起重载 (收藏模式下刷新收藏列表) */
 async function refreshAll() {
@@ -608,6 +638,9 @@ bus.on("job:done", () => { if (browseVisible()) pollOnce(); });
 bus.on("job:failed", () => { if (browseVisible()) pollOnce(); });
 
 // ---------------- 视图渲染 ----------------
+
+// 离开视图就停轮询; 再次进入时由 onShow 重新启动 (render 每个视图只跑一次)
+onViewLeave("browse", stopPolling);
 
 export async function render(container, ctx) {
   S = ctx;
@@ -720,4 +753,8 @@ export async function render(container, ctx) {
   await loadImages();
 }
 
-export function onShow() {}
+export function onShow() {
+  // 从别的视图切回来: 恢复轮询并立即刷新一次 (补齐离开期间的变化)
+  startPolling();
+  if (!state.favMode) refreshSoon();
+}
