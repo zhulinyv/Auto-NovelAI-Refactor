@@ -153,10 +153,12 @@ class LSBExtractor:
             return None
 
 
-def extract_data(img: Image.Image):
-    # 自动补成 RGBA: 兼容无透明通道的格式 (如 RGB/灰度 webp),
-    # 否则 np.array(img).shape[-1] == 3 会触发 "image format" 断言 (法术解析读 webp 报错)。
-    img = np.array(img.convert("RGBA"))
+def extract_data_from_array(img):
+    """从**已解码**的 RGBA numpy 数组读取 NovelAI 隐写数据 (见 extract_data)。
+
+    供已经持有 RGBA 像素的调用方复用, 避免为一句话的判断把整图再 np.array 一遍
+    (图片工具插件的隐写探测就属于这种情况)。
+    """
     assert len(img.shape) == 3 and img.shape[-1] == 4, "image format"
     reader = LSBExtractor(img)
     magic = "stealth_pngcomp"
@@ -166,3 +168,9 @@ def extract_data(img: Image.Image):
     json_data = reader.get_next_n_bytes(read_len)
     json_data = json.loads(gzip.decompress(json_data).decode("utf-8"))
     return json_data
+
+
+def extract_data(img: Image.Image):
+    # 自动补成 RGBA: 兼容无透明通道的格式 (如 RGB/灰度 webp),
+    # 否则 np.array(img).shape[-1] == 3 会触发 "image format" 断言 (法术解析读 webp 报错)。
+    return extract_data_from_array(np.array(img.convert("RGBA")))
