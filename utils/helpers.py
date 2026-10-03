@@ -228,8 +228,7 @@ def replace_wildcards(text: str) -> str:
         rounds += 1
         if rounds > _WILDCARD_MAX_ROUNDS:
             logger.warning(
-                f"wildcard 替换超过 {_WILDCARD_MAX_ROUNDS} 轮仍未收敛, 已停止; "
-                f"未替换的标记: {sorted(unresolved)[:5]}"
+                f"wildcard 替换超过 {_WILDCARD_MAX_ROUNDS} 轮仍未收敛, 已停止; 未替换的标记: {sorted(unresolved)[:5]}"
             )
             break
         for wild_card in matchers:

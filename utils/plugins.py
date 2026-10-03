@@ -69,9 +69,7 @@ class Field:
     no_drag: bool = False  # type="filearea" 时仅允许点击选择文件, 禁用拖拽
     direct_path: bool = False  # type="filearea" 时用原生对话框取真实路径, 不上传
     hidden: bool = False  # 默认隐藏 (前端可通过彩蛋键位解锁显示, 如 naiv4vibebundle 的 Konami 码)
-    column: str = (
-        "left"  # "left"|"right"|"right_bottom" — "left" 表单列; "right" 右列(输出/图表/说明); "right_bottom" 右列底部(排在输出区之后, 如"说明"放结果下方)
-    )
+    column: str = "left"  # "left"|"right"|"right_bottom" — "left" 表单列; "right" 右列(输出/图表/说明); "right_bottom" 右列底部(排在输出区之后, 如"说明"放结果下方)
     inputs: list[str] = field(default_factory=list)  # type="chart" 时监听变化的参数 id 列表
     corner_of: str = ""  # type="select" 时作为角标下拉附属于指定字段 (如提示词预设)
     row_group: str = ""  # 相邻字段同一 row_group 时渲染到同一行 (如 variety 与 decrisp 并排)
