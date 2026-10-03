@@ -6,7 +6,7 @@ import os
 
 from utils.config import BASE_DIR, env
 
-VERSION = "2.2.0-beta.11"
+VERSION = "2.2.0-beta.12"
 
 MODELS = [
     "nai-diffusion-5-full",
@@ -74,7 +74,21 @@ QUALITY_TAGS = {
     "nai-diffusion-furry-3": {"Standard": "{best quality}, {amazing quality}", "None": "lowres"},
 }
 
-WILDCARD_TYPE = os.listdir(BASE_DIR / "wildcards")
+
+def _list_wildcard_types() -> list[str]:
+    """wildcard 分类列表 (导入时求值)。
+
+    目录不存在时返回空列表: 原先直接 os.listdir 会在缺少 ./wildcards 时抛
+    FileNotFoundError, 让整个 utils.variable 导入失败、应用起不来
+    (main.py 创建该目录的时机在导入之后)。
+    """
+    try:
+        return os.listdir(BASE_DIR / "wildcards")
+    except OSError:
+        return []
+
+
+WILDCARD_TYPE = _list_wildcard_types()
 
 CHARACTER_POSITION = [f"{chr(letter)}{number}" for letter in range(ord("A"), ord("F")) for number in range(1, 6)]
 
