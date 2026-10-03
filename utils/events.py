@@ -9,6 +9,7 @@ from __future__ import annotations
 import queue
 import threading
 import time
+from collections import deque
 from typing import Any
 
 _EVENT_TYPES = ("log", "notice", "anlas:update", "job:start", "job:event", "job:done", "job:failed", "queue:update")
@@ -20,7 +21,9 @@ class EventBroker:
     def __init__(self, history_size: int = 300):
         self._subscribers: list[queue.Queue] = []
         self._lock = threading.Lock()
-        self._history: list[dict[str, Any]] = []
+        # deque(maxlen=...): 原先用 list 并在 publish 里 self._history = self._history[-n:],
+        # 每发布一条事件就重建整个 300 元素列表 (O(n) 分配)。deque 自动淘汰队首。
+        self._history: deque[dict[str, Any]] = deque(maxlen=history_size)
         self._history_size = history_size
         self._seq = 0  # 全局递增序号: 供轮询接口做增量拉取
 
@@ -31,8 +34,6 @@ class EventBroker:
             self._seq += 1
             payload = {"type": event_type, "seq": self._seq, "time": time.time(), **data}
             self._history.append(payload)
-            if len(self._history) > self._history_size:
-                self._history = self._history[-self._history_size :]
             for sub in list(self._subscribers):
                 try:
                     sub.put_nowait(payload)
@@ -51,9 +52,10 @@ class EventBroker:
                 self._subscribers.remove(q)
 
     def history(self, event_type: str | None = None) -> list[dict[str, Any]]:
-        if event_type is None:
-            return list(self._history)
-        return [e for e in self._history if e["type"] == event_type]
+        with self._lock:
+            if event_type is None:
+                return list(self._history)
+            return [e for e in self._history if e["type"] == event_type]
 
     def current_seq(self) -> int:
         with self._lock:

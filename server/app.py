@@ -32,16 +32,18 @@ def create_app() -> FastAPI:
 
     # 后台预热常用缓存: 插件商店数据 (含 git 检查) 与提示词补全标签词典,
     # 避免打开商店页 / 首次输入提示词时的首次加载等待
-    def _warm_caches():
-        # 顺序: 先本地必用的 (标签词典 ~2.5s 纯 CPU, 提示词补全第一输入就依赖),
-        # 再排慢的网络/外部进程 (点数查询最坏 N×45s、插件商店含 git)。
-        # 原先最慢的网络调用排在最前, 把标签预热挤到几十秒后 (方案 P1-1 配套)。
-        # 点数查完仍会通过 anlas:update 事件刷新输出区右上角徽标, 只是晚于词典就绪。
+    def _warm_tag_cache():
+        """标签词典预热 (~2.5s 纯 CPU 解析 32.7 万行 CSV)。单独一个线程, 与下面的网络预热并行。"""
         try:
             misc._get_tag_cache()
         except Exception as e:
             logger.warning(f"标签词典预热失败: {e}")
             logger.opt(exception=True).debug("标签词典预热失败堆栈:")
+
+    def _warm_caches():
+        # 标签词典是纯 CPU 且会长时间持有 GIL, 原先串在预热链最前面, 后面几个网络预热
+        # (点数查询最坏 N×45s、插件商店含 git) 都要等它解析完才开始。改为与它们并发启动。
+        threading.Thread(target=_warm_tag_cache, daemon=True, name="warmup-tags").start()
         try:
             from utils.generator import inquire_all_anlas
 
@@ -102,17 +104,21 @@ def create_app() -> FastAPI:
     async def events():
         async def stream():
             q = broker.subscribe()
+            loop = asyncio.get_running_loop()
             try:
                 # 先补发历史日志事件 (刷新页面后日志不丢失); 跳过 job/queue 事件, 避免刷新后重复弹 toast
                 for ev in broker.history("log"):
                     yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
                 while True:
+                    # 在 worker 线程里做带超时的阻塞取, 事件一到达就推送:
+                    # 原先 get_nowait() + 固定 sleep(0.5) 会让每条事件最多迟到 500ms,
+                    # 而且没有事件时也在刷 keepalive。
                     try:
-                        ev = q.get_nowait()
-                        yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
+                        ev = await loop.run_in_executor(None, q.get, True, 0.5)
                     except queue.Empty:
-                        await asyncio.sleep(0.5)
                         yield ": keepalive\n\n"
+                        continue
+                    yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
             finally:
                 broker.unsubscribe(q)
 

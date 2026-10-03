@@ -19,14 +19,7 @@ from typing import Any, Callable
 
 from utils.config import env
 from utils.events import broker
-from utils.jobs import (
-    cleanup_break_file,
-    normalize_result,
-    pop_current_job,
-    set_current_job,
-    sweep_break_files,
-    write_break_flag,
-)
+from utils.jobs import cleanup_break_file, normalize_result, pop_current_job, set_current_job, write_break_flag
 from utils.logger import logger
 from utils.tokens import get_tokens, mask_token, pop_thread_token, set_thread_token
 from utils.usage import tokens_with_no_usage
@@ -91,8 +84,10 @@ class _Worker(threading.Thread):
                 if self.stop_flag.is_set():
                     break
                 self.status = "idle"
-                self.queue._wake.wait(0.5)
+                # 先 clear 再 wait: 若在 wait() 返回与 clear() 之间有人 submit(),
+                # 旧的 "wait 后 clear" 写法会把那次唤醒信号吞掉, 该任务最多白等 0.5s。
                 self.queue._wake.clear()
+                self.queue._wake.wait(0.5)
                 continue
             self._run_task(task)
             self._cooldown()
@@ -132,7 +127,8 @@ class _Worker(threading.Thread):
                 self.queue._tasks.pop(task.id, None)
             self.task_id = None
             cleanup_break_file(task.id)
-            sweep_break_files()  # 顺手收掉历史残留 (强杀/异常收尾留下的孤儿信号)
+            # 不再在这里 sweep_break_files(): 它是全目录 glob + 逐文件 stat, 而 N 个通道同时
+            # 收尾就会并发扫 N 次; 孤儿信号文件由 utils.jobs 的 60s 定时清理线程统一负责。
             self.queue._publish()
 
     def _cooldown(self) -> None:
@@ -243,10 +239,15 @@ class GenerationQueue:
           (该通道忙碌时任务在队列中等待); 全部 Token 无用量时跳过该任务并提示
         """
         with self._lock:
-            if worker.idx >= self.desired_workers():
+            desired = self.desired_workers()
+            if worker.idx >= desired:
                 worker.stop_flag.set()
                 return None
             running_idx = {t.worker for t in self._running.values()}
+            # 循环外算一次: 原先在逐任务扫描里反复调 get_tokens() / tokens_with_no_usage() /
+            # _has_smaller_idle_worker (后者还会每次排序 worker 表), 这些都与具体任务无关。
+            tokens = get_tokens()
+            empty = set(tokens_with_no_usage()) if tokens else set()
             pos = 0
             while pos < len(self._order):
                 tid = self._order[pos]
@@ -254,12 +255,8 @@ class GenerationQueue:
                 if task is None or task.status != "pending":
                     pos += 1
                     continue
-                if self._is_nai5_restricted(task) and get_tokens():
-                    tokens = get_tokens()
-                    empty = set(tokens_with_no_usage())
-                    eligible = next(
-                        (i for i, tk in enumerate(tokens) if i < self.desired_workers() and tk not in empty), -1
-                    )
+                if self._is_nai5_restricted(task) and tokens:
+                    eligible = next((i for i, tk in enumerate(tokens) if i < desired and tk not in empty), -1)
                     if eligible < 0:
                         # 全部 Token 无用量: 跳过该任务并提示 (日志 + WebUI 右上角通知)
                         self._order.pop(pos)
@@ -284,7 +281,7 @@ class GenerationQueue:
                     if worker.idx != eligible:
                         pos += 1
                         continue  # 本通道绑定的 Token 无用量 / 不是首个有用量通道: 不可领取该任务
-                elif self._has_smaller_idle_worker(worker.idx, running_idx):
+                elif self._has_smaller_idle_worker(worker.idx, running_idx, desired):
                     # 普通任务让位: 存在编号更小的空闲通道, 任务优先分配给靠前的 Token
                     return None
                 # 领取该任务
@@ -301,13 +298,18 @@ class GenerationQueue:
         """NAI5 任务且启用 "用量为空时跳过 nai5 任务"。"""
         return bool(env.skip_nai5_no_usage) and str(task.model or "").startswith("nai-diffusion-5")
 
-    def _has_smaller_idle_worker(self, idx: int, running_idx: set) -> bool:
-        """是否存在编号更小、可正常领取任务的空闲通道。"""
+    def _has_smaller_idle_worker(self, idx: int, running_idx: set, desired: int | None = None) -> bool:
+        """是否存在编号更小、可正常领取任务的空闲通道。
+
+        desired 由调用方传入时不再重算 (dispatch 热路径, 见 _take_next)。
+        """
+        if desired is None:
+            desired = self.desired_workers()
         for i in sorted(self._workers):
             if i >= idx:
                 break
             w = self._workers[i]
-            if not w.is_alive() or w.stop_flag.is_set() or i >= self.desired_workers():
+            if not w.is_alive() or w.stop_flag.is_set() or i >= desired:
                 continue
             if w.status == "idle" and i not in running_idx:
                 return True

@@ -138,8 +138,14 @@ def sleep_interruptible(seconds: float) -> None:
 
 
 def sleep_for_cool(seconds: int | float) -> None:
-    """在 [seconds-1, seconds+1] 内随机休眠, 避免请求过快; 检测到停止时立即返回。"""
-    sleep_time = round(random.uniform(abs(seconds - 1), seconds + 1), 3)
+    """在 [seconds-1, seconds+1] 内随机休眠, 避免请求过快; 检测到停止时立即返回。
+
+    下界用 max(0, seconds - 1): 原先写 abs(seconds - 1), 当 seconds < 1 时下界反而
+    大于 seconds (如 seconds=0.5 得到 [0.5, 1.5], 比要求还久; seconds=0 得到 [1, 1])。
+    """
+    low = max(0.0, float(seconds) - 1)
+    high = max(low, float(seconds) + 1)
+    sleep_time = round(random.uniform(low, high), 3)
     logger.debug(f"等待 {sleep_time} 秒后继续...")
     sleep_interruptible(sleep_time)
 
@@ -167,32 +173,90 @@ def float_to_position(letter_float: float, number_float: float) -> str:
 # ---------------------------------------------------------------- wildcard
 
 
+# wildcard 解析期间的文件系统缓存: 一次请求里同一个分类/同一张卡片会被反复查找
+# (原实现对每个匹配项都重新 listdir + 读文件), 且替换过程中外层还在反复 findall。
+# 缓存只在这一轮替换内有效 (调用方在入口清空), 保证用户改完 wildcard 立刻生效。
+_WC_DIR_CACHE: dict[str, list[str]] = {}
+_WC_FILE_CACHE: dict[str, str] = {}
+
+
+def _reset_wildcard_cache() -> None:
+    _WC_DIR_CACHE.clear()
+    _WC_FILE_CACHE.clear()
+
+
 def _list_wildcard_txt(category: str) -> list[str]:
     """列出 wildcard 目录下的 .txt 文件名 (过滤图片等非文本文件, 避免 UnicodeDecodeError)。"""
+    cached = _WC_DIR_CACHE.get(category)
+    if cached is not None:
+        return cached
     path = f"./wildcards/{category}"
     if not os.path.isdir(path):
-        return []
-    return sorted(f for f in os.listdir(path) if f.lower().endswith(".txt"))
+        names: list[str] = []
+    else:
+        names = sorted(f for f in os.listdir(path) if f.lower().endswith(".txt"))
+    _WC_DIR_CACHE[category] = names
+    return names
+
+
+def _read_wildcard_file(category: str, name: str) -> str:
+    """读取一张 wildcard 卡片的内容 (同一轮替换内带缓存)。"""
+    key = f"{category}/{name}"
+    cached = _WC_FILE_CACHE.get(key)
+    if cached is not None:
+        return cached
+    content = read_txt(f"./wildcards/{category}/{name}.txt")
+    _WC_FILE_CACHE[key] = content
+    return content
+
+
+# 替换轮数上限: 卡片内容本身可以再引用别的 wildcard, 正常情况下几轮就收敛;
+# 但若某个卡片解析失败/自引用, 原实现会在 while matchers 里无限循环 (每次都对整段文本
+# 重新 findall)。这里显式设上限并把无法解析的标记留在原地, 保证一定有退出路径。
+_WILDCARD_MAX_ROUNDS = 50
+# 匹配失败 (分类为空 / 文件缺失) 时把该标记记下来, 后续轮次直接跳过
+_WILDCARD_SKIP: set[str] = set()
 
 
 def replace_wildcards(text: str) -> str:
     pattern = r"<([^:]+):([^>]+)>"
     matchers = re.findall(pattern, text)
     matchers_number = 0
+    rounds = 0
+    unresolved: set[str] = set()
     while matchers:
+        rounds += 1
+        if rounds > _WILDCARD_MAX_ROUNDS:
+            logger.warning(
+                f"wildcard 替换超过 {_WILDCARD_MAX_ROUNDS} 轮仍未收敛, 已停止; "
+                f"未替换的标记: {sorted(unresolved)[:5]}"
+            )
+            break
         for wild_card in matchers:
-            if wild_card[1] == "随机":
-                name = random.choice(_list_wildcard_txt(wild_card[0]))
-                name = name.replace(".txt", "")
-            elif wild_card[1] == "顺序":
-                name, tag = _sequential_wildcard(wild_card[0])
-            else:
-                name = wild_card[1]
-                tag = read_txt(f"./wildcards/{wild_card[0]}/{wild_card[1]}.txt")
-            if wild_card[1] != "顺序":
-                tag = read_txt(f"./wildcards/{wild_card[0]}/{name}.txt")
+            token = f"<{wild_card[0]}:{wild_card[1]}>"
+            if token in unresolved:
+                continue  # 已知解析不了: 不再重复尝试 (否则会无限循环)
+            try:
+                if wild_card[1] == "随机":
+                    names = _list_wildcard_txt(wild_card[0])
+                    if not names:
+                        raise FileNotFoundError(f"分类为空或不存在: {wild_card[0]}")
+                    name = random.choice(names).replace(".txt", "")
+                    tag = _read_wildcard_file(wild_card[0], name)
+                elif wild_card[1] == "顺序":
+                    name, tag = _sequential_wildcard(wild_card[0])
+                    if not name:
+                        raise FileNotFoundError(f"分类为空或不存在: {wild_card[0]}")
+                else:
+                    name = wild_card[1]
+                    tag = _read_wildcard_file(wild_card[0], name)
+            except Exception as e:
+                # 卡片缺失/分类为空: 保留原标记并跳过 (原来是直接抛错中断整次生成)
+                logger.warning(f"wildcard 解析失败, 已保留原样: {token} ({e})")
+                unresolved.add(token)
+                continue
             matchers_number += 1
-            text = text.replace(f"<{wild_card[0]}:{wild_card[1]}>", tag)
+            text = text.replace(token, tag)
             logger.debug(
                 loguru_to_rich(
                     r'已将 <c><{}:{}></c> 替换为 <c>{}</c>: "<c>{}</c>"'.format(
@@ -210,6 +274,8 @@ def _sequential_wildcard(category: str):
     """顺序 wildcard: 按文件名的字母顺序依次使用。"""
     state_path = "./outputs/temp_wildcards.json"
     names = _list_wildcard_txt(category)
+    if not names:
+        return "", ""
     if os.path.exists(state_path):
         data = read_json(state_path)
     else:
@@ -220,10 +286,14 @@ def _sequential_wildcard(category: str):
     data[category] = number
     with open(state_path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False)
-    return names[number].replace(".txt", ""), read_txt(f"./wildcards/{category}/{names[number]}")
+    chosen = names[number]
+    return chosen.replace(".txt", ""), _read_wildcard_file(category, chosen.replace(".txt", ""))
 
 
 def find_and_replace_wildcards_from_dict(data: dict) -> dict:
+    # 每次请求开始清空 wildcard 文件缓存: 保证这一轮内重复引用只读一次盘,
+    # 又能让用户在两次请求之间修改 wildcard 后立即生效。
+    _reset_wildcard_cache()
     data["input"] = replace_wildcards(data["input"])
     data["parameters"]["negative_prompt"] = replace_wildcards(data["parameters"]["negative_prompt"])
 
@@ -257,6 +327,7 @@ def reset_stop() -> None:
     from utils.jobs import write_break_flag
 
     write_break_flag(False)
+    clear_stop_cache()  # 新任务开始: 丢掉上一轮的"无信号"负缓存
 
 
 def stop_generate(job_id: str | None = None) -> None:
@@ -290,12 +361,35 @@ def stop_generate(job_id: str | None = None) -> None:
         json.dump({"break": True}, f)
 
 
+# check_stop 的负结果缓存: 它在逐图循环与重试循环里被高频调用, 而每次调用都要
+# 打开并 JSON 解析一个信号文件。文件不存在 (最常见) 时记下"该任务无信号", 之后直接返回。
+# 只缓存否定结果: 一旦读到 break=true 立刻清缓存并返回 True, 停止指令永远即时生效,
+# 且 clean_stop_cache() 会在任务开始时调用, 避免跨任务/跨轮次误判。
+_STOP_CACHE: set[str] = set()
+
+
+def clear_stop_cache() -> None:
+    """清空停止信号负缓存 (任务开始时调用, 防止沿用上一轮/别的任务的判定)。"""
+    _STOP_CACHE.clear()
+
+
 def check_stop() -> bool:
-    """检测当前任务的停止信号 (自动按线程定位任务; 任务线程外读取全局文件)。"""
+    """检测当前任务的停止信号 (自动按线程定位任务; 任务线程外读取全局文件)。
+
+    负结果按信号文件路径缓存 (见 _STOP_CACHE), 避免逐图/逐次重试都去打开文件。
+    """
     try:
         from utils.jobs import break_file_path
 
-        return bool(read_json(break_file_path()).get("break"))
+        path = break_file_path()
+        if path in _STOP_CACHE:
+            return False
+        breaking = bool(read_json(path).get("break"))
+        if breaking:
+            _STOP_CACHE.discard(path)
+            return True
+        _STOP_CACHE.add(path)
+        return False
     except FileNotFoundError:
         return False
     except Exception:

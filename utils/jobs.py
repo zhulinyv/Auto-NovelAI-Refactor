@@ -320,7 +320,8 @@ class JobManager:
                 self._running.pop(job_id, None)
                 pop_current_job()
                 cleanup_break_file(job_id)
-                sweep_break_files()  # 顺手收掉历史残留 (强杀/异常收尾留下的孤儿信号)
+                # 不再在这里 sweep_break_files(): 每个任务收尾都全目录 glob + stat, 并发收尾时互相叠加;
+                # 孤儿信号文件由 start_break_cleanup 的 60s 定时线程 + atexit 兜底统一清理。
 
         threading.Thread(target=_run, name=f"job-{name}", daemon=True).start()
         return job_id
