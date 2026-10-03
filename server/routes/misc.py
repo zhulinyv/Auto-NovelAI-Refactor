@@ -21,6 +21,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 
 from src.generate_images import generate  # noqa: F401  (确保模型导入)
+from utils import http as http_util
 from utils.config import BASE_DIR, resolve_media_path
 from utils.gen_queue import gen_queue
 from utils.helpers import get_update_status, read_json, shutdown_app
@@ -74,15 +75,35 @@ async def shutdown_server():
 # ---------------------------------------------------------------- 状态
 
 
+# last.json 里的 image / mask 是 base64 图片 (实测单次可达 1.5MB), 前端"加载上次"只用
+# parameters 里的标量字段 (见 web/js/views/generate.js 读 app.last.parameters), 从不需要
+# 这两个大字段。全量读取走 /api/last。此前 /api/state 把整份 last.json 带出去, 每次
+# 页面加载都要多传 1.5MB 并同步序列化一次 (与 utils/wake.py 注释里记录的同一个坑)。
+_STATE_LAST_DROP_KEYS = ("image", "mask")
+
+
+def _last_params_for_state() -> dict:
+    """读取 last.json 并剔除超大的 base64 图片字段 (供 /api/state 使用)。"""
+    if not (BASE_DIR / "last.json").exists():
+        return {}
+    try:
+        last_data = read_json(BASE_DIR / "last.json")
+    except Exception as e:
+        logger.warning(f"读取 last.json 失败: {e}")
+        logger.opt(exception=True).debug("读取 last.json 失败堆栈:")
+        return {}
+    if not isinstance(last_data, dict):
+        return {}
+    params = last_data.get("parameters")
+    if isinstance(params, dict):
+        for key in _STATE_LAST_DROP_KEYS:
+            params.pop(key, None)
+    return last_data
+
+
 @router.get("/state")
 async def get_state():
-    last_data = {}
-    if (BASE_DIR / "last.json").exists():
-        try:
-            last_data = read_json(BASE_DIR / "last.json")
-        except Exception as e:
-            logger.warning(f"读取 last.json 失败: {e}")
-            logger.opt(exception=True).debug("读取 last.json 失败堆栈:")
+    last_data = _last_params_for_state()
     parameters = last_data.get("parameters", {})
     model = last_data.get("model", "nai-diffusion-4-5-full").replace("-inpainting", "")
     if model == "nai-diffusion-4-curated":
@@ -387,8 +408,24 @@ def _generate_thumbnail(target: Path, thumb: Path) -> None:
             pass
 
 
+# 清理节流: 原先每次生成缩略图都扫一遍缓存目录 (上限 2 万条 -> 2 万次 scandir+stat),
+# 改为最多每 _THUMB_PRUNE_INTERVAL 秒检查一次。
+_THUMB_PRUNE_INTERVAL = 60.0
+_thumb_prune_at = 0.0
+_thumb_prune_lock = threading.Lock()
+
+
 def _prune_thumb_cache() -> None:
-    """缓存文件数超过上限时删除最旧的一半 (缩略图随时可再生, 清理失败无影响)。"""
+    """缓存文件数超过上限时删除最旧的一半 (缩略图随时可再生, 清理失败无影响)。
+
+    带节流: 一分钟内最多真正扫描一次, 避免每次生成缩略图都全量 stat 缓存目录。
+    """
+    global _thumb_prune_at
+    now = time.time()
+    with _thumb_prune_lock:
+        if now - _thumb_prune_at < _THUMB_PRUNE_INTERVAL:
+            return
+        _thumb_prune_at = now
     try:
         entries = [e for e in os.scandir(_THUMB_DIR) if e.is_file() and e.name.endswith(".webp")]
         if len(entries) <= _THUMB_CAP:
@@ -584,9 +621,18 @@ async def bg_list(payload: dict):
     if target is None or not target.is_dir():
         raise HTTPException(status_code=404, detail="文件夹不存在或无权访问")
     exts = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp")
-    files = sorted(str(p) for p in target.iterdir() if p.is_file() and p.suffix.lower() in exts)
+    # scandir: Windows 上 DirEntry 自带 stat 信息, 不必逐项 is_file() 再 stat
+    files = []
+    try:
+        with os.scandir(target) as it:
+            for entry in it:
+                if Path(entry.name).suffix.lower() in exts and entry.is_file(follow_symlinks=False):
+                    files.append(entry.path)
+    except OSError as e:
+        raise HTTPException(status_code=404, detail=f"读取文件夹失败: {e}")
     if not files:
         raise HTTPException(status_code=404, detail="文件夹中没有图片")
+    files.sort()
     return {"files": files[:500]}
 
 
@@ -668,29 +714,14 @@ def bg_random_wallpaper(payload: dict = None):
     """
     import random as _random
 
-    import requests as _requests
-
     source = ((payload or {}).get("source") or "bing").strip().lower()
     errors = []
 
     # 0) Lolicon 随机动漫壁纸 (API v2: 仅横图 gt1, 非 R18; regular 规格省流量, pid 供前端展示)
     if source == "acg":
-
+        # 直连优先 / 失败自动改走系统代理: 统一实现在 utils.http (全项目同一套降级逻辑)
         def _fetch(method, url, **kw):
-            """直连优先 (实测比走系统代理快), 失败自动改走系统代理重试。"""
-            last = None
-            for trust_env in (False, True):
-                try:
-                    sess = _requests.Session()
-                    sess.trust_env = trust_env
-                    resp = sess.request(method, url, **kw)
-                    resp.raise_for_status()
-                    return resp
-                except Exception as e:
-                    last = e
-                    logger.warning(f"在线壁纸 Lolicon 请求失败 (trust_env={trust_env}): {e}")
-                    # logger.opt(exception=True).debug("在线壁纸 Lolicon 请求失败堆栈:")
-            raise last
+            return http_util.request(method, url, **kw)
 
         try:
             meta = _fetch(
@@ -726,19 +757,17 @@ def bg_random_wallpaper(payload: dict = None):
     for host in ("https://cn.bing.com", "https://www.bing.com"):
         try:
             idx = _random.randint(0, 7)
-            meta = _requests.get(
+            meta = http_util.get(
                 f"{host}/HPImageArchive.aspx",
                 params={"format": "js", "idx": idx, "n": 1},
                 timeout=8,
             )
-            meta.raise_for_status()
             images = meta.json().get("images") or []
             if not images or not images[0].get("url"):
                 raise RuntimeError("接口无数据")
             url = host + images[0]["url"]
             source = f"Bing 每日精选 · {images[0].get('copyright', '').split('(')[0].strip()}"
-            img = _requests.get(url, timeout=25)
-            img.raise_for_status()
+            img = http_util.get(url, timeout=25)
             return {"path": _save_api_wallpaper(img.content), "source": source}
         except Exception as e:
             errors.append(f"{host}: {e}")
@@ -748,12 +777,11 @@ def bg_random_wallpaper(payload: dict = None):
     # 2) Picsum 随机精选图 (兜底)
     try:
         seed = _random.randint(0, 10**9)
-        img = _requests.get(
+        img = http_util.get(
             f"https://picsum.photos/seed/{seed}/1920/1080",
             timeout=30,
             allow_redirects=True,
         )
-        img.raise_for_status()
         return {"path": _save_api_wallpaper(img.content), "source": "Picsum 随机精选"}
     except Exception as e:
         errors.append(f"Picsum: {e}")
@@ -838,31 +866,20 @@ def hitokoto():
     """
     import concurrent.futures
 
-    import requests as _requests
-
     errors = []
 
     def _fetch(url: str) -> dict:
-        """直连优先 (与在线壁纸一致), 失败自动改走系统代理重试。"""
-        last = None
-        for trust_env in (False, True):
-            try:
-                sess = _requests.Session()
-                sess.trust_env = trust_env
-                resp = sess.get(url, timeout=8)
-                resp.raise_for_status()
-                data = resp.json()
-                text = (data.get("hitokoto") or "").strip()
-                if not text:
-                    raise RuntimeError("接口返回空句子")
-                return {
-                    "text": text,
-                    "from": (data.get("from") or "").strip(),
-                    "from_who": (data.get("from_who") or "").strip(),
-                }
-            except Exception as e:
-                last = e
-        raise last
+        """直连优先 (与在线壁纸一致), 失败自动改走系统代理重试: 见 utils.http。"""
+        resp = http_util.get(url, timeout=8)
+        data = resp.json()
+        text = (data.get("hitokoto") or "").strip()
+        if not text:
+            raise RuntimeError("接口返回空句子")
+        return {
+            "text": text,
+            "from": (data.get("from") or "").strip(),
+            "from_who": (data.get("from_who") or "").strip(),
+        }
 
     # 两个源并行请求, 取先成功的一个 (v1.hitokoto.cn 在国内有时很慢, 国际镜像兜底)
     urls = ("https://v1.hitokoto.cn/", "https://international.v1.hitokoto.cn/")
@@ -1517,7 +1534,20 @@ def refresh_anlas():
     查询是阻塞式外部 HTTP (每个 Token 最长 15s 连接 + 30s 读), 故用同步 def —— FastAPI 会把同步端点
     丢进线程池执行, 不会卡住事件循环上的其它接口; 返回体与 GET 完全同形状, 前端可复用同一套渲染。
     """
-    from utils.generator import inquire_all_anlas
+    # 并发查询各 Token: 每个 Token 最坏 15s 连接 + 30s 读取, 串行时 5 个 Token 会把这个
+    # 线程池 worker 占住 ~225 秒 (期间其它同步接口排队)。线程内已是 requests 阻塞 IO,
+    # 开线程并发即可, 结果写入与串行一致 (按 Token 的字典缓存)。
+    import concurrent.futures
 
-    inquire_all_anlas()
+    from utils.generator import inquire_all_anlas
+    from utils.tokens import get_tokens
+
+    tokens = get_tokens()
+    if len(tokens) <= 1:
+        inquire_all_anlas()
+    else:
+        from utils.generator import inquire_anlas
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(tokens))) as ex:
+            list(ex.map(inquire_anlas, tokens))
     return _anlas_payload()

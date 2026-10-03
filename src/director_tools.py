@@ -4,73 +4,30 @@ from __future__ import annotations
 
 import os
 import random
-from pathlib import Path
 
 from PIL import Image
 
+from src.retry import generate_with_retry as _generate_with_retry  # noqa: E402
 from utils.config import env
-from utils.errors import NovelAIAPIError
 from utils.generator import Generator
 from utils.helpers import StopGeneration, check_stop, format_str, playsound, reset_stop, sleep_for_cool
 from utils.image_tools import image_to_base64
+from utils.images import IMAGE_EXTS, collect_images
 from utils.logger import logger
 from utils.models import director
 
 generator = Generator("https://image.novelai.net/ai/augment-image")
 
 
-def _generate_with_retry(json_data: dict, desc: str, max_retries: int = 3):
-    """调用 augment-image 并自动重试 (与生图 _generate_with_retry 行为一致):
-    - 429 且开启"429 自动重试"配置: 无上限重试 (每次等待 5 秒)
-    - 其余错误: 最多重试 max_retries 次 (每次等待 5 秒), 仍失败则抛出异常 (由上层跳过该图片)
-    - 任一点检测到停止信号: 立即抛出 StopGeneration, 不再等待/重试
-    """
-    retries = 0
-    while True:
-        if check_stop():
-            raise StopGeneration("已停止生成")
-        try:
-            data = generator.generate(json_data)
-            if not data:
-                raise NovelAIAPIError("NovelAI 未返回图片数据")
-            return data
-        except StopGeneration:
-            raise
-        except Exception as e:
-            # 捕获所有异常 (含 requests 连接错误/超时/NovelAIAPIError), 统一进入重试流程
-            is_429 = "429" in str(e)
-            if is_429 and getattr(env, "retry_429", False):
-                retries += 1
-                logger.warning(f"[{desc}] 429 限流, 等待 5 秒后自动重试 (第 {retries} 次): {e}")
-                sleep_for_cool(5)
-                continue
-            retries += 1
-            if retries > max_retries:
-                logger.error(f"[{desc}] 重试 {max_retries} 次仍失败, 跳过该图片: {e}")
-                logger.opt(exception=True).debug("导演工具重试失败堆栈:")
-                raise
-            logger.warning(f"[{desc}] 请求失败, 等待 5 秒后重试 ({retries}/{max_retries}): {e}")
-            sleep_for_cool(5)
-
-
 def _input_images(input_path: str | None, input_image: str | None) -> list[str]:
-    """收集待处理图片: 先单张图片, 再目录内全部图片 (同时输入时两者都处理)。"""
+    """收集待处理图片: 先单张图片, 再目录内全部图片 (同时输入时两者都处理)。
+
+    目录内只收扩展名受支持的图片 (原先用 sorted(os.listdir()) 不过滤扩展名,
+    目录里混进的 .txt 等会被送进导演工具)。实现见 utils.images.collect_images。
+    """
     os.makedirs("./outputs", exist_ok=True)
     reset_stop()  # 重置本任务的停止信号
-    images = []
-    if input_image:
-        images.append(input_image)
-    if input_path:
-        images.extend(str(Path(input_path) / f) for f in sorted(os.listdir(input_path)))
-    # 去重 (保留顺序: 先图片, 再目录)
-    seen = set()
-    result = []
-    for img in images:
-        key = os.path.abspath(img)
-        if key not in seen:
-            seen.add(key)
-            result.append(img)
-    return result
+    return collect_images(input_path, input_image, exts=IMAGE_EXTS)
 
 
 def _process(image_path: str, build_fn, image_type: str) -> str | None:
@@ -78,7 +35,7 @@ def _process(image_path: str, build_fn, image_type: str) -> str | None:
     with Image.open(image_path) as image:
         w, h = image.size
     json_data = build_fn(width=w, height=h, image=image_to_base64(image_path))
-    image_data = _generate_with_retry(json_data, os.path.basename(image_path))
+    image_data = _generate_with_retry(generator, json_data, os.path.basename(image_path), log_scope="导演工具重试失败")
     if not image_data:
         return None
     return generator.save(image_data, image_type, random.randint(1000000000, 9999999999))
@@ -135,7 +92,9 @@ def run_director(kind: str, input_path: str | None, input_image: str | None, opt
                 with Image.open(image_path) as image:
                     w, h = image.size
                 json_data = director.remove_bg(width=w, height=h, image=image_to_base64(image_path))
-                result = _generate_with_retry(json_data, f"{os.path.basename(image_path)} (Remove BG)")
+                result = _generate_with_retry(
+                    generator, json_data, f"{os.path.basename(image_path)} (Remove BG)", log_scope="导演工具重试失败"
+                )
                 if isinstance(result, tuple):
                     masked, generated, blend = result
                 else:

@@ -5,31 +5,22 @@ from __future__ import annotations
 import os
 import platform
 import subprocess
-from pathlib import Path
 
 from utils.helpers import check_stop, download, extract, playsound, reset_stop
 from utils.image_tools import revert_image_info
+from utils.images import IMAGE_EXTS, collect_images
 from utils.logger import logger
 
 
 def _input_images(input_path: str | None, input_image: str | None) -> list[str]:
-    """收集待处理图片: 先单张图片, 再目录内全部图片 (同时输入时两者都处理)。"""
+    """收集待处理图片: 先单张图片, 再目录内全部图片 (同时输入时两者都处理)。
+
+    目录内只收扩展名受支持的图片 (原先用 sorted(os.listdir()) 不过滤扩展名,
+    目录里混进的 .txt 等会被送去超分)。实现见 utils.images.collect_images。
+    """
     os.makedirs("./outputs", exist_ok=True)
     reset_stop()  # 重置本任务的停止信号
-    images = []
-    if input_image:
-        images.append(input_image)
-    if input_path:
-        images.extend(str(Path(input_path) / f) for f in sorted(os.listdir(input_path)))
-    # 去重 (保留顺序: 先图片, 再目录)
-    seen = set()
-    result = []
-    for img in images:
-        key = os.path.abspath(img)
-        if key not in seen:
-            seen.add(key)
-            result.append(img)
-    return result
+    return collect_images(input_path, input_image, exts=IMAGE_EXTS)
 
 
 def _ensure_windows() -> bool:
@@ -40,10 +31,29 @@ def _ensure_windows() -> bool:
 
 
 def run_cmd(code: str):
+    """执行超分引擎命令, 返回其输出的尾部文本。
+
+    超分引擎在高分辨率下会刷出大量进度行; 原先用 communicate() 把全部输出
+    缓存在内存里 (可能几十 MB), 这里改为重定向到临时文件, 只读回尾部。
+    """
+    import tempfile
+
     try:
-        p = subprocess.Popen(code, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        stdout, stderr = p.communicate()
-        return (stdout or stderr).decode("gb18030", errors="ignore").strip()
+        with tempfile.TemporaryFile() as buf:
+            p = subprocess.Popen(code, stdout=buf, stderr=subprocess.STDOUT)
+            p.wait()
+            # 只取输出的尾部 (进度行在前, 真正的错误/统计信息在后)
+            tail_bytes = 8192
+            try:
+                buf.seek(0, os.SEEK_END)
+                size = buf.tell()
+                buf.seek(max(0, size - tail_bytes))
+            except OSError:
+                pass
+            raw = buf.read()
+        if not raw:
+            return None
+        return raw.decode("gb18030", errors="ignore").strip()
     except Exception as e:
         logger.error(f"命令执行失败: {e}")
         logger.opt(exception=True).debug("命令执行失败堆栈:")
