@@ -337,6 +337,68 @@ export function imageEditor(container, { onChange, onImageLoad } = {}) {
     applyView();
   }
 
+  /**
+   * 把图生图区域的图片调整到指定分辨率 (面板上的宽/高改变时由外部调用)。
+   *
+   * 底图 / 蒙版 / 涂鸦 / 合成画布连同裁剪选框一起缩放到新尺寸 —— 送进模型的每一张图 (含蒙版)
+   * 都与面板分辨率逐像素一致, 不再出现"图片尺寸和生成分辨率对不上"的错位。
+   * 蒙版与涂鸦用最近邻缩放, 保持二值 alpha (平滑插值会多出一圈半透明过渡像素, 后端按
+   * "非零即白"映射后重绘范围会悄悄放大一圈); 底图用平滑缩放, 与后端 LANCZOS 的观感一致。
+   * 尺寸由调用方按 64 对齐 (与后端 return_x64 一致); 没有图片或尺寸未变时什么都不做。
+   *
+   * @returns {boolean} 是否真的调整了尺寸 (供调用方决定要不要提示)
+   */
+  function resizeTo(w, h) {
+    if (!state.image) return false;
+    const dw = Math.max(64, Math.round(Number(w) || 0));
+    const dh = Math.max(64, Math.round(Number(h) || 0));
+    const oldW = bgCanvas.width;
+    const oldH = bgCanvas.height;
+    if (dw === oldW && dh === oldH) return false;
+
+    // 尺寸变了: 拖拽中的选框/笔迹坐标不再成立, 一律作废 (笔迹断开, 从新画布上重新落笔)
+    cancelShape();
+    strokeTail = null;
+    brushPreviewKey = "";
+
+    /** 单层缩放: 先整体画进临时画布再改写尺寸 —— canvas 一改尺寸就被清空, 必须借临时画布中转 */
+    const resizeLayer = (canvas, smooth) => {
+      const tmp = document.createElement("canvas");
+      tmp.width = dw;
+      tmp.height = dh;
+      const tc = tmp.getContext("2d");
+      tc.imageSmoothingEnabled = smooth;
+      tc.imageSmoothingQuality = "high";
+      tc.drawImage(canvas, 0, 0, oldW, oldH, 0, 0, dw, dh);
+      canvas.width = dw;
+      canvas.height = dh;
+      const cc = ctx(canvas);
+      cc.imageSmoothingEnabled = smooth;
+      cc.drawImage(tmp, 0, 0);
+    };
+    resizeLayer(bgCanvas, true);
+    resizeLayer(maskCanvas, false);
+    resizeLayer(doodleCanvas, false);
+    // 合成画布是显示层: 尺寸跟上即可, 内容由 renderComposite 重画
+    compositeCanvas.width = dw;
+    compositeCanvas.height = dh;
+
+    // 裁剪选框: 坐标随画布等比换算, 再按新画布尺寸重新合法化 (64 对齐 / 面积上限 / 边界)
+    if (state.cropRect) {
+      const r = state.cropRect;
+      const kx = dw / oldW;
+      const ky = dh / oldH;
+      state.cropRect = normalizeCropRect(
+        Math.round(r.x * kx), Math.round(r.y * ky),
+        Math.round(r.w * kx), Math.round(r.h * ky),
+      );
+    }
+    resetHistory();   // 撤销快照是旧尺寸的, 继续保留会画错位 (与 setupCanvases 换图同理)
+    renderComposite();
+    if (onChange) onChange();
+    return true;
+  }
+
   function renderComposite() {
     const w = bgCanvas.width, h = bgCanvas.height;
     ctx(compositeCanvas).clearRect(0, 0, w, h);
@@ -1900,6 +1962,11 @@ export function imageEditor(container, { onChange, onImageLoad } = {}) {
     validate,
     exportImages,
     loadImage,
+    /**
+     * 把图生图区域的图片调整到指定尺寸 (面板分辨率改变时调用)。
+     * 底图 / 蒙版 / 涂鸦 / 裁剪选框全部同步缩放; 尺寸需已按 64 对齐; 返回是否真的调整了。
+     */
+    resizeTo,
   };
 }
 

@@ -1458,6 +1458,7 @@ function bindEvents() {
       const [w, h] = res.split("x").map(Number);
       C.width.set(w);
       C.height.set(h);
+      syncEditorResolution();   // 分辨率变了, 图生图区域的图片跟着调整到对应大小
     }
     charRegion?.refresh?.();
     updateResHint();
@@ -1465,6 +1466,11 @@ function bindEvents() {
   // 自定义分辨率: 失焦/回车后自动对齐到最接近的 64 的倍数 (round64 为模块级函数)
   const snap64 = (c, label) => {
     const before = String(c.get()).trim();
+    // 空/非法输入不吸附也不调整图片 (若兜底成 64 会把图生图区域缩成一条), 等用户填上真正的数字
+    if (before === "" || !Number.isFinite(Number(before))) {
+      syncResolution();
+      return;
+    }
     const after = round64(before);
     if (String(after) !== before) {
       c.set(after);
@@ -1473,6 +1479,8 @@ function bindEvents() {
     } else {
       syncResolution();
     }
+    // 分辨率变了 (含输入值本身就是 64 倍数的情况), 图生图区域的图片跟着调整到对齐后的对应大小
+    syncEditorResolution();
   };
   C.width.input?.addEventListener("change", () => snap64(C.width, "宽"));
   C.height.input?.addEventListener("change", () => snap64(C.height, "高"));
@@ -1493,6 +1501,23 @@ function syncResolution() {
   C.resolution.set(res);
   charRegion?.refresh?.();
   updateResHint();
+}
+
+/**
+ * 分辨率改变时, 把图生图区域的图片调整到 64 对齐后的对应尺寸。
+ * 编辑器内部会把底图 / 蒙版 / 涂鸦 / 裁剪选框一并缩放, 保证送进模型的输入与面板分辨率一致。
+ * 只在用户手动改宽/高或切换分辨率预设时调用 —— 上传图片时图片本身就是画布尺寸, 无需调整。
+ */
+function syncEditorResolution() {
+  if (!editor?.hasImage?.()) return;
+  const rawW = Number(C.width.get());
+  const rawH = Number(C.height.get());
+  if (!Number.isFinite(rawW) || !Number.isFinite(rawH) || rawW < MIN_SIDE || rawH < MIN_SIDE) return;
+  const w = round64(rawW);
+  const h = round64(rawH);
+  if (editor.resizeTo(w, h)) {
+    toast(`📐 图生图区域的图片/蒙版已调整到 ${w} × ${h}`, "info", 4000);
+  }
 }
 
 function updateInpaintVisibility() {
