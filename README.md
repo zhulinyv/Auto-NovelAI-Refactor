@@ -10,7 +10,7 @@
 
 - [Semi-Auto-NovelAI-to-Pixiv](https://github.com/zhulinyv/Semi-Auto-NovelAI-to-Pixiv) (SANP) → [Auto-NovelAI-Refactor](https://github.com/zhulinyv/Auto-NovelAI-Refactor) (ANR-gradio) → [**Auto-NovelAI-Refactor**](https://github.com/zhulinyv/Auto-NovelAI-Refactor) (ANR-webui), 一步比一步更好用
 
-- **使用中遇到问题请加 QQ 群咨询：[704064019](https://qm.qq.com/cgi-bin/qm/qr?k=704064019)**
+- **使用中遇到问题或有建议请加我 QQ 好友：[1797213784](https://qm.qq.com/q/Rrsh8avXc6)**
 
 
 ## ✨ 特性
@@ -74,7 +74,7 @@
 
 #### 4️⃣ 整合包下载
 
-- 如果上述操作你觉得难以上手或出现问题, 请加群下载整合包, 解压即用
+- 如果上述操作你觉得难以上手或出现问题, 请添加我的 QQ 好友 (1797213784) 获取整合包, 解压即用
 
 
 ## ⚙️ 配置
