@@ -21,7 +21,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 
 from src.generate_images import generate  # noqa: F401  (确保模型导入)
-from utils import http as http_util
+from utils import http_client as http_util
 from utils.config import BASE_DIR, resolve_media_path
 from utils.gen_queue import gen_queue
 from utils.helpers import get_update_status, read_json, shutdown_app
@@ -719,7 +719,7 @@ def bg_random_wallpaper(payload: dict = None):
 
     # 0) Lolicon 随机动漫壁纸 (API v2: 仅横图 gt1, 非 R18; regular 规格省流量, pid 供前端展示)
     if source == "acg":
-        # 直连优先 / 失败自动改走系统代理: 统一实现在 utils.http (全项目同一套降级逻辑)
+        # 直连优先 / 失败自动改走系统代理: 统一实现在 utils.http_client (全项目同一套降级逻辑)
         def _fetch(method, url, **kw):
             return http_util.request(method, url, **kw)
 
@@ -869,7 +869,7 @@ def hitokoto():
     errors = []
 
     def _fetch(url: str) -> dict:
-        """直连优先 (与在线壁纸一致), 失败自动改走系统代理重试: 见 utils.http。"""
+        """直连优先 (与在线壁纸一致), 失败自动改走系统代理重试: 见 utils.http_client。"""
         resp = http_util.get(url, timeout=8)
         data = resp.json()
         text = (data.get("hitokoto") or "").strip()

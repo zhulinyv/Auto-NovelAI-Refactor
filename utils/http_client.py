@@ -4,6 +4,11 @@
 (server/routes/misc.py 的在线壁纸 / 一言各一份, utils/translate.py 一份),
 其中只有 translate.py 的版本会记住上次成功的模式。这里统一为一个实现。
 
+命名注意: 本模块原名 utils/http.py, 与标准库 http 同名。以脚本方式运行 utils/ 下的
+文件时 (开始菜单快捷方式跑 utils/wake.py), sys.path[0] 就是 utils/, 于是 http 会
+解析到本模块, 标准库 http.client 变成 utils.http -> urllib.request 导入成环并崩溃。
+故改名 http_client.py, 不要再改回 http.py。
+
 直连优先的原因: 实测多数场景下直连比走系统代理快; 代理仅作兜底。
 
 需要"同一会话内多步请求"的调用方 (Bing 先取页面再 POST token) 用

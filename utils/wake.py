@@ -29,8 +29,17 @@ import os
 import subprocess
 import sys
 import time
-import urllib.request
 from pathlib import Path
+
+# 以脚本方式运行 (开始菜单快捷方式直接跑本文件) 时, Python 会把本文件所在目录 utils/ 放进
+# sys.path[0]。该目录下凡与标准库同名的模块都会反过来遮蔽标准库: 历史上 utils/http.py 就这样
+# 顶掉了标准库 http, 使 urllib.request -> http.client 的导入成环, 唤醒入口在 import 阶段就崩;
+# pythonw 没有终端, 用户看到的现象是「点开始菜单完全没反应」。
+# 这里在导入任何会间接用到标准库 http 的模块之前, 先把自己的目录从 sys.path 摘掉。
+_SELF_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path[:] = [p for p in sys.path if os.path.abspath(p or os.curdir) != _SELF_DIR]
+
+import urllib.request  # noqa: E402  (必须排在摘掉 utils/ 之后, 见上)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 FALLBACK_PORT = 11451
