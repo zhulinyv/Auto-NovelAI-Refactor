@@ -18,11 +18,11 @@ from utils.logger import logger
 from utils.services import plugins_store
 from utils.variable import VERSION
 
-# 注意: 不能把路由模块导入为裸名 "queue", 否则会遮蔽标准库 queue,
-# 导致 /api/events 的 except queue.Empty 抛 AttributeError, SSE 事件流整体失效
-from .routes import generate, misc, plugins
-from .routes import queue as queue_routes
-from .routes import settings, tools
+# 队列路由模块已改名 queue_routes.py: 原先叫 queue.py 时, 它与标准库 queue 同名,
+# 一旦本目录被放进 sys.path, `import queue` 就会解析到它而不是标准库,
+# 使 /api/events 的 except queue.Empty 抛 AttributeError, SSE 事件流整体失效。
+# 改名后这个陷阱从根上消失 (不要改回 queue.py)。
+from .routes import generate, misc, plugins, queue_routes, settings, tools
 
 
 def create_app() -> FastAPI:
