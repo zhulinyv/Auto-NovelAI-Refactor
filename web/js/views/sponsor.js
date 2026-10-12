@@ -1,14 +1,14 @@
 // ============================================================
 // 支持鸣谢视图 (侧边栏独立页面):
 //   PPT 式翻页: 当前区域仅显示一页, 底部按钮上/下翻页, 翻页后另一页不显示
-//     第 1 页: 鸣谢项目使用到的开源项目    第 2 页: 加群交流    第 3 页: 赞助收款码
+//     第 1 页: 鸣谢项目使用到的开源项目    第 2 页: 加好友交流    第 3 页: 赞助收款码
 // ============================================================
 import { el, clear } from "../ui.js";
 
 export async function render(container, ctx) {
   clear(container);
   container.append(
-    el("h2", {}, ["🙏 支持鸣谢", el("span", { class: "sub", text: "鸣谢项目使用到的开源项目 · 加群交流 · 请作者喝杯奶茶" })]),
+    el("h2", {}, ["🙏 支持鸣谢", el("span", { class: "sub", text: "鸣谢项目使用到的开源项目 · 加好友交流 · 请作者喝杯奶茶" })]),
   );
 
   function sponsorItem(src, label, href) {
@@ -17,7 +17,7 @@ export async function render(container, ctx) {
       el("div", { class: "sponsor-label", text: label }),
     ]);
     if (href) {
-      const link = el("a", { class: "sponsor-qr-link", href, target: "_blank", rel: "noopener", title: "点击打开加群链接" }, [item]);
+      const link = el("a", { class: "sponsor-qr-link", href, target: "_blank", rel: "noopener", title: "点击打开加好友链接" }, [item]);
       return link;
     }
     return item;
@@ -32,13 +32,13 @@ export async function render(container, ctx) {
     ]),
   ]);
 
-  // 加群页: QQ 群二维码 + 加群链接
+  // 加好友页: 个人 QQ 二维码 + 加好友链接
   const joinCard = el("div", { class: "card pager-card" }, [
-    el("div", { class: "card-title", text: "👥 加群交流" }),
-    el("p", { class: "muted", style: "margin:4px 0 14px;line-height:1.8;", text: "欢迎加入 QQ 交流群: 一起玩转 AI 绘图, 交流使用心得、反馈问题与建议 ~ 点击下方二维码或按钮即可加群 💬" }),
+    el("div", { class: "card-title", text: "👥 加好友交流" }),
+    el("p", { class: "muted", style: "margin:4px 0 14px;line-height:1.8;", text: "有问题或建议欢迎添加我的 QQ 好友: 1797213784 ~ 一起玩转 AI 绘图, 交流使用心得、反馈问题与建议, 点击下方二维码或按钮即可添加 💬" }),
     el("div", { class: "join-grid" }, [
-      sponsorItem("assets/sponsor/qq_group.png", "📱 扫码加入 QQ 群", "https://qm.qq.com/cgi-bin/qm/qr?k=704064019"),
-      el("a", { class: "btn btn-primary join-btn", href: "https://qm.qq.com/cgi-bin/qm/qr?k=704064019", target: "_blank", rel: "noopener" }, ["🚀 一键加群"]),
+      sponsorItem("assets/sponsor/qq_friend.png", "📱 扫码添加 QQ 好友 1797213784", "https://qm.qq.com/q/Rrsh8avXc6"),
+      el("a", { class: "btn btn-primary join-btn", href: "https://qm.qq.com/q/Rrsh8avXc6", target: "_blank", rel: "noopener" }, ["🚀 一键加好友"]),
     ]),
   ]);
 
@@ -78,7 +78,7 @@ export async function render(container, ctx) {
     ]),
   ]);
 
-  // PPT 式翻页: 当前区域仅显示一页, 上/下翻页切换 (鸣谢第 1 页, 加群第 2 页, 赞助第 3 页)
+  // PPT 式翻页: 当前区域仅显示一页, 上/下翻页切换 (鸣谢第 1 页, 加好友第 2 页, 赞助第 3 页)
   const pagerViewport = el("div", { class: "pager-viewport" });
   const pageAck = el("div", { class: "pager-page active" }, [ackCard]);
   const pageJoin = el("div", { class: "pager-page" }, [joinCard]);
