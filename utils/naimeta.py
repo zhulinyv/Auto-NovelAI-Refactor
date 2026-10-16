@@ -116,20 +116,33 @@ class LSBExtractor:
         self.row = 0
         self.col = 0
 
-    def _extract_next_bit(self):
-        if self.row < self.rows and self.col < self.cols:
-            bit = self.data[self.row, self.col, self.dim - 1] & 1
-            self.bits += 1
-            self.byte <<= 1
-            self.byte |= bit
-            self.row += 1
-            if self.row == self.rows:
-                self.row = 0
-                self.col += 1
+    def _extract_next_bit(self) -> bool:
+        """取下一个 LSB; 像素已用完时返回 False (不再推进游标)。
+
+        注意这里必须返回状态: 早先的实现是"越界就什么都不做", 于是 get_one_byte 的
+        while self.bits < 8 永远等不到 8 位 —— 小图 (比如 1x1, 可用位数不足一个字节)
+        会让整个读取原地死循环, 而不是抛错走 image_tools 里那层 except 兜底。
+        """
+        if self.row >= self.rows or self.col >= self.cols:
+            return False
+        bit = self.data[self.row, self.col, self.dim - 1] & 1
+        self.bits += 1
+        self.byte <<= 1
+        self.byte |= bit
+        self.row += 1
+        if self.row == self.rows:
+            self.row = 0
+            self.col += 1
+        return True
 
     def get_one_byte(self):
+        """读一个字节; 像素耗尽而且凑不满 8 位时返回 None (调用方据此终止)。"""
         while self.bits < 8:
-            self._extract_next_bit()
+            if not self._extract_next_bit():
+                # 读空: 丢掉半截的位, 让后续调用也得到一致的"读空"
+                self.bits = 0
+                self.byte = 0
+                return None
         byte = bytearray([self.byte])
         self.bits = 0
         self.byte = 0
@@ -162,6 +175,8 @@ def extract_data_from_array(img):
     assert len(img.shape) == 3 and img.shape[-1] == 4, "image format"
     reader = LSBExtractor(img)
     magic = "stealth_pngcomp"
+    # 图太小 / 没有隐写数据时读到的是空字节串: decode 会得到长度不足的串, 照样被下面断言拦下
+    # (以前会在这里死循环, 见 LSBExtractor._extract_next_bit)
     read_magic = reader.get_next_n_bytes(len(magic)).decode("utf-8")
     assert magic == read_magic, "magic number"
     read_len = reader.read_32bit_integer() // 8
