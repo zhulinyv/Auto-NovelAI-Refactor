@@ -110,6 +110,23 @@ def extract_items(text: str) -> tuple[list[str], list[tuple[int, int]]]:
     return quoted_items + manual_items, spans
 
 
+def strip_text_section(text: str | None) -> str:
+    """删掉 teXt 段**及其后面的全部内容**, 返回纯 tag 部分。
+
+    专供"把已有数据/元数据送进图片生成表单"的路径 (法术解析 / 画廊"使用该图片参数" 等):
+    导入时只该带 tag, teXt 段本来就会在下次生成时按当前输入重新拼装, 带入只会重复堆叠。
+    与模型无关 (只处理 teXt 段, 其它文字逐字节保留); 没有 teXt 段时原样返回。
+    """
+    prompt = text or ""
+    if not prompt:
+        return prompt
+    match = _KEYWORD_RE.search(prompt)
+    if not match:
+        return prompt
+    # 连段前残留的分隔逗号/空白一起去掉
+    return re.sub(r"[\s,]+$", "", prompt[: match.start()])
+
+
 def apply_text_section(text: str | None, model: str) -> str:
     """按 teXt 段规则整理正面提示词 (仅 v5 系列; 其它模型原样返回)。
 
@@ -208,4 +225,5 @@ __all__ = [
     "build_text_section",
     "extract_items",
     "is_v5_model",
+    "strip_text_section",
 ]

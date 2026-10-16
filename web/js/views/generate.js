@@ -287,8 +287,9 @@ function buildSavedState() {
   const stored = S.store.load() || {};
   const p = S.app.last?.parameters || {};
   const model = S.app.model || stored.model || "nai-diffusion-4-5-full";
-  // 上次的正面提示词末尾带有质量预设标签: 剥离末尾标签并据此识别预设; 未命中则预设为 Standard
-  const rawPositive = p.v4_prompt?.caption?.base_caption || p.input || stored.positive_prompt || "";
+  // 上次的正面提示词可能带 teXt 段 (生成时拼上去的) 与末尾质量预设标签:
+  // 先删 teXt 段及其后内容, 再剥离预设标签并据此识别预设; 未命中则预设为 Standard
+  const rawPositive = stripTextSection(p.v4_prompt?.caption?.base_caption || p.input || stored.positive_prompt || "");
   const positive = stripQualityPresetFromEnd(rawPositive, model);
   // 上次的负面提示词开头带有 UC 预设文本: 剥离开头预设并据此识别预设; 未命中则预设为 Heavy
   const rawNegative = p.negative_prompt || p.v4_negative_prompt?.caption?.base_caption || stored.negative_prompt || "";
@@ -418,7 +419,8 @@ function buildPromptCard(saved) {
   loadPosBtn.addEventListener("click", async () => {
     try {
       const last = await fetchLast();
-      const text = last?.parameters?.v4_prompt?.caption?.base_caption || last?.input || "";
+      // 去掉上次生成时拼上的 teXt 段及其后内容, 只载入 tag
+      const text = stripTextSection(last?.parameters?.v4_prompt?.caption?.base_caption || last?.input || "");
       if (text) {
         // 末尾若含质量预设标签则剥离并同步预设; 不含则预设为 Standard
         const stripped = stripQualityPresetFromEnd(text, C.model.get());
@@ -758,6 +760,20 @@ function applyTextSection(text, model) {
   const section = picked.length ? `teXt: ${picked.join("\n\n")}"` : "";
   if (!section) return core;
   return core ? `${core}, ${section}` : section;
+}
+
+/** 外部数据 (法术解析 / 画廊 "使用该图片参数" / 启动加载) 送进表单时: 只取 tag, 删掉 teXt 段及其后内容。
+ *
+ *  teXt 段在每次生成时都会按当前输入重新拼装, 元数据里带进来的那份只会重复堆叠;
+ *  与模型无关 (只处理 teXt 段), 没有 teXt 段时逐字节原样返回。
+ *  规则与后端 utils/prompt_text.strip_text_section 一致, 两侧必须同步修改。
+ */
+function stripTextSection(text) {
+  const src = String(text ?? "");
+  if (!src) return src;
+  const m = /(?:^|(?<=,))[ \t]*text[ \t]*:[ \t]*/im.exec(src);
+  if (!m) return src;
+  return src.slice(0, m.index).replace(/[\s,]+$/, ""); // 连段前残留的分隔逗号/空白一起去掉
 }
 
 /** 生成请求专用: 用户输入 + Transparent BG 追加, 再统一整理 teXt 段 (teXt 永远在最后)。
@@ -1825,20 +1841,24 @@ export function getCurrentOutputImage() {
 }
 
 export function getC() { return C; }
+/** 供其它视图 (法术解析反推等) 把文本送进正面提示词时复用: 去掉 teXt 段及其后内容 */
+export { stripTextSection };
 export function setGenerateState(state, opts = {}) {
   // 法术解析/画廊"发送到图片生成": 元数据里的正/负面提示词带有预设标签
   // (生成时后端会追加质量预设、前置 UC 预设), 这里检测并剥离这些标签, 自动切换到对应预设
   const switched = [];
   const model = C.model.get();
   if (state.positive_prompt != null) {
-    const hit = extractPresetTags(state.positive_prompt, model, "quality_preset_tags", "tail"); // 质量预设追加在末尾, 只从末尾剥离一次
-    let posText = state.positive_prompt;
+    // 先删掉 teXt 段及其后面的内容 (生成时会按当前输入重新拼装, 带入只会重复堆叠);
+    // 必须排在预设剥离之前 —— 质量预设是追加在 teXt 段**之后**的, 段一删它自然也不在末尾了
+    const withoutText = stripTextSection(state.positive_prompt);
+    const hit = extractPresetTags(withoutText, model, "quality_preset_tags", "tail"); // 质量预设追加在末尾, 只从末尾剥离一次
+    let posText = withoutText;
     if (hit.preset && applyPresetOption(C.quality, hit.preset)) {
       posText = hit.text;
       switched.push(`正面预设 → ${hit.preset}`);
     }
-    // 预设剥离后再处理 transparent background (生成时顺序: 用户输入+TB+teXt+预设, 剥离顺序相反);
-    // teXt 段保留原样 —— 它已经是生成时的规范形态, 再次生成时会被原样收进末尾的那一个 teXt 段, 无损往返
+    // 预设剥离后再处理 transparent background (生成时顺序: 用户输入+TB+teXt+预设, 剥离顺序相反); 同步开关为图片真实状态
     C.positive.set(syncTransparentBg(posText));
   }
   if (state.negative_prompt != null) {

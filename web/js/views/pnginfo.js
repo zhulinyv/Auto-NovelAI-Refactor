@@ -4,7 +4,7 @@
 import { el, clear, toast, imageDropZone } from "../ui.js";
 import { post } from "../api.js";
 import { renderTabs } from "../components.js";
-import { setGenerateState, getC } from "./generate.js";
+import { setGenerateState, getC, stripTextSection } from "./generate.js";
 import { showView } from "../app.js";
 
 let S = null;
@@ -275,7 +275,8 @@ function renderTagger(body) {
   const sendBtn = el("button", { class: "btn btn-sm", text: "📤 发送到正面提示词" });
   sendBtn.addEventListener("click", () => {
     const p = getC();
-    if (p && p.positive) { p.positive.set(str.value); showView("generate"); toast("已发送 🌸", "success"); }
+    // stripTextSection: 与法术解析"发送到图片生成"一致, 不把 teXt 段带进生图表单
+    if (p && p.positive) { p.positive.set(stripTextSection(str.value)); showView("generate"); toast("已发送 🌸", "success"); }
   });
   const ratingBox = el("div", { class: "dict-bars" });
   const charBox = el("div", { class: "dict-bars" });

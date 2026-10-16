@@ -9,6 +9,7 @@ import ujson
 
 from utils.helpers import float_to_position
 from utils.image_tools import get_image_information
+from utils.prompt_text import strip_text_section
 
 
 def get_pnginfo(image_path: str | None):
@@ -62,8 +63,12 @@ def pnginfo_to_generate(image_path: str) -> dict:
             }
         )
 
+    # 正面提示词只带 tag: teXt 段及其后面的内容一概不要 (下次生成会按当前输入重新拼装),
+    # 否则"法术解析 / 画廊 -> 发送到图片生成"会把上一次的 teXt 段再带一遍
+    positive = comment.get("prompt") or pnginfo.get("Description") or ""
+
     return {
-        "positive_prompt": comment.get("prompt") or pnginfo.get("Description") or "",
+        "positive_prompt": strip_text_section(positive),
         "negative_prompt": comment.get("uc") or "",
         "width": comment.get("width", 832),
         "height": comment.get("height", 1216),
