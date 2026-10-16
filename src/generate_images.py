@@ -49,6 +49,7 @@ from utils.image_tools import (
 )
 from utils.logger import logger
 from utils.models import *  # noqa: F401,F403
+from utils.prompt_text import apply_text_section  # noqa: E402 (teXt 段: 仅 v5 系列)
 from utils.variable import (
     return_quality_preset_id,
     return_quality_tags,
@@ -744,12 +745,16 @@ def generate(request: dict) -> tuple[list[str], str]:
         ref_imgs, ref_infos, ref_strengths = _build_vibe_data(vibe, model)
 
         # 4. 构建基础 JSON
+        # 正面提示词的拼接顺序 (前面已由前端补上 Transparent BG): furry 前缀 -> 用户输入 -> 质量预设。
+        # teXt 段 (v5 自然语言块) 在**所有**附加内容拼完之后才接入, 保证它永远排在提示词最末尾;
+        # 成对的英文引号内容与用户手写的 teXt 段都在这一步收进这一个 teXt 段 (详见 utils/prompt_text.py)。
+        _prompt_body = format_str(
+            f"{_positive_input}, " + return_quality_tags(model, add_quality_tags)
+            if add_quality_tags != "None"
+            else _positive_input
+        )
         json_data = func(
-            _input=format_str(
-                f"{_positive_input}, " + return_quality_tags(model, add_quality_tags)
-                if add_quality_tags != "None"
-                else _positive_input
-            ),
+            _input=apply_text_section(_prompt_body, model),
             params_version=4,
             width=return_x64(width),
             height=return_x64(height),

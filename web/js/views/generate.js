@@ -37,6 +37,7 @@ let transparentBg = false; // 开启后生成时在用户提示词末尾追加 ,
 let lastOutputPath = null;
 let selectedOutputPath = null; // 多张结果中当前选中的图片 (再次单击取消)
 let lastGeneratedImages = []; // 最近一次生成的全部图片 (供 wildcards 取最后一张做封面)
+let lastResolvedPositive = null; // 最近一次生成的 { 提交原文, teXt 整理后文本 }; 无需回写时为 null
 
 // 剩余点数/用量下拉徽标状态 (anlas-wrap: 容器, anlas-badge: 按钮, anlas-menu: 下拉面板)
 let anlasWrapEl = null;
@@ -430,7 +431,7 @@ function buildPromptCard(saved) {
     } catch (e) { toast(e.message, "error"); }
   });
   transparentBg = !!saved.transparent_bg;
-  tbBtn = el("button", { class: "mini-btn tb-btn", type: "button", text: "🪟 Transparent BG", title: "仅 v5 模型可用: 开启后生成时在提示词末尾追加 transparent background (质量预设之前)" });
+  tbBtn = el("button", { class: "mini-btn tb-btn", type: "button", text: "🪟 Transparent BG", title: "仅 v5 模型可用: 开启后生成时在提示词末尾追加 transparent background (质量预设与 teXt 段之前)" });
   tbBtn.addEventListener("click", () => { transparentBg = !transparentBg; updateTbBtn(); });
   updateTbBtn();
   C.positive = promptField("✨ 正面提示词", C.quality, { value: saved.positive_prompt ?? "", placeholder: "在此输入正面提示词...", rows: 6, loadBtn: loadPosBtn, tbBtn });
@@ -649,7 +650,7 @@ function updateTbBtn() {
 }
 
 /** 生成请求专用: 开关开启且当前为 v5 模型时, 在用户提示词末尾追加 transparent background
- *  (后端随后才拼质量预设, 最终顺序 = furry 前缀 + 用户输入 + transparent background + 预设) */
+ *  (后端随后才拼质量预设; 最终顺序 = furry 前缀 + 用户输入 + transparent background + 预设 + teXt 段) */
 function promptWithTransparent() {
   const base = String((C.positive && C.positive.get()) || "");
   if (!transparentBg || !isNai5(C.model.get())) return base;
@@ -673,6 +674,78 @@ function syncTransparentBg(text) {
   transparentBg = found;
   updateTbBtn();
   return found ? keep.join(",").trim() : String(text ?? "").trim();
+}
+
+/** 生成请求专用: 整理 v5 的 teXt 自然语言段, 另存一份已剥离的文本供生成后回写输入框。
+ *
+ * 规则与后端 utils/prompt_text.py 完全一致 (仅 v5 系列生效):
+ *  - 成对英文引号 "xxx" 包起来的内容收进 teXt 段, 引号从原位置消失, 内容之间空两行;
+ *  - 用户手写的 teXt 段 (任意位置 / 任意个数) 一并合并, 去重后只留一段;
+ *  - teXt 段永远排在提示词最末尾, 无论追加的质量预设 / Transparent BG / furry 前缀在哪;
+ *  - 末尾始终以一个英文引号收尾; 非 v5 模型或没有触发条件时逐字不动。
+ *
+ * 这里是后端的镜像而不是替代: 请求照常原样发给后端 (后端仍会做一次),
+ * 前端先做一遍只为把"用户输入框里被吞掉的内容/引号"在生成后回写 (见 lastResolvedPositive)。
+ * 两侧规则必须同步修改 (web/js/views/generate.js ↔ utils/prompt_text.py)。
+ */
+function applyTextSection(text, model) {
+  const src = String(text ?? "");
+  if (!src || !isNai5(model)) return src;
+  const KW = /(?:^|(?<=,))[ \t]*text[ \t]*:[ \t]*/gim;       // 段关键字 (大小写不敏感, 兼容 text:)
+  const QUOTED = /"([^"]*)"/g;                                 // 成对英文引号 (不跨引号, 落单的不匹配)
+  const SPAN = /"[^"]*"/g;                                     // 成对英文引号的完整区间
+  const cleanItem = (s) => String(s).trim().replace(/^[,\s]+|[,\s]+$/g, "");
+  const items = [], spans = [];
+  let pos = 0;
+  while (pos < src.length) {
+    KW.lastIndex = pos; QUOTED.lastIndex = pos;
+    const kw = KW.exec(src), q = QUOTED.exec(src);
+    if (kw && (!q || kw.index <= q.index)) {
+      // teXt 段: 段体到"收尾引号 / 下一个 teXt 关键字 / 文本末尾"为止
+      const bodyStart = kw.index + kw[0].length;
+      let bodyEnd = src.length;
+      KW.lastIndex = bodyStart; const nk = KW.exec(src);
+      if (nk) bodyEnd = Math.min(bodyEnd, nk.index);
+      const quoteAt = src.indexOf('"', bodyStart);
+      if (quoteAt !== -1) bodyEnd = Math.min(bodyEnd, quoteAt);
+      const body = src.slice(bodyStart, bodyEnd).replace(/\r\n?/g, "\n");
+      for (const line of body.split("\n")) { const it = cleanItem(line); if (it) items.push(it); }
+      const stop = quoteAt === bodyEnd ? bodyEnd + 1 : bodyEnd; // 收尾的那个引号属于本段
+      spans.push([kw.index, stop]);
+      pos = stop;
+    } else if (q) {
+      items.push(q[1]);
+      SPAN.lastIndex = pos;
+      const sp = SPAN.exec(src);
+      spans.push([sp.index, sp.index + sp[0].length]);
+      pos = sp.index + sp[0].length;
+    } else break;
+  }
+  if (!spans.length) return src; // 没有引号也没有 teXt 段: 一个字符都不动
+  const seen = new Set(), picked = [];
+  for (const it of items) {
+    const key = it.replace(/\s+/g, " ").toLowerCase();
+    if (key && !seen.has(key)) { seen.add(key); picked.push(it); }
+  }
+  const section = picked.length ? `teXt: ${picked.join("\n\n")}"` : "";
+  let core = src, out = "";
+  let last = 0;
+  for (const [s, e] of spans) { out += core.slice(last, s); last = e; }
+  out += core.slice(last);
+  core = out.split("\n").map((line) => line.split(",").map((s) => s.trim()).filter(Boolean).join(", ")).join("\n").trim();
+  if (!section) return core;
+  return core ? `${core}, ${section}` : section;
+}
+
+/** 生成请求专用: 用户输入 + Transparent BG 追加, 再统一整理 teXt 段 (teXt 永远在最后)。
+ *  同时记下"提交时的原文 -> 整理后的文本": 引号与其原位置的内容已被收进 teXt 段,
+ *  生成成功且输入框仍是提交时那份原文时回写, 用户才能看到自己真正发出去的东西 (见 onJobDone)。 */
+function promptWithTextSection() {
+  const submitted = String((C.positive && C.positive.get()) || "");
+  const withTb = promptWithTransparent();
+  const resolved = applyTextSection(withTb, C.model.get());
+  lastResolvedPositive = resolved === withTb ? null : { from: submitted, to: resolved };
+  return resolved;
 }
 
 function buildModelBar(bar, saved) {
@@ -1552,7 +1625,7 @@ async function collectRequest() {
 
   return {
     model: C.model.get(),
-    positive_prompt: promptWithTransparent(),
+    positive_prompt: promptWithTextSection(),
     negative_prompt: C.negative.get(),
     furry_mode: furryMode,
     quality_preset: C.quality.get(),
@@ -1645,6 +1718,13 @@ async function onGenerate() {
 function onJobDone(ev) {
   if (ev.name !== "图片生成") return;
   C.generateBtn.disabled = false;
+  // 生成成功才回写"实际送出"的正面提示词 (引号及其原位置的内容已被收进 teXt 段),
+  // 输入框与真正发出去的请求就此一致。仅当输入框还是提交时那份原文时才回写 ——
+  // 生成期间用户若已经改了提示词 (开始写下一次的输入), 绝不覆盖他的改动。
+  if (lastResolvedPositive) {
+    if (C.positive.get() === lastResolvedPositive.from) C.positive.set(lastResolvedPositive.to);
+    lastResolvedPositive = null;
+  }
   if (ev.images?.length) {
     lastGeneratedImages = ev.images;
     buildOutputViewer(genGalleryEl, ev.images);  // 内部已选中第一张并显示发送按钮
@@ -1666,6 +1746,7 @@ function setOutputSelection(path) {
 
 function onJobFailed(ev) {
   if (ev.name !== "图片生成") return;
+  lastResolvedPositive = null; // 生成失败: 不回写输入框, 让用户保留原始输入继续修改
   C.generateBtn.disabled = false;
   infoEl.textContent = "❌ " + (ev.error || "生成失败");
 }
@@ -1730,7 +1811,8 @@ export function setGenerateState(state, opts = {}) {
       posText = hit.text;
       switched.push(`正面预设 → ${hit.preset}`);
     }
-    // 预设剥离后再处理 transparent background (生成时顺序: 用户输入+TB+预设, 剥离顺序相反); 同步开关为图片真实状态
+    // 预设剥离后再处理 transparent background (生成时顺序: 用户输入+TB+teXt+预设, 剥离顺序相反);
+    // teXt 段保留原样 —— 它已经是生成时的规范形态, 再次生成时会被原样收进末尾的那一个 teXt 段, 无损往返
     C.positive.set(syncTransparentBg(posText));
   }
   if (state.negative_prompt != null) {

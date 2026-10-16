@@ -38,6 +38,7 @@ from utils.helpers import (  # noqa: F401
     update_repo,
 )
 from utils.logger import logger, loguru_to_rich  # noqa: F401
+from utils.prompt_text import apply_text_section  # noqa: F401
 from utils.variable import (  # noqa: F401
     BASE_PATH,
     CHARACTER_POSITION,
