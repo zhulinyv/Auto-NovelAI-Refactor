@@ -772,7 +772,11 @@ def generate(request: dict) -> tuple[list[str], str]:
             cfg_rescale=prompt_guidance_rescale,
             noise_schedule="karras" if model in ["nai-diffusion-5-full", "nai-diffusion-5-curated"] else noise_schedule,
             legacy_v3_extend=False,
-            skip_cfg_above_sigma=(return_skip_cfg_above_sigma(model) if variety else None),
+            # Variety+: 官网会把基准 sigma 乘上分辨率系数后再发 (详见 return_skip_cfg_above_sigma)。
+            # 这里先按面板分辨率算; 后面裁剪重绘 / Enhance 会改写 width/height, 那两处再重算一次。
+            skip_cfg_above_sigma=(
+                return_skip_cfg_above_sigma(model, return_x64(width), return_x64(height)) if variety else None
+            ),
             use_coords=not ai_choice,
             normalize_reference_strength_multiple=vibe.get("normalize", True),
             inpaintImg2ImgStrength=1,
@@ -824,6 +828,9 @@ def generate(request: dict) -> tuple[list[str], str]:
                 gen_w, gen_h = crop_ctx["gen"]
                 json_data["parameters"]["width"] = gen_w
                 json_data["parameters"]["height"] = gen_h
+                # Variety+ 的 sigma 是按分辨率算的, 分辨率换了必须重算, 否则发出去的还是面板尺寸对应的值
+                if variety and "skip_cfg_above_sigma" in json_data["parameters"]:
+                    json_data["parameters"]["skip_cfg_above_sigma"] = return_skip_cfg_above_sigma(model, gen_w, gen_h)
 
             if is_fully_transparent(mask_path):
                 func = _model_function_map(model, "i2i")
@@ -908,6 +915,11 @@ def generate(request: dict) -> tuple[list[str], str]:
                 json_data["parameters"]["extra_noise_seed"] = _seed
                 json_data["parameters"]["width"] = new_width
                 json_data["parameters"]["height"] = new_height
+                # Variety+ 的 sigma 是按分辨率算的; Enhance 换了尺寸, 值也要跟着换
+                if variety and "skip_cfg_above_sigma" in json_data["parameters"]:
+                    json_data["parameters"]["skip_cfg_above_sigma"] = return_skip_cfg_above_sigma(
+                        model, new_width, new_height
+                    )
                 # 模型与 action 必须是一对合法组合 (尤其别把上一步重绘的 -inpainting 带进来) —— 见 base_json
                 logger.info(f"Enhance 请求: {json_data['model']} / {json_data['action']} -> {new_width}×{new_height}")
                 try:

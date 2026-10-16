@@ -71,7 +71,9 @@ QUALITY_TAGS = {
         "None": "",
     },
     "nai-diffusion-3": {"Standard": "best quality, amazing quality, very aesthetic, absurdres", "None": ""},
-    "nai-diffusion-furry-3": {"Standard": "{best quality}, {amazing quality}", "None": "lowres"},
+    # 官网 furry-3 的质量预设只有 standard ("{best quality}, {amazing quality}") 与 none (无任何标签)。
+    # 原先这里错写成了 "lowres" —— 那是 furry-3 负面 UC "None" 的文本, 被放错了表。
+    "nai-diffusion-furry-3": {"Standard": "{best quality}, {amazing quality}", "None": ""},
 }
 
 
@@ -96,16 +98,24 @@ CR_MODE = ["character&style", "character", "style"]
 
 BASE_PATH = str(BASE_DIR)
 
-_SKIP_CFG_ABOVE_SIGMA = {
+# Variety+ 的基准 sigma (官网 getModelSupportInfo().cfgDelaySigma)。
+# v5 系列官网 cfgDelay 为 false (不支持 Variety+, 请求里会直接删掉该字段), 故为 None。
+# 注意: 这不是最终发出的值 —— 官网会按分辨率把它乘上一个系数, 见 return_skip_cfg_above_sigma。
+_SKIP_CFG_ABOVE_SIGMA_BASE = {
     "nai-diffusion-5-full": None,
     "nai-diffusion-5-curated": None,
     "nai-diffusion-4-5-full": 58,
     "nai-diffusion-4-5-curated": 58,
     "nai-diffusion-4-full": 19,
-    "nai-diffusion-4-curated-preview": 16.92517469515569,
-    "nai-diffusion-3": 9.36441710371274,
-    "nai-diffusion-furry-3": 11.84515480302779,
+    "nai-diffusion-4-curated-preview": 19,
+    "nai-diffusion-3": 19,
+    "nai-diffusion-furry-3": 19,
 }
+
+# 分辨率系数的基准: 官网 getSNRMultiplierForResolution 以「4 通道 × 104 × 152 潜空间」为 1.0,
+# 即 832 × 1216 (此时发出的值恰好等于基准值)。潜空间边长 = 像素边长 // 8。
+_SKIP_CFG_SIGMA_REF_LATENT_AREA = 104 * 152
+_SKIP_CFG_SIGMA_LATENT_FACTOR = 8
 
 
 def get_proxies():
@@ -124,8 +134,33 @@ def refresh_proxies() -> None:
 proxies = get_proxies()
 
 
-def return_skip_cfg_above_sigma(model):
-    return _SKIP_CFG_ABOVE_SIGMA.get(model)
+def return_skip_cfg_above_sigma(model, width=None, height=None):
+    """Variety+ 实际要发出的 skip_cfg_above_sigma 值。
+
+    官网不是直接发基准值: 请求组装时把基准 sigma 乘以分辨率系数
+    getSNRMultiplierForResolution = sqrt(通道数 × 潜宽 × 潜高 / (4 × 104 × 152)),
+    再原样发给服务端 (8749 行 3au10t_2otztm.js 与生图 worker 3jtnpze-wyslo.js 两处一致)。
+
+    这是**乘法**而不是除法: 同一组官网参数在 832×1216 上得到 58, 在 1280×1856 上得到
+    58 × 1.5324 = 88.88; 反过来把 58 当成"832×1216 上的最终值"再往下除会得到 37.85, 是错的。
+    实测依据: 官网早期遗留的一组常量恰好是这套公式在别处的取值 ——
+    nai-diffusion-3 的 9.36441710371274 = 19 × sqrt(245760 / 1011712) (256×960),
+    furry-3 的 11.84515480302779 = 19 × sqrt(393216 / 1011712) (512×768),
+    4-curated-preview 的 16.92517469515569 = 19 × sqrt(802816 / 1011712) (896×896),
+    4-5-curated 的 36.158893609242725 = 58 × sqrt(393216 / 1011712) (512×768)。
+    另有本站真实出图 (outputs/uploads 里 1280×1856 那张) 的元数据 29.11515597918561 = 19 × 1.5324 佐证。
+
+    v5 系列官网不支持 Variety+ (cfgDelay 为 false), 返回 None, 调用方不应把它塞进请求。
+    """
+    base = _SKIP_CFG_ABOVE_SIGMA_BASE.get(model)
+    if base is None or not width or not height:
+        return base
+    latent_w = int(width) // _SKIP_CFG_SIGMA_LATENT_FACTOR
+    latent_h = int(height) // _SKIP_CFG_SIGMA_LATENT_FACTOR
+    if latent_w <= 0 or latent_h <= 0:
+        return base
+    multiplier = (latent_w * latent_h / _SKIP_CFG_SIGMA_REF_LATENT_AREA) ** 0.5
+    return base * multiplier
 
 
 def return_uc_preset_id(model):
@@ -184,12 +219,15 @@ UC_PRESET_TAGS = {
         "Heavy": "nsfw, lowres, {bad}, error, fewer, extra, missing, worst quality, jpeg artifacts, bad quality, watermark, unfinished, displeasing, chromatic aberration, signature, extra digits, artistic error, username, scan, [abstract]",
         "Light": "nsfw, lowres, jpeg artifacts, worst quality, watermark, blurry, very displeasing",
         "Human Focus": "nsfw, lowres, {bad}, error, fewer, extra, missing, worst quality, jpeg artifacts, bad quality, watermark, unfinished, displeasing, chromatic aberration, signature, extra digits, artistic error, username, scan, [abstract], bad anatomy, bad hands, @_@, mismatched pupils, heart-shaped pupils, glowing eyes",
-        "None": "lowres",
+        # 官网 UC 预设表里 none 的 prefix 是 "lowres", 但 solveUc 对它走特判分支
+        # (`"none" === preset.id ? "" : preset.prefix`), 所以选 None 时实际不追加任何内容。
+        # 原先按官网原始表写成了 "lowres", 会凭空多出一条 lowres。
+        "None": "",
     },
     "nai-diffusion-furry-3": {
         "Heavy": "nsfw, {{worst quality}}, [displeasing], {unusual pupils}, guide lines, {{unfinished}}, {bad}, url, artist name, {{tall image}}, mosaic, {sketch page}, comic panel, impact (font), [dated], {logo}, ych, {what}, {where is your god now}, {distorted text}, repeated text, {floating head}, {1994}, {widescreen}, absolutely everyone, sequence, {compression artifacts}, hard translated, {cropped}, {commissioner name}, unknown text, high contrast",
         "Light": "nsfw, {worst quality}, guide lines, unfinished, bad, url, tall image, widescreen, compression artifacts, unknown text",
-        "None": "",
+        "None": "",  # 同 nai-diffusion-3: none 的 prefix 被 solveUc 丢弃, 实际不追加内容
     },
 }
 
