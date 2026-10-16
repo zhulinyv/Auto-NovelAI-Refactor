@@ -2,17 +2,20 @@
 
 NAI v5 支持在提示词末尾用 teXt 段写自然语言:
 
-    1girl, solo, teXt: a girl standing in the rain"
+    1girl, solo, "a girl standing in the rain", teXt: a girl standing in the rain"
 
 规则 (统一在生图请求里落地, 保证网页 / 插件 / API 调用行为一致):
 
-1. 成对英文引号 "xxx" 包起来的内容收进 teXt 段, 引号本身从原位置消失;
-   多段内容之间空两行 (\n\n), 末尾保留**一个**英文引号收尾。
-   一对引号里的内容 ("xxx, yyy, zzz") 原样保留, 不拆成多段。
-2. 手写的 teXt 段 —— 无论写在提示词哪个位置、写了几个 —— 都会被收集、去重,
-   合并成**一个** teXt 段并挪到提示词最末尾。
+1. 成对英文引号 "xxx" 包起来的内容, 在提示词最末尾**追加**一个 teXt 段, 引号本身留在原位不动:
+       "xxx"          ->  "xxx", teXt: xxx"
+   多对引号的内容之间空两行 (\n\n), 末尾保留**一个**英文引号收尾:
+       "xxx", "yyy"   ->  "xxx", "yyy", teXt: xxx\n\nyyy"
+   一对引号里的多个内容 ("xxx, yyy, zzz") 算一条, 原样搬进 teXt 段, 不拆条:
+       "xxx, yyy, zzz" ->  "xxx, yyy, zzz", teXt: xxx, yyy, zzz"
+2. 手写的 teXt 段 —— 无论写在提示词哪个位置、写了几个 —— 都被**移动**(不是复制)到最末尾,
+   合并成**一个** teXt 段; 段内多个内容之间同样空两行。
 3. 无论质量预设 / Transparent BG / furry 前缀在什么位置, teXt 段永远排在最后。
-4. 非 v5 模型原样返回; 没有引号也没有 teXt 段的 v5 提示词同样原样返回
+4. 非 v5 模型原样返回; 提示词里既没有成对引号也没有 teXt 段时同样原样返回
    (不做任何格式化), 保证这两类老用法逐字节不变。
 
 本模块是纯字符串处理, 不依赖任何运行时环境, 便于单独验证。
@@ -25,11 +28,14 @@ import re
 # 仅在 v5 系列生图模型生效 (与 src/generate_images.py 的模型名保持一致)
 V5_MODELS = ("nai-diffusion-5-full", "nai-diffusion-5-curated")
 
-# 段关键字: 行首或逗号后的 "teXt:" (大小写不敏感, 中间的空格可有可无, 也兼容写成 text:)
+# 段关键字: 行首或逗号后的 "teXt:" (大小写不敏感, 中间的空格可有可无, 也兼容用户写成 text:)
 _KEYWORD_RE = re.compile(r"(?im)(?:^|(?<=,))[ \t]*text[ \t]*:[ \t]*")
 
 # 成对英文引号; [^"]* 不跨引号, 落单的引号不会被匹配 (原样留在提示词里)
 _QUOTED_RE = re.compile(r'"([^"]*)"')
+
+# 段内多条内容的分隔符: 空行 (spec 里的"两个换行符")
+_ITEM_SPLIT_RE = re.compile(r"\n[ \t]*\n")
 
 # 段关键字本身 (规范写法, 大小写敏感)
 KEYWORD = "teXt:"
@@ -62,12 +68,18 @@ def build_text_section(items) -> str:
 
 
 def extract_items(text: str) -> tuple[list[str], list[tuple[int, int]]]:
-    """从左到右扫描提示词, 按出现顺序取出 teXt 段与成对引号的内容。
+    """从左到右扫描提示词, 按出现顺序取出"要进 teXt 段"的内容。
 
-    返回 (内容列表, 需要从正文里挖掉的区间列表)。引号里出现的关键字不算新段
-    (先扫到引号就让整对引号整体跳过), 所以引号内容里的 ", text:" 不会被误解成段。
+    返回 (内容列表, 需要从正文里挖掉的区间列表):
+
+    - 成对引号的内容**只抄一份**, 引号与其内容留在原地不动 (所以不产生挖除区间);
+    - 手写的 teXt 段是**移动**, 整段 (含收尾引号) 记进挖除区间。
+
+    引号里出现的关键字不算新段 (先扫到引号就让整对引号整体跳过), 所以引号内容里的
+    ", text:" 不会被误解成段。
     """
-    items: list[str] = []
+    quoted_items: list[str] = []
+    manual_items: list[str] = []
     spans: list[tuple[int, int]] = []
     pos = 0
     while pos < len(text):
@@ -83,18 +95,19 @@ def extract_items(text: str) -> tuple[list[str], list[tuple[int, int]]]:
             quote_at = text.find(CLOSING_QUOTE, body_start)
             if quote_at != -1:
                 body_end = min(body_end, quote_at)
-            items.extend(_split_items(text[body_start:body_end]))
-            # 收尾的那个引号属于本段, 一并挖掉
+            manual_items.extend(_split_items(text[body_start:body_end]))
+            # 整段挪走: 收尾的那个引号也属于本段
             stop = body_end + 1 if quote_at == body_end else body_end
             spans.append((keyword.start(), stop))
             pos = stop
         elif quoted:
-            items.append(quoted.group(1))
-            spans.append((quoted.start(), quoted.end()))
+            # 引号内容只抄一份进 teXt 段, 原位置原样保留
+            quoted_items.append(quoted.group(1))
             pos = quoted.end()
         else:
             break
-    return items, spans
+    # 引号项恒排在手写项之前: 手写段会被挪到末尾, 若按位置混排则再整理一次顺序就会变
+    return quoted_items + manual_items, spans
 
 
 def apply_text_section(text: str | None, model: str) -> str:
@@ -107,10 +120,11 @@ def apply_text_section(text: str | None, model: str) -> str:
         return prompt
 
     items, spans = extract_items(prompt)
-    if not spans:
-        return prompt  # 没有引号也没有 teXt 段: 一个字符都不动
+    if not items:
+        return prompt  # 没有成对引号也没有 teXt 段: 一个字符都不动
 
-    core = _tidy(_remove_spans(prompt, spans))
+    # 只有真的挪走了手写 teXt 段才清理接缝 —— 否则正文逐字节保持原样 (format_input 关掉时也不该被重排)
+    core = _remove_spans(prompt, spans).strip() if spans else prompt
     section = build_text_section(_dedupe(items))
     if not section:
         return core
@@ -121,22 +135,20 @@ def apply_text_section(text: str | None, model: str) -> str:
 
 
 def _clean_item(item: str) -> str:
-    """单条内容: 去掉首尾空白与多余逗号。"""
-    return str(item).strip().strip(",").strip()
+    """单条内容: 条内不留空行 (空行只当分隔符用), 去掉首尾空白与多余逗号。"""
+    text = str(item).strip()
+    text = _ITEM_SPLIT_RE.sub("\n", text)
+    return text.strip().strip(",").strip()
 
 
 def _split_items(body: str) -> list[str]:
-    """段体 -> 多条内容: 逐行拆开, 每行一条。
+    """段体 -> 多条内容: 按空行拆开。
 
-    段体里不会再有引号 (遇到收尾引号就截断了), 所以 "xxx, yyy, zzz" 这种
-    一行里的逗号原样保留 —— 一对引号内的多个内容算一条, 不拆开。
+    空行是唯一的分隔符, 所以条内的单个换行与 ", " 都原样保留 ——
+    "xxx, yyy, zzz" 这种一行的多个内容算一条, 不拆开。
     """
-    items = []
-    for line in body.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
-        line = _clean_item(line)
-        if line:
-            items.append(line)
-    return items
+    body = body.replace("\r\n", "\n").replace("\r", "\n")
+    return [item for item in (_clean_item(part) for part in _ITEM_SPLIT_RE.split(body)) if item]
 
 
 def _dedupe(items: list[str]) -> list[str]:
@@ -152,24 +164,38 @@ def _dedupe(items: list[str]) -> list[str]:
     return result
 
 
+# 接缝处残留的分隔符 (逗号 / 空白 / 换行)
+_SEAM_CHARS = " \t\r\n,"
+
+
 def _remove_spans(text: str, spans: list[tuple[int, int]]) -> str:
-    """把 (start, end) 区间从文本里挖掉, 其余字符逐字保留。"""
-    kept = []
+    """把 (start, end) 区间从文本里挖掉, 并清理接缝处残留的分隔符; 其余字符逐字保留。
+
+    只动接缝: 引号内容里的逗号与换行在别处, 一概不受影响 (全局重排会把
+    "a girl,\nstanding" 这类内容改掉)。
+    """
+    out = []
+    seams = []
     last = 0
     for start, end in spans:
-        kept.append(text[last:start])
+        out.append(text[last:start])
+        seams.append(sum(len(part) for part in out))
         last = end
-    kept.append(text[last:])
-    return "".join(kept)
-
-
-def _tidy(text: str) -> str:
-    """正文清理: 去掉挖掉内容后残留的空逗号段, 逐行处理以保留原有换行结构。"""
-    lines = []
-    for line in text.split("\n"):
-        segments = [seg.strip() for seg in line.split(",")]
-        lines.append(", ".join(seg for seg in segments if seg))
-    return "\n".join(lines).strip()
+    out.append(text[last:])
+    result = "".join(out)
+    # 从后往前处理, 前面的接缝坐标才不会被改动过
+    for pos in reversed(seams):
+        left = pos
+        while left > 0 and result[left - 1] in _SEAM_CHARS:
+            left -= 1
+        right = pos
+        while right < len(result) and result[right] in _SEAM_CHARS:
+            right += 1
+        if left == 0 or right == len(result):
+            result = result[:left] + result[right:]  # 接缝在两端: 残留分隔符直接去掉
+        else:
+            result = result[:left] + ", " + result[right:]  # 两侧都还有内容: 并成一个逗号
+    return result
 
 
 __all__ = [

@@ -676,16 +676,15 @@ function syncTransparentBg(text) {
   return found ? keep.join(",").trim() : String(text ?? "").trim();
 }
 
-/** 生成请求专用: 整理 v5 的 teXt 自然语言段, 另存一份已剥离的文本供生成后回写输入框。
+/** 生成请求专用: 整理 v5 的 teXt 自然语言段 (规则与后端 utils/prompt_text.py 完全一致, 仅 v5 系列生效)。
  *
- * 规则与后端 utils/prompt_text.py 完全一致 (仅 v5 系列生效):
- *  - 成对英文引号 "xxx" 包起来的内容收进 teXt 段, 引号从原位置消失, 内容之间空两行;
- *  - 用户手写的 teXt 段 (任意位置 / 任意个数) 一并合并, 去重后只留一段;
+ *  - 成对英文引号 "xxx": 引号与其内容**留在原位不动**, 只把内容抄一份进末尾的 teXt 段; 抄多份时空两行;
+ *  - 用户手写的 teXt 段 (任意位置 / 任意个数): **移动**(不是复制)到最末尾, 合并成一个, 去重;
  *  - teXt 段永远排在提示词最末尾, 无论追加的质量预设 / Transparent BG / furry 前缀在哪;
  *  - 末尾始终以一个英文引号收尾; 非 v5 模型或没有触发条件时逐字不动。
  *
  * 这里是后端的镜像而不是替代: 请求照常原样发给后端 (后端仍会做一次),
- * 前端先做一遍只为把"用户输入框里被吞掉的内容/引号"在生成后回写 (见 lastResolvedPositive)。
+ * 前端先做一遍只为把"手写 teXt 段被挪走后的正文"在生成后回写输入框 (见 lastResolvedPositive)。
  * 两侧规则必须同步修改 (web/js/views/generate.js ↔ utils/prompt_text.py)。
  */
 function applyTextSection(text, model) {
@@ -693,9 +692,10 @@ function applyTextSection(text, model) {
   if (!src || !isNai5(model)) return src;
   const KW = /(?:^|(?<=,))[ \t]*text[ \t]*:[ \t]*/gim;       // 段关键字 (大小写不敏感, 兼容 text:)
   const QUOTED = /"([^"]*)"/g;                                 // 成对英文引号 (不跨引号, 落单的不匹配)
-  const SPAN = /"[^"]*"/g;                                     // 成对英文引号的完整区间
-  const cleanItem = (s) => String(s).trim().replace(/^[,\s]+|[,\s]+$/g, "");
-  const items = [], spans = [];
+  const SPLIT = /\n[ \t]*\n/;                                 // 段内多条内容的分隔符: 空行
+  const SPLIT_ALL = /\n[ \t]*\n/g;                            // 同上, 但替换全部 (与 Python 侧一致)
+  const cleanItem = (s) => String(s).trim().replace(SPLIT_ALL, "\n").replace(/^[,\s]+|[,\s]+$/g, "");
+  const quotedItems = [], manualItems = [], spans = [];
   let pos = 0;
   while (pos < src.length) {
     KW.lastIndex = pos; QUOTED.lastIndex = pos;
@@ -709,42 +709,68 @@ function applyTextSection(text, model) {
       const quoteAt = src.indexOf('"', bodyStart);
       if (quoteAt !== -1) bodyEnd = Math.min(bodyEnd, quoteAt);
       const body = src.slice(bodyStart, bodyEnd).replace(/\r\n?/g, "\n");
-      for (const line of body.split("\n")) { const it = cleanItem(line); if (it) items.push(it); }
-      const stop = quoteAt === bodyEnd ? bodyEnd + 1 : bodyEnd; // 收尾的那个引号属于本段
+      for (const part of body.split(SPLIT)) { const it = cleanItem(part); if (it) manualItems.push(it); }
+      const stop = quoteAt === bodyEnd ? bodyEnd + 1 : bodyEnd; // 整段挪走 (收尾引号属于本段)
       spans.push([kw.index, stop]);
       pos = stop;
     } else if (q) {
-      items.push(q[1]);
-      SPAN.lastIndex = pos;
-      const sp = SPAN.exec(src);
-      spans.push([sp.index, sp.index + sp[0].length]);
-      pos = sp.index + sp[0].length;
+      // 引号内容只抄一份进 teXt 段, 原位置原样保留
+      quotedItems.push(q[1]);
+      pos = q.index + q[0].length;
     } else break;
   }
-  if (!spans.length) return src; // 没有引号也没有 teXt 段: 一个字符都不动
+  // 引号项恒排在手写项之前: 手写段会被挪到末尾, 若按位置混排则再整理一次顺序就会变
+  const items = quotedItems.concat(manualItems);
+  if (!items.length) return src; // 没有成对引号也没有 teXt 段: 一个字符都不动
   const seen = new Set(), picked = [];
   for (const it of items) {
     const key = it.replace(/\s+/g, " ").toLowerCase();
     if (key && !seen.has(key)) { seen.add(key); picked.push(it); }
   }
+  // 只有真的挪走了手写 teXt 段才清理接缝 (引号内容里的逗号/换行在别处, 一概不动)
+  let core = src;
+  if (spans.length) {
+    const pieces = [];
+    const seams = [];               // 每个接缝在拼接结果里的下标
+    let last = 0, acc = 0;
+    for (const [s, e] of spans) {
+      const piece = src.slice(last, s);
+      pieces.push(piece);
+      acc += piece.length;
+      seams.push(acc);
+      last = e;
+    }
+    pieces.push(src.slice(last));
+    let result = pieces.join("");
+    const isSep = (ch) => ch === " " || ch === "\t" || ch === "\r" || ch === "\n" || ch === ",";
+    // 从后往前处理, 前面的接缝坐标才不会被改动过
+    for (let i = seams.length - 1; i >= 0; i--) {
+      const pos = seams[i];
+      let left = pos, right = pos;
+      while (left > 0 && isSep(result[left - 1])) left--;
+      while (right < result.length && isSep(result[right])) right++;
+      result = (left === 0 || right === result.length)
+        ? result.slice(0, left) + result.slice(right)   // 接缝在两端: 残留分隔符直接去掉
+        : result.slice(0, left) + ", " + result.slice(right); // 两侧都还有内容: 并成一个逗号
+    }
+    core = result.trim();
+  }
   const section = picked.length ? `teXt: ${picked.join("\n\n")}"` : "";
-  let core = src, out = "";
-  let last = 0;
-  for (const [s, e] of spans) { out += core.slice(last, s); last = e; }
-  out += core.slice(last);
-  core = out.split("\n").map((line) => line.split(",").map((s) => s.trim()).filter(Boolean).join(", ")).join("\n").trim();
   if (!section) return core;
   return core ? `${core}, ${section}` : section;
 }
 
 /** 生成请求专用: 用户输入 + Transparent BG 追加, 再统一整理 teXt 段 (teXt 永远在最后)。
- *  同时记下"提交时的原文 -> 整理后的文本": 引号与其原位置的内容已被收进 teXt 段,
- *  生成成功且输入框仍是提交时那份原文时回写, 用户才能看到自己真正发出去的东西 (见 onJobDone)。 */
+ *
+ *  回写目标 (lastResolvedPositive.to) 只由**用户提交的原文**整理而来, 不含 Transparent BG ——
+ *  TB 是一个开关, 由按钮状态表达、历来不进输入框; 若把它一起回写, 下一轮会再追加一次而越积越多。
+ *  生成成功且输入框仍是提交时那份原文时回写, 用户才能看到自己真正发出去的内容 (见 onJobDone)。 */
 function promptWithTextSection() {
   const submitted = String((C.positive && C.positive.get()) || "");
-  const withTb = promptWithTransparent();
-  const resolved = applyTextSection(withTb, C.model.get());
-  lastResolvedPositive = resolved === withTb ? null : { from: submitted, to: resolved };
+  const model = C.model.get();
+  const resolved = applyTextSection(promptWithTransparent(), model);
+  const writeback = applyTextSection(submitted, model);
+  lastResolvedPositive = writeback === submitted ? null : { from: submitted, to: writeback };
   return resolved;
 }
 
