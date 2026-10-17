@@ -703,6 +703,12 @@ def generate(request: dict) -> tuple[list[str], str]:
     os.makedirs("./outputs", exist_ok=True)
     reset_stop()  # 重置本任务的停止信号 (队列多通道并行时各任务独立)
 
+    # 停止请求可能落在"已排上队、通道还没领走"的空档里: 那时队列没有运行中任务,
+    # 停止只能写成全局信号。这里先认领一次, 让它既生效、又不会留到下一个任务头上。
+    if check_stop():
+        logger.warning("本任务在开始前已被叫停, 直接结束!")
+        return [], "已停止生成!"
+
     _type = "text2image"
     image_list: list[str] = []
     use_reference = any(r.get("enabled") and r.get("path") for r in references) and model in [

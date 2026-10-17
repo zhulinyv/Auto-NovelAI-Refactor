@@ -4,7 +4,7 @@
 - 单一 FIFO 队列, 所有 NovelAI 生成类操作 (主生图 / 导演工具 / 插件生图) 都提交到这里
 - 每配置一个有效 Token 即开启一个执行通道 (worker): N 个 Token 可同时执行 N 个生图任务
 - 任意通道空闲即领取队首任务; 多个空闲通道可用时优先分配给编号最小的通道 (即优先使用第一个 Token, 依次类推); 任务完成后该通道独立冷却 cool_time 秒, 冷却结束再取下一个任务
-- 排队中的任务可取消 / 调整顺序; 运行中的任务通过独立停止信号文件中断
+- 排队中的任务可取消 / 调整顺序; 运行中的任务通过独立停止信号文件中断 (见 utils.helpers.check_stop)
 - 通道状态与队列快照通过 queue:update 事件实时推送给前端 (SSE)
 - 非 NovelAI 任务 (超分/本地处理等) 不进队列, 由 JobManager 以多线程方式并行执行
 """
@@ -323,57 +323,88 @@ class GenerationQueue:
             task = self._tasks.get(task_id)
             if not task or task.status != "pending":
                 return False
-            task.status = "cancelled"
-            task.finished_at = time.time()
-            if task_id in self._order:
-                self._order.remove(task_id)
-            self._tasks.pop(task_id, None)
-            self._history.append(task)
+            self._cancel_pending_locked(task)
             label = task.label
         logger.info(f"已取消排队任务: [{label}]")
         self._publish()
         return True
 
     def stop(self, task_id: str) -> bool:
-        """请求停止运行中的任务 (写入该任务独立的停止信号文件)。"""
+        """请求停止某个任务 (运行中写停止信号; 还在排队则直接取消)。"""
+        cancelled_label = None
         with self._lock:
             task = self._running.get(task_id)
-            if not task:
-                return False
-            label = task.label
+            if task is not None:
+                label = task.label
+            else:
+                # 排队中被点了停止: 直接取消, 否则通道领走时它照样开跑
+                pending = self._tasks.get(task_id)
+                if pending is None or pending.status != "pending":
+                    return False
+                self._cancel_pending_locked(pending)
+                cancelled_label = pending.label
+        if cancelled_label is not None:
+            logger.info(f"已取消排队任务: [{cancelled_label}]")
+            self._publish()
+            return True
         write_break_flag(True, task_id)
         logger.warning(f"已向运行中任务发送停止信号: [{label}]")
         return True
 
-    def stop_by_name(self, name: str) -> int:
-        """停止所有指定名称的运行中任务 (如 '图片生成')。"""
+    def _match(self, pred) -> tuple[list[_Task], list[_Task]]:
+        """按条件挑出 (运行中的, 排队中的) 任务 —— 停止类操作两侧都要覆盖。
+
+        只停"运行中"会留下一个很难察觉的空档: 上一轮任务刚结束、下一轮任务已经排进队列
+        但通道还在冷却 (或被唤醒到一半), 这时点停止, 下一个任务照样开跑, 用户看到的就是
+        "点了停止还在一直生成"。排队中的任务此时还没开跑, 直接取消即可, 不占用冷却。
+        """
         with self._lock:
-            tasks = [t for t in self._running.values() if t.name == name]
-        for t in tasks:
+            running = [t for t in self._running.values() if pred(t)]
+            pending = [t for t in self._tasks.values() if t.status == "pending" and pred(t)]
+        return running, pending
+
+    def _cancel_pending_locked(self, task: _Task) -> None:
+        """把排队中的任务标记为已取消 (调用方需持有 _lock)。"""
+        task.status = "cancelled"
+        task.finished_at = time.time()
+        if task.id in self._order:
+            self._order.remove(task.id)
+        self._tasks.pop(task.id, None)
+        self._history.append(task)
+
+    def _stop_matched(self, pred, desc: str) -> int:
+        """向匹配的运行中任务写停止信号, 并取消匹配的排队任务; 返回处理的任务数。"""
+        running, pending = self._match(pred)
+        for t in running:
             write_break_flag(True, t.id)
-        if tasks:
-            logger.warning(f"已向 {len(tasks)} 个 [{name}] 任务发送停止信号")
-        return len(tasks)
+        if pending:
+            with self._lock:
+                for t in pending:
+                    if self._tasks.get(t.id) is t and t.status == "pending":  # 期间可能已被领走
+                        self._cancel_pending_locked(t)
+        total = len(running) + len(pending)
+        if total:
+            parts = []
+            if running:
+                parts.append(f"{len(running)} 个运行中")
+            if pending:
+                parts.append(f"{len(pending)} 个排队中")
+            logger.warning(f"已停止 {total} 个 [{desc}] 任务 ({' / '.join(parts)})")
+            if pending:
+                self._publish()
+        return total
+
+    def stop_by_name(self, name: str) -> int:
+        """停止所有指定名称的任务 (运行中写停止信号, 排队中直接取消)。"""
+        return self._stop_matched(lambda t: t.name == name, name)
 
     def stop_by_prefix(self, prefix: str) -> int:
-        """停止所有名称以 prefix 开头的运行中任务 (如 '导演工具:')。"""
-        with self._lock:
-            tasks = [t for t in self._running.values() if t.name.startswith(prefix)]
-        for t in tasks:
-            write_break_flag(True, t.id)
-        if tasks:
-            logger.warning(f"已向 {len(tasks)} 个 [{prefix}*] 任务发送停止信号")
-        return len(tasks)
+        """停止所有名称以 prefix 开头的任务 (如 '导演工具:')。"""
+        return self._stop_matched(lambda t: t.name.startswith(prefix), f"{prefix}*")
 
     def stop_all_running(self) -> int:
-        """停止全部运行中的队列任务。"""
-        with self._lock:
-            tasks = list(self._running.values())
-        for t in tasks:
-            write_break_flag(True, t.id)
-        if tasks:
-            logger.warning(f"已向 {len(tasks)} 个运行中队列任务发送停止信号")
-        return len(tasks)
+        """停止全部队列任务: 运行中写停止信号, 排队中直接取消。"""
+        return self._stop_matched(lambda t: True, "全部")
 
     def reorder(self, task_id: str, direction: str) -> bool:
         """调整排队任务顺序: up / down / top / bottom。"""

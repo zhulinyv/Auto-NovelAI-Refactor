@@ -45,6 +45,11 @@ def run_director(kind: str, input_path: str | None, input_image: str | None, opt
     """执行指定类型的导演工具处理 (由生图队列调度, augment-image 同样占用通道)。"""
     options = options or {}
     image_list: list[str] = []
+    # 停止请求可能落在"已排上队、通道还没领走"的空档里 (那时队列没有运行中任务,
+    # 停止只能写成全局信号): 开跑前先认领一次, 让它既生效、又不会留到下一个任务头上。
+    if check_stop():
+        logger.warning("本任务在开始前已被叫停, 直接结束!")
+        return []
     input_images = _input_images(input_path, input_image)
     # 只处理一张图片时无需等待, 直接返回结果
     single = len(input_images) <= 1

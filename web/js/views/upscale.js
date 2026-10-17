@@ -156,7 +156,12 @@ function renderEngine(eng, body) {
   const stopBtn = el("button", { class: "btn btn-danger", text: "⏹ 停止" });
   stopBtn.addEventListener("click", async () => {
     toast("正在停止生成...", "warning");
-    try { await post("/api/stop"); } catch {}
+    try {
+      const res = await post("/api/stop");
+      if (!res?.stopped) toast("当前没有正在运行的任务", "info");
+    } catch (e) {
+      toast(e.message, "error");
+    }
   });
 
   runBtn.addEventListener("click", async () => {

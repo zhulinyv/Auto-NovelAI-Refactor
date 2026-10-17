@@ -42,20 +42,27 @@ async def start_generate(request: dict):
 
 @router.post("/generate/stop")
 async def stop(payload: dict = None):
-    """停止当前生图任务 (可选 name 前缀匹配, 如 '导演工具:')。"""
+    """停止当前生图任务 (可选 name 前缀匹配, 如 '导演工具:')。
+
+    运行中的任务 / 还没被通道领走的排队任务都会收到停止信号:
+    后者如果只停在"运行中"那一侧, 就有个很坑的空档 —— 上一轮任务刚结束、下一轮任务
+    已经排进队列但通道还在冷却或刚被唤醒, 这时点"停止"看起来成功了, 下一个任务却照样开跑。
+    """
     name = (payload or {}).get("name")
     if name:
         stopped = gen_queue.stop_by_prefix(name)
     else:
         stopped = gen_queue.stop_by_name("图片生成")
-    if not stopped:
-        # 队列没有匹配的运行中任务时回落到全局停止 (兼容插件等旧入口)
-        stop_generate()
     return {"ok": True, "stopped": stopped}
 
 
 @router.post("/stop")
 async def stop_any():
-    """全局停止: 生图队列全部运行中任务 + 其它后台任务。"""
+    """全局停止: 生图队列全部运行中任务 + 其它后台任务。
+
+    返回 stopped 让前端能区分"真的停了东西"和"当时本来就没有任务在跑",
+    免得用户点了停止只看到一句"正在停止生成..."却不知道到底停没停。
+    """
+    stopped = gen_queue.stop_all_running()
     stop_generate()
-    return {"ok": True}
+    return {"ok": True, "stopped": stopped}

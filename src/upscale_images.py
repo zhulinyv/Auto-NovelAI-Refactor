@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import platform
 import subprocess
+import time
 
 from utils.helpers import check_stop, download, extract, playsound, reset_stop
 from utils.image_tools import revert_image_info
@@ -30,18 +31,47 @@ def _ensure_windows() -> bool:
     return True
 
 
+def _kill_process_tree(p: subprocess.Popen) -> None:
+    """结束超分引擎进程 (Windows 上连同它自己起的子进程一起结束)。"""
+    try:
+        if platform.system() == "Windows":
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(p.pid)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+        else:
+            p.kill()
+    except Exception as e:
+        logger.debug(f"结束超分引擎进程失败: {e}")
+    try:
+        p.wait(timeout=5)
+    except Exception:
+        logger.debug("超分引擎进程未能及时退出")
+
+
 def run_cmd(code: str):
-    """执行超分引擎命令, 返回其输出的尾部文本。
+    """执行超分引擎命令, 返回其输出的尾部文本; 检测到停止信号时立刻结束子进程并返回 None。
 
     超分引擎在高分辨率下会刷出大量进度行; 原先用 communicate() 把全部输出
     缓存在内存里 (可能几十 MB), 这里改为重定向到临时文件, 只读回尾部。
+
+    原先的 p.wait() 会一直阻塞到引擎自己跑完 —— 一张大图可能要几十秒到几分钟,
+    这期间点"停止"完全没反应 (进程不理会信号)。现在改成轮询等待, 一旦收到停止信号
+    就 kill 子进程 (连同它自己的子进程), 保证"停止"对超分也即时生效。
     """
     import tempfile
 
     try:
         with tempfile.TemporaryFile() as buf:
             p = subprocess.Popen(code, stdout=buf, stderr=subprocess.STDOUT)
-            p.wait()
+            while p.poll() is None:
+                if check_stop():
+                    logger.warning("已停止超分, 正在结束超分引擎进程...")
+                    _kill_process_tree(p)
+                    return None
+                time.sleep(0.2)
             # 只取输出的尾部 (进度行在前, 真正的错误/统计信息在后)
             tail_bytes = 8192
             try:
@@ -147,6 +177,11 @@ def run_upscale(kind: str, input_path: str | None, input_image: str | None, opti
         if result:
             logger.info(result)
 
+        # 被停止打断时引擎进程刚被杀掉, 输出文件多半是半截的 —— 不要当成成功结果收下
+        if check_stop():
+            logger.warning("已停止生成!")
+            break
+
         if os.path.exists(output_path):
             logger.success("超分完成!")
             logger.info(f"图片已保存到 {output_path}")
@@ -158,5 +193,6 @@ def run_upscale(kind: str, input_path: str | None, input_image: str | None, opti
         else:
             logger.error("超分失败! 请查看上方输出日志!")
 
-    playsound("./assets/finish.mp3")
+    if not check_stop():
+        playsound("./assets/finish.mp3")
     return image_list

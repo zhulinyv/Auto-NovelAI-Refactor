@@ -159,8 +159,14 @@ function renderKind(kind, body) {
       toast("正在停止本地处理...", "warning");
       return;
     }
+    // 导演工具走生图队列: 用按名字前缀停止, 只停导演工具自己的任务, 不误伤同时进行的生图 / 插件任务
     toast("正在停止处理...", "warning");
-    try { await post("/api/stop"); } catch {}
+    try {
+      const res = await post("/api/generate/stop", { name: "导演工具:" });
+      if (!res?.stopped) toast("当前没有正在运行的导演工具任务", "info");
+    } catch (e) {
+      toast(e.message, "error");
+    }
   });
 
   runBtn.addEventListener("click", async () => {

@@ -748,7 +748,14 @@ function renderPanel(plugin, panel, body) {
     const stopBtn = el("button", { class: "btn btn-danger", text: "⏹ 停止" });
     stopBtn.addEventListener("click", async () => {
       toast("正在停止生成...", "warning");
-      try { await post("/api/stop"); } catch {}
+      try {
+        // 插件动作走生图队列 (uses_novelai) 或本地任务, 两种都归 /api/stop 全局停;
+        // stopped 为 0 表示当时确实没有任务在跑, 别让用户以为点了没反应
+        const res = await post("/api/stop");
+        if (!res?.stopped) toast("当前没有正在运行的任务", "info");
+      } catch (e) {
+        toast(e.message, "error");
+      }
     });
     actRow.append(stopBtn);
   }

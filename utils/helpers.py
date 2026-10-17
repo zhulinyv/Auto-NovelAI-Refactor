@@ -319,14 +319,36 @@ def find_and_replace_wildcards_from_dict(data: dict) -> dict:
 # ---------------------------------------------------------------- 任务控制
 # 停止信号为"每任务独立文件" (./outputs/temp_break_<任务id>.json):
 # 生图队列多通道并行时, 停止某个任务不会误伤其它通道上正在运行的任务。
+# 另有一份旧格式的全局文件 (GLOBAL_STOP_FILE), 只用于"没有任务上下文"的场景
+# (插件线程池里的 worker、旧插件入口); 它是一次性广播, 读过即销毁。
+
+GLOBAL_STOP_FILE = "./outputs/temp_break.json"
 
 
 def reset_stop() -> None:
-    """任务开始时重置当前任务的停止信号 (替代旧的全局 temp_break.json 写入)。"""
-    from utils.jobs import write_break_flag
+    """任务开始时重置当前任务的停止信号 (替代旧的全局 temp_break.json 写入)。
 
-    write_break_flag(False)
+    ★ 不能无脑写成 break=false: 通道领走任务之后、任务函数真正跑起来之前的那一小段
+    (set_current_job -> 函数入口) 里用户完全可能已经点了停止, 那份信号就写在同一个文件上。
+    直接覆盖会让这次停止凭空消失 —— 用户看到"已发送停止指令", 图片却继续一张张出。
+    所以只有文件不存在时才落一个 false, 已有内容一律原样保留, 交给后面的 check_stop 认领。
+    """
+    from utils.jobs import break_file_path, write_break_flag
+
     clear_stop_cache()  # 新任务开始: 丢掉上一轮的"无信号"负缓存
+    try:
+        if os.path.exists(break_file_path()):
+            return  # 已经有人先写了停止信号: 保留它, 别覆盖
+    except Exception:
+        pass
+    write_break_flag(False)
+    # 新任务开跑: 上一轮遗留的全局广播到此作废, 删掉它免得留给后面的线程误读。
+    # 但别的实例 (多开) 写的那份不动 —— 那边的任务可能正靠它停下来。
+    if not _global_stop_owned_by_other_process(_read_global_stop()):
+        try:
+            os.remove(GLOBAL_STOP_FILE)
+        except OSError:
+            pass
 
 
 def stop_generate(job_id: str | None = None) -> None:
@@ -349,49 +371,134 @@ def stop_generate(job_id: str | None = None) -> None:
         logger.opt(exception=True).debug("停止生成队列失败堆栈:")
     try:
         from utils.jobs import jobs as _jobs
-        from utils.jobs import write_break_flag
 
         for jid in _jobs.running_job_ids():
             write_break_flag(True, jid)
     except Exception:
         logger.opt(exception=True).debug("写入停止信号失败堆栈:")
+    # 全局信号 (无任务线程时的唯一信号, 也是旧插件的兼容入口)。两次 stop 之间没人会删它,
+    # 所以每次都是"写一次、被读一次就销毁"; pid 供多开时判断写它的进程是否还活着。
     os.makedirs("./outputs", exist_ok=True)
-    with open("./outputs/temp_break.json", "w") as f:
-        json.dump({"break": True}, f)
+    with open(GLOBAL_STOP_FILE, "w", encoding="utf-8") as f:
+        json.dump({"break": True, "pid": os.getpid()}, f)
 
 
 # check_stop 的负结果缓存: 它在逐图循环与重试循环里被高频调用, 而每次调用都要
-# 打开并 JSON 解析一个信号文件。文件不存在 (最常见) 时记下"该任务无信号", 之后直接返回。
+# 打开并 JSON 解析一个信号文件。为免逐次读盘, 缓存"这条路径上没有信号"的负结果,
+# 同时记下该文件的 mtime —— 停止请求重写的正是同一个文件, mtime 一变缓存立刻作废。
 # 只缓存否定结果: 一旦读到 break=true 立刻清缓存并返回 True, 停止指令永远即时生效,
-# 且 clean_stop_cache() 会在任务开始时调用, 避免跨任务/跨轮次误判。
-_STOP_CACHE: set[str] = set()
+# 且 clear_stop_cache() 会在任务开始时调用, 避免跨任务/跨轮次误判。
+# 记录 mtime 而不是单凭路径名去重, 是因为缓存键是"当前线程对应的路径": 某个通道
+# 上一轮任务留下的负结果, 不能让它下一轮任务 (同一批 worker 线程) 永远读不到新信号。
+_STOP_CACHE: dict[str, int] = {}
+
+
+def _stop_file_mtime(path: str) -> int | None:
+    """信号文件的 mtime (纳秒); 不存在或 stat 失败返回 None。
+
+    只是 stat, 比打开 + 解析 JSON 便宜得多, 是负缓存能否复用的判据。
+    """
+    try:
+        return os.stat(path).st_mtime_ns
+    except OSError:
+        return None
 
 
 def clear_stop_cache() -> None:
-    """清空停止信号负缓存 (任务开始时调用, 防止沿用上一轮/别的任务的判定)。"""
+    """清空停止信号缓存 (任务开始时调用, 防止沿用上一轮/别的任务的判定)。"""
     _STOP_CACHE.clear()
+
+
+def _read_stop_signal(path: str) -> tuple[bool, bool]:
+    """读一个停止信号文件, 返回 (是否要求停止, 是否可信)。
+
+    可信 = 文件确实存在且读出了内容 (无论 break 是真是假): 只有可信的否定结果才进缓存。
+    文件刚被写入时可能只读到半截 (写者还没写完), 解析失败按"不可信"处理, 下次再读。
+    """
+    try:
+        data = read_json(path)
+    except FileNotFoundError:
+        return False, True  # 没有信号 = 没有要求停止 (最常见的情况)
+    except Exception:
+        return False, False
+    if not isinstance(data, dict):
+        return False, False
+    return bool(data.get("break")), True
+
+
+def _check_stop_file(path: str) -> bool:
+    """带缓存地读取某个信号文件 (见 _STOP_CACHE)。"""
+    mtime = _stop_file_mtime(path)
+    if mtime is not None and _STOP_CACHE.get(path) == mtime:
+        return False  # 这条路径上的文件自上次读过之后没有任何变化, 一定还是 false
+    breaking, reliable = _read_stop_signal(path)
+    if breaking:
+        _STOP_CACHE.pop(path, None)
+        return True
+    if reliable and mtime is not None:
+        _STOP_CACHE[path] = mtime
+    else:
+        _STOP_CACHE.pop(path, None)
+    return False
+
+
+def _read_global_stop() -> dict:
+    """读全局停止文件的内容; 不存在/读不出/格式不对都返回空 dict。"""
+    try:
+        data = read_json(GLOBAL_STOP_FILE)
+    except FileNotFoundError:
+        return {}
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _global_stop_owned_by_other_process(data: dict) -> bool:
+    """全局停止文件是否由另一个仍然活着的进程写下 (多开时不能替别人做主)。"""
+    owner = data.get("pid")
+    if not isinstance(owner, int) or owner == os.getpid():
+        return False
+    try:
+        from utils.jobs import _pid_alive
+    except Exception:
+        return True  # 判断不了就保守当作别人的
+    return _pid_alive(owner)
+
+
+def _check_global_stop() -> bool:
+    """任务线程外读取全局停止文件 (outputs/temp_break.json), 读完即销毁。
+
+    它是"全局停止"留下的一次性广播。原先它被写死成 break=true 之后永不清理
+    (utils.jobs 的孤儿清理只删 break=false 的那份), 于是只要点过一次全局停止, 之后
+    任何"没有登记任务 id"的线程调用 check_stop() 都会读到 True —— 新任务一开跑就
+    被判成"已被停止"。所以这里按一次性信号处理: 读到就删, 别让它继续污染后面的任务。
+    """
+    data = _read_global_stop()
+    if not data:
+        return False
+    if _global_stop_owned_by_other_process(data):
+        return False  # 别的实例还在用, 不插手也不代它删除
+    try:
+        os.remove(GLOBAL_STOP_FILE)
+    except OSError:
+        pass
+    return bool(data.get("break"))
 
 
 def check_stop() -> bool:
     """检测当前任务的停止信号 (自动按线程定位任务; 任务线程外读取全局文件)。
 
-    负结果按信号文件路径缓存 (见 _STOP_CACHE), 避免逐图/逐次重试都去打开文件。
+    负结果按 (信号文件路径, mtime) 缓存 (见 _STOP_CACHE), 避免逐图/逐次重试都去解析文件。
     """
     try:
-        from utils.jobs import break_file_path
+        from utils.jobs import current_job_id
 
-        path = break_file_path()
-        if path in _STOP_CACHE:
-            return False
-        breaking = bool(read_json(path).get("break"))
-        if breaking:
-            _STOP_CACHE.discard(path)
-            return True
-        _STOP_CACHE.add(path)
-        return False
-    except FileNotFoundError:
-        return False
+        jid = current_job_id()
+        if jid:
+            return _check_stop_file(f"./outputs/temp_break_{jid}.json")
+        return _check_global_stop()
     except Exception:
+        logger.opt(exception=True).debug("读取停止信号失败堆栈:")
         return False
 
 

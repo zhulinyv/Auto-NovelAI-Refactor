@@ -1602,7 +1602,14 @@ function bindEvents() {
   C.sm.input?.addEventListener("change", () => setVisible(C.smDyn, isNai3(C.model.get()) && C.sm.get()));
   C.generateBtn.addEventListener("click", onGenerate);
   C.stopBtn.addEventListener("click", async () => {
-    try { await post("/api/generate/stop"); toast("已发送停止指令 ⏹", "warning"); } catch (e) { toast(e.message, "error"); }
+    try {
+      // 后端把"运行中 + 还在排队的图片生成任务"一起停掉, 返回实际处理的任务数;
+      // 0 表示当时确实没有任务在跑 —— 别再说"已发送停止指令"让人以为点空了没反应
+      const res = await post("/api/generate/stop");
+      toast(res?.stopped ? "已发送停止指令 ⏹" : "当前没有正在生成的图片任务", res?.stopped ? "warning" : "info");
+    } catch (e) {
+      toast(e.message, "error");
+    }
   });
   bus.on("job:done", onJobDone);
   bus.on("job:failed", onJobFailed);
