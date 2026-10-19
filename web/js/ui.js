@@ -293,14 +293,33 @@ function observeAutosize(el, fn) {
   _autosizeObserver.observe(el);
 }
 
-export function edgeScroll(scrollEl) {
-  const wrap = el("div", { class: "edge-scroll" });
+/**
+ * 横向滚动轨道: 轨道两端悬浮渐隐箭头 (悬停自动滚 / 点击翻页 / 到边自动隐藏)。
+ *
+ * @param {HTMLElement} scrollEl 要横向滚动的元素 (会吞掉 overflow, 变成 nowrap 轨道)
+ * @param {{label?: string|HTMLElement}} opts
+ *   label: 放在轨道**左侧固定**的前缀标签 (如 "分类" 两个字的栏名; 要带 emoji 也行)。
+ *   不传时与旧版完全一致; 传了则整体包进 .edge-scroll-row, 标签不随内容滚动 ——
+ *   否则像 .wc-types::before 那种轨道内伪元素前缀, 一滚动就跟着跑了。
+ * @returns 包裹层 (调用方 append 它, 而不是 append scrollEl)
+ */
+export function edgeScroll(scrollEl, opts = {}) {
+  const wrap = el("div", { class: opts.label ? "edge-scroll-row" : "edge-scroll" });
   if (scrollEl.parentNode) scrollEl.parentNode.insertBefore(wrap, scrollEl);
-  wrap.appendChild(scrollEl);
+  if (opts.label) {
+    // 前缀标签: 固定在左, flex-shrink:0, 不参与滚动
+    const lab = typeof opts.label === "string"
+      ? el("span", { class: "edge-scroll-label", text: opts.label })
+      : opts.label;
+    wrap.append(lab);
+  }
+  const inner = el("div", { class: "edge-scroll" });
+  inner.appendChild(scrollEl);
+  wrap.append(inner);
   scrollEl.classList.add("edge-scroll-track");
   const left = el("button", { class: "edge-btn edge-left", type: "button", html: "‹", title: "向左滚动" });
   const right = el("button", { class: "edge-btn edge-right", type: "button", html: "›", title: "向右滚动" });
-  wrap.append(left, right);
+  inner.append(left, right);
 
   let hoverRaf = null;
   const speed = 7;

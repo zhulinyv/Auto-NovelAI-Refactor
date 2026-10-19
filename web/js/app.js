@@ -73,6 +73,11 @@ async function boot() {
         updateJobStatus();
         bus.emit("queue:update", lastQueue);
         break;
+      case "share:update":
+        // 共享链接状态变化 (建立/关闭/失败): 只是转发给感兴趣的视图, 没有订阅者时无害。
+        // 设置页本身用轮询兜底, 这条事件让"保存后立刻知道链接好了"少等一个轮询周期。
+        bus.emit("share:update", { url: ev.url || null, running: !!ev.running });
+        break;
       case "job:start":
         // 生图队列任务的状态由 queue:update 快照计算, 其余任务按旧逻辑显示
         if (!isQueueTask(ev.id)) { otherJobs.set(ev.id, ev.name); updateJobStatus(); }

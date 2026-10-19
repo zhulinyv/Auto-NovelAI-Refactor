@@ -78,7 +78,9 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
-  padding: 14px 14px 6px 10px;
+  /* 底部 padding 与其余三向持平: 收起按钮是 flex 列的最后一项,
+     底边距太小会让它看起来贴死在侧边栏最底缘 (原值 6px 就是这个效果) */
+  padding: 14px 14px 12px 10px;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -303,7 +305,7 @@
   transform: none;
   width: 34px;
   height: 34px;
-  margin: 2px auto 0;
+  margin: 2px auto 2px;
 }
 .sidebar.collapsed .nav-item { font-size: 0; justify-content: center; padding: 9px 0; gap: 0; }
 .sidebar.collapsed .nav-icon { font-size: 16px; }
@@ -559,6 +561,13 @@ a.btn { text-decoration: none; }
 .edge-scroll { position: relative; margin-bottom: 14px; }
 .edge-scroll-track { display: flex; gap: 6px; flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
 .edge-scroll-track::-webkit-scrollbar { display: none; }
+/* 带前置固定标签的变体 (Wildcards 的分类栏): 标签在左不随内容滚动,
+   内部再嵌一层 .edge-scroll 作为真正的滚动轨道。row 本身不设 margin,
+   间距由使用方控制 (.wc-types 自带 margin-bottom)。 */
+.edge-scroll-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.edge-scroll-row > .edge-scroll { flex: 1; min-width: 0; margin-bottom: 0; }
+.edge-scroll-label { flex-shrink: 0; font-size: 12.5px; font-weight: 700; color: var(--text-2); opacity: 0.8; }
+/* 轨道在 row 里时两端箭头贴的是轨道边缘 (不是 row 边缘), 渐隐底色要与轨道背景一致 */
 .edge-btn {
   position: absolute;
   top: 0;
@@ -2250,9 +2259,10 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
 .wc-browse-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .wc-browse-head .card-title { margin-bottom: 0; flex-shrink: 0; }
 .wc-count { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.wc-types { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; }
-.wc-types::before { content: "🏷️ 分类"; flex-shrink: 0; margin-right: 2px; font-size: 12.5px; font-weight: 700; color: var(--text-2); opacity: 0.8; }
-.wc-types .tab-btn { padding: 3px 11px; font-size: 12.5px; font-weight: 700; /* 与提示词库分类名 (.wc-pl-group-name) 字号一致 */ border-radius: 8px; background: transparent; border-color: var(--border); color: var(--text-2); }
+/* 分类栏: 在 edge-scroll 轨道里横向滚动 (nowrap), "分类" 前缀由
+   edgeScroll({label}) 提供并固定在轨道外 —— 原先是 ::before, 一滚动就跟着跑 */
+.wc-types { display: flex; flex-wrap: nowrap; align-items: center; gap: 6px; margin-bottom: 8px; width: max-content; min-width: 100%; }
+.wc-types .tab-btn { padding: 3px 11px; font-size: 12.5px; font-weight: 700; border-radius: 8px; background: transparent; border-color: var(--border); color: var(--text-2); }
 .wc-types .tab-btn:hover { border-color: var(--primary); color: var(--text); }
 .wc-types .tab-btn.active { background: var(--surface-3); border-color: var(--primary); color: var(--text); }
 .wc-search { width: 100%; margin-bottom: 10px; }
@@ -2679,7 +2689,11 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
 .wc-lib-tabs .tab-btn.active { border: none; background: color-mix(in srgb, var(--primary) 16%, transparent); color: var(--primary); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary) 45%, transparent); }
 
 /* ------- 新建卡片: 统一样式的分类下拉 ------- */
-.wc-type-wrap { position: relative; display: flex; align-items: center; gap: 6px; }
+/* 分类输入 + 下拉箭头: 作为 .field 的子元素时要占满整行,
+   与旁边的名称输入框 (.field > input 的 width:100%) 等宽 ——
+   否则 wrap 没有宽度约束会收缩到 input 的默认宽度, 比名称框短一截 */
+.wc-type-wrap { position: relative; display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; width: 100%; }
+.wc-type-wrap > input { flex: 1; min-width: 0; width: 100%; }
 .wc-type-caret {
   flex-shrink: 0;
   width: 30px;
@@ -2783,14 +2797,12 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
 /* ------- 自动补全 portal 模式 (逃出 overflow 裁剪容器, 挂到弹窗层 fixed 定位) ------- */
 .suggest-list.suggest-portal { position: fixed; left: 0; top: 0; }
 
-/* ------- 提示词库: 内置分类提示词 (参考 PAI 预设: 分组 + 横向标签 + 多选) ------- */
-.wc-pl-title { font-size: 12.5px; font-weight: 700; color: var(--text-2); margin: 12px 0 6px; }
-.wc-pl-builtin { display: flex; flex-direction: column; }
-.wc-pl-group { display: flex; align-items: flex-start; gap: 10px; padding: 7px 0; border-bottom: 1px dashed var(--border); }
-.wc-pl-group:last-child { border-bottom: none; }
-.wc-pl-group-name { flex-shrink: 0; width: 108px; font-size: 12.5px; font-weight: 700; color: var(--text-2); padding-top: 3px; }
-.wc-pl-group-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.wc-pl-group-tags { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; min-width: 0; }
+/* ------- 提示词库: 分类页签 + 当前分类网格 (布局与卡片库一致) ------- */
+/* 收藏提示词面板: "内容" 标签行右侧的 Wildcards 按钮 (label 本身是 flex, 直接推到右端) */
+.wc-field-label { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; }
+.wc-field-label .wc-open-btn { flex-shrink: 0; }
+/* 当前分类的提示词网格: 与卡片网格同样的弹性换行, 但项是胶囊标签 */
+.wc-pl-grid { display: flex; flex-wrap: wrap; gap: 6px; align-content: flex-start; min-height: 120px; }
 .wc-pl-chip {
   display: inline-flex; align-items: baseline; gap: 6px;
   padding: 3px 11px; font-size: 12.5px; font-weight: 600; color: var(--text);
@@ -2944,15 +2956,9 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
 .wc-pl-chip:hover .wc-pl-chip-del { display: inline; }
 .wc-pl-chip-del:hover { background: color-mix(in srgb, var(--danger) 15%, transparent); }
 
-/* ------- 分类拖拽排序 (卡片 tab / 提示词分组) ------- */
+/* ------- 分类拖拽排序 (卡片 tab / 提示词页签, 同一套交互) ------- */
 .tab-btn.drop-before { box-shadow: -3px 0 0 0 var(--primary); }
 .tab-btn.dragging { opacity: 0.45; }
-.wc-pl-group-drag { display: flex; align-items: center; gap: 4px; cursor: grab; }
-.wc-pl-group-drag:active { cursor: grabbing; }
-.wc-pl-group-name .wc-pl-chip-del { display: none; margin-left: 4px; font-size: 11px; }
-.wc-pl-group-name:hover .wc-pl-chip-del { display: inline; }
-.wc-pl-group.drop-before { box-shadow: 0 -3px 0 0 var(--primary); }
-.wc-pl-group.pl-dragging { opacity: 0.45; }
 
 /* ------- 鐢熷浘闃熷垪: 鏃ュ織鏍忓窘鏍?+ 娴姩绐楀彛 ------- */
 

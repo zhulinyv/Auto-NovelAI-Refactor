@@ -211,7 +211,7 @@ export function initQueueModal(initialSnapshot) {
   // SSE 队列快照: app.js 已把 ev 转发到 bus
   bus.on("queue:update", (q) => {
     snapshot = q;
-    updateBadge(q);
+    updateBadge(q);   // 顶栏 "🚦 队列 N" 徽标随快照实时更新
     render();
   });
 }

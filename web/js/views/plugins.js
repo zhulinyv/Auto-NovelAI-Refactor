@@ -478,8 +478,12 @@ function renderPanel(plugin, panel, body) {
   // 表单值持久化: 变更后保存到后端 (换浏览器/刷新仍保留)
   // 文件类参数 (filearea/path/image) 不持久化: 重启 WebUI 后文件路径/上传文件可能失效, 统一清空
   const FILE_FIELD_TYPES = new Set(["filearea", "path", "image"]);
+  // 恢复态: 恢复请求返回前, 控件里全是默认值 —— 此时若触发保存, 会把用户上次保存的
+  // 表单整个覆盖成默认值 (切换视图时 flushPendingSaves 就会走到)。恢复完成后才允许写。
+  let restored = false;
   let saveTimer = null;
   const doSave = async () => {
+    if (!restored) return;
     const payload = {};
     panel.fields.forEach((f) => {
       if (FILE_FIELD_TYPES.has(f.type)) return;
@@ -681,6 +685,8 @@ function renderPanel(plugin, panel, body) {
       chartRedraws.forEach((fn) => fn());
       runAllShowIf();
     } catch {}
+    // 无论恢复成功与否都解锁保存: 请求失败时若一直锁着, 用户改的参数就永远存不进去了
+    restored = true;
   })();
 
   // 动作按钮行

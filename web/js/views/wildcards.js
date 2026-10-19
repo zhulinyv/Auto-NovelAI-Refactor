@@ -7,10 +7,10 @@
 //         选择按分类分桶保存, 切换分类不清其它分类的选中, 可跨分类 "添加选中"。
 //   封面约定: 卡片同目录下的 <名称>.png/jpg/webp 即为其封面
 // ============================================================
-import { $, $$, el, clear, toast, confirmDialog, wireAutocomplete } from "../ui.js";
+import { $, $$, el, clear, toast, confirmDialog, wireAutocomplete, wildcardsButton, edgeScroll } from "../ui.js";
 import { get, post, del, imageUrl } from "../api.js";
 import { getCurrentOutputImage } from "./generate.js";
-import { builtinPromptGroups } from "../data/builtinPrompts.js";
+import { builtinPromptGroups, LEGACY_CATEGORY_NAMES } from "../data/builtinPrompts.js";
 
 let S = null;
 const state = { type: null, name: null, keyword: "", lastIdx: -1 };
@@ -98,7 +98,10 @@ export async function renderPanel(container, ctx, opts = {}) {
     el("button", { class: "tab-btn active", text: "🗂️ 卡片库", onclick: () => switchLib("cards") }),
     el("button", { class: "tab-btn", text: "📚 提示词库", onclick: () => switchLib("prompts") }),
   ]);
-  const cardLibBox = el("div", {}, [typeList, searchBox, grid, selBar]);
+  // 分类栏启用横向滚动: 分类多到放不下时不再换行把版面撑高,
+  // 而是在一行内滚 (两端渐隐箭头, 悬停自动滚; "分类" 前缀固定在左不随内容滚)
+  const typeScroller = edgeScroll(typeList, { label: "分类" });
+  const cardLibBox = el("div", {}, [typeScroller, searchBox, grid, selBar]);
 
   // ---- 分类 tab 拖拽排序 ----
   let typeDragKey = null;
@@ -143,37 +146,46 @@ export async function renderPanel(container, ctx, opts = {}) {
   });
 
   // ---------------- 提示词库 (内置分类提示词 + 用户收藏) ----------------
-  const plSearch = el("input", { type: "text", class: "wc-search", placeholder: "🔍 搜索提示词..." });
-  // 防抖: renderPromptChips 会重建全部分类的全部 chip (每个 chip 还绑多个监听器),
-  // 逐字符触发很卡; 与下方卡片搜索一致用 150ms 合并。
+  //
+  // 布局与卡片库保持一致 (按用户要求): 上方一排"分类"页签, 选中哪个分类,
+  // 下方网格只展示该分类下的提示词。原先是一整页纵向罗列的全部分组,
+  // 分类一多就要一直往下滚, 而且看不出"当前在哪个分类"。
+  const plSearch = el("input", { type: "text", class: "wc-search", placeholder: "🔍 搜索当前分类的提示词..." });
+  // 防抖: 重建网格要为每个 chip 建节点并绑监听器, 逐字符触发很卡; 与卡片搜索一致用 150ms 合并。
   let plSearchTimer = 0;
   plSearch.addEventListener("input", () => {
     clearTimeout(plSearchTimer);
-    plSearchTimer = setTimeout(() => { plKeyword = plSearch.value; renderPromptChips(); }, 150);
+    plSearchTimer = setTimeout(() => { plKeyword = plSearch.value; renderPlGrid(); }, 150);
   });
-  const plInput = el("input", { type: "text", style: "flex:1;min-width:0;", placeholder: "输入关键词或一段提示词, 保存后可随时加入提示词" });
-  plInput.addEventListener("keydown", (e) => { if (e.key === "Enter") savePromptLib(); });
+  // 收藏提示词表单的输入件: 由 showPromptCreate() 挂进右侧编辑卡片 (与"新建卡片"同款面板)
+  const plInput = el("textarea", { rows: 8, placeholder: "要收藏的关键词或一段提示词 (支持自动补全)" });
   // 分类: 与新建卡片一致的下拉形式, 支持选择已有分类或直接输入新分类
   const plCatInput = el("input", { type: "text", style: "flex:1;min-width:0;", placeholder: "📁 选择/输入分类" });
-  const plCatWrap = el("div", { class: "wc-type-wrap", style: "width:220px;flex-shrink:0;" }, [
+  const plCatWrap = el("div", { class: "wc-type-wrap" }, [
     plCatInput,
     el("button", {
       class: "wc-type-caret", type: "button", text: "▾", title: "选择已有分类",
       onclick: (e) => { e.stopPropagation(); togglePlCatDropdown(); },
     }),
   ]);
-  // 内置提示词多选计数 (添加/清除使用弹窗右上角的共用按钮)
+  // 多选计数 (添加/清除使用弹窗右上角的共用按钮)
   const plSelText = el("div", { class: "wc-pl-selbar muted hidden", text: "" });
-  const builtinBox = el("div", { class: "wc-pl-builtin" });
+  // 分类页签栏 (与卡片库的 typeList 同款: 可拖拽排序、可删除)
+  const plTypes = el("div", { class: "wc-types" });
+  // 当前分类下的提示词网格
+  const plGrid = el("div", { class: "wc-pl-grid" });
+  // 右上角入口: 打开右侧面板收藏新提示词 (与"新建卡片"同一套交互, 见 showPromptCreate)
+  const plAddBtn = el("button", {
+    // 初始在卡片库, 提示词库的入口默认隐藏 (switchLib 会按当前库切换)
+    class: "btn btn-sm hidden",
+    text: "➕ 收藏提示词",
+    onclick: () => showPromptCreate(),
+  });
+  const plTypeScroller = edgeScroll(plTypes, { label: "分类" });
   const promptLibBox = el("div", { class: "hidden" }, [
-    el("div", { style: "display:flex;gap:6px;margin-bottom:10px;" }, [
-      plCatWrap,
-      plInput,
-      el("button", { class: "btn btn-sm btn-primary", text: "💾 保存", onclick: savePromptLib }),
-    ]),
+    plTypeScroller,
     plSearch,
-    el("div", { class: "wc-pl-title", text: "✨ 提示词标签 (点击标签多选, 点右上角 \"添加选中\" 一次加入)" }),
-    builtinBox,
+    plGrid,
     plSelText,
   ]);
 
@@ -183,7 +195,8 @@ export async function renderPanel(container, ctx, opts = {}) {
       el("div", { class: "card-title", text: "🗂️ 素材库" }),
       countEl,
       el("span", { class: "spacer" }),
-      createBtn,
+      plAddBtn,      // 提示词库的入口 (与"新建卡片"同位, 由 switchLib 按当前库二选一显示)
+      createBtn,     // 卡片库的入口
     ]),
     libTabs,
     cardLibBox,
@@ -218,18 +231,34 @@ export async function renderPanel(container, ctx, opts = {}) {
   let plLoaded = false;
   let plMeta = { hidden_tags: [], hidden_categories: [], category_order: [] };
 
+  // 右侧编辑卡片当前是否承载内容: "选中了某张卡片" 或 "正在新建"。
+  // 切库时要靠它决定卡片库模式下右侧显示什么 —— renderEditPlaceholder 现在是"隐藏右侧",
+  // 若切回卡片库时无条件 editCard.classList.toggle("hidden", false), 就会把一个**空面板**显示出来
+  // (典型复现: 点过"收藏新提示词"展开过表单再切库, 或初始未选卡片直接切库再切回)。
+  let editActive = false;
+  // 当前打开的编辑面板属于哪个库 ("cards" / "prompts"): 切库时只有库匹配才继续显示,
+  // 否则会出现"在卡片库里挂着收藏提示词表单"这种错位 (面板内容与所在库不匹配)。
+  let editLib = null;
+
   function switchLib(which) {
     const isCards = which === "cards";
     [...libTabs.children].forEach((b, i) => b.classList.toggle("active", i === 0 === isCards));
     cardLibBox.classList.toggle("hidden", !isCards);
     promptLibBox.classList.toggle("hidden", isCards);
-    // 提示词库下没有"卡片"概念: 隐藏新建卡片入口和右侧编辑卡片区域 (单栏布局)
+    // 提示词库下没有"卡片"概念: 头部按钮按当前库二选一 (新建卡片 <-> 收藏新提示词)
     createBtn.classList.toggle("hidden", !isCards);
-    editCard.classList.toggle("hidden", !isCards);
-    layout.classList.toggle("single", !isCards);
+    plAddBtn.classList.toggle("hidden", isCards);
+    // 右侧编辑面板: "有编辑内容 且 面板属于当前所在库" 才显示。
+    // 收藏提示词的面板属于提示词库 → 切到卡片库时收起 (避免"卡片库里挂着收藏表单"的错位),
+    // 切回提示词库时恢复 (没保存的草稿还在)。
+    const showEdit = editActive && editLib === (isCards ? "cards" : "prompts");
+    editCard.classList.toggle("hidden", !showEdit);
+    layout.classList.toggle("single", !showEdit);
     // 同步当前库给弹窗 (共用按钮的作用对象随之切换)
     activeLib.set(isCards ? "cards" : "prompts");
-    if (!isCards && !plLoaded) { plLoaded = true; loadPromptLib(); renderPromptChips(); }
+    // 首次进入提示词库: loadPromptLib 内部拿到数据后会自己渲染, 不必在这里先渲染一次
+    // (否则数据还没回来就画一屏"暂无分类", 闪一下)
+    if (!isCards && !plLoaded) { plLoaded = true; loadPromptLib(); }
   }
 
   // ---------------- 内置提示词 (参考 PAI 预设: 分类分组, 横向标签, 可多选) ----------------
@@ -242,11 +271,12 @@ export async function renderPanel(container, ctx, opts = {}) {
   }
 
   // 弹窗 "✖ 清除选择" 或批量添加后会重置共享选择, 这里同步本地面板 UI
+  // (只刷网格: 选中态画在 chip 上, 页签与选中无关)
   promptSelection.onChange((tags) => {
     if (!container.isConnected) return;
     builtinSel.clear();
     tags.forEach((t) => builtinSel.add(t));
-    renderPromptChips();
+    renderPlGrid();
   });
 
   const plKey = (t) => (t || "").trim().toLowerCase().replace(/\s+/g, "_");
@@ -259,6 +289,17 @@ export async function renderPanel(container, ctx, opts = {}) {
       ]);
       plItems = res.items || [];
       plMeta = meta || plMeta;
+      // 旧版本分类名自带 emoji ("✨ 画质"), 现分类名不带 —— meta 里存的旧名
+      // (hidden_categories / category_order) 若不归一化, 改名后隐藏/排序都会失效。
+      // 同时把用户收藏里挂在旧分类名下的条目归到新名 (仅改显示分组, 不回写库)。
+      const legacy = LEGACY_CATEGORY_NAMES || {};
+      if (plMeta.hidden_categories?.length) {
+        plMeta.hidden_categories = plMeta.hidden_categories.map((c) => legacy[c] || c);
+      }
+      if (plMeta.category_order?.length) {
+        plMeta.category_order = plMeta.category_order.map((c) => legacy[c] || c);
+      }
+      plItems.forEach((it) => { if (legacy[it.category]) it.category = legacy[it.category]; });
       renderPromptChips();
       await translatePromptLib(plItems.map((it) => it.text));
     } catch (e) {
@@ -301,18 +342,20 @@ export async function renderPanel(container, ctx, opts = {}) {
     try {
       const r = await post("/api/suggest/translate", { tags: missing });
       Object.entries(r.translations || {}).forEach(([k, v]) => plZh.set(plKey(k), v || ""));
-      renderPromptChips();
+      renderPlGrid();   // 翻译只影响 chip 的中文副文本, 页签无需重绘
     } catch { /* 翻译失败静默 */ }
   }
 
-  function renderPromptChips() {
-    clear(builtinBox);
-    const kw = plKeyword.trim().toLowerCase();
+  // ---- 分类页签 + 当前分类网格 (布局与卡片库一致) ----
+  // 当前选中的分类 (null = 未选择, 网格显示提示)。与卡片的 state.type 同语义。
+  let plCat = null;
+
+  /** 组装全部分类: 自带分组与用户收藏合并 (用户存入自带分类的条目并入同组)。
+   *  返回 [{key, builtin, builtinTags, userItems}], 已按 category_order 排序、
+   *  已剔除隐藏的分类/标签。 */
+  function plGroups() {
     const deletedTags = new Set(plMeta.hidden_tags || []);
     const deletedCats = new Set(plMeta.hidden_categories || []);
-    const order = plMeta.category_order || [];
-    let shown = 0;
-    // 组装分组: 自带分类与用户收藏合并 (用户存入自带分类的提示词并入同组), 合二为一
     const groups = new Map();
     const groupOf = (key) => {
       if (!groups.has(key)) groups.set(key, { key, builtinTags: [], userItems: [] });
@@ -329,126 +372,144 @@ export async function renderPanel(container, ctx, opts = {}) {
       if (deletedCats.has(cat)) return;
       groupOf(cat).userItems.push(it);
     });
-    // 过滤搜索词后生成行
-    const rows = [];
-    for (const g of groups.values()) {
-      const bTags = g.builtinTags.filter(([en, zh]) =>
-        !kw || en.toLowerCase().includes(kw) || (zh || "").toLowerCase().includes(kw));
-      const uItems = g.userItems.filter((it) =>
-        !kw || it.text.toLowerCase().includes(kw) || g.key.toLowerCase().includes(kw));
-      const total = bTags.length + uItems.length;
-      if (!total) continue;
-      shown += total;
-      rows.push({
-        key: g.key,
-        name: `${g.key} (${total})`,
-        chips: [
-          ...bTags.map(([en, zh]) => makePromptChip(en, zh, { builtin: en })),
-          ...uItems.map((it) => makePromptChip(it.text, plZh.get(plKey(it.text)) || "", { userItem: it })),
-        ],
-        builtinCat: g.builtin ?? null,
-        builtinCount: bTags.length,
-        userCat: g.builtin ? null : g.key,
-        userCount: uItems.length,
-      });
-    }
-    // 应用自定义排序 (未排序的按原顺序追加在后)
+    const order = plMeta.category_order || [];
     const rank = (key) => {
       const i = order.indexOf(key);
       return i === -1 ? 9999 : i;
     };
-    rows.sort((a, b) => rank(a.key) - rank(b.key));
-    rows.forEach((g) => builtinBox.append(buildGroupRow(g)));
-    if (!shown) builtinBox.append(el("div", { class: "gallery-empty", text: "没有匹配的提示词" }));
-    syncBuiltinSelBar();
+    return [...groups.values()].sort((a, b) => rank(a.key) - rank(b.key));
   }
 
-  /** 一个横向标签分组行: 分类名 (拖拽排序 + 悬停显示删除) + 标签行 */
-  function buildGroupRow(g) {
-    const nameCell = el("div", {
-      class: "wc-pl-group-name wc-pl-group-drag",
-      title: "拖动调整分类顺序",
-      draggable: true,
-    }, [el("span", { class: "wc-pl-group-title", text: g.name })]);
-    if (g.builtinCat != null) {
-      // 自带分类: 悬停显示删除按钮 (持久化到 meta 文件, 编辑该文件可恢复)
-      nameCell.append(el("span", {
-        class: "wc-pl-chip-del", text: "✕", title: "删除该自带分类 (含全部标签)",
+  /** 渲染分类页签 (含计数 / 删除 / 拖拽排序), 与卡片库的 typeList 同款。 */
+  function renderPlCats() {
+    clear(plTypes);
+    const groups = plGroups();
+    // 当前分类被删空时回落到第一个
+    if (plCat && !groups.some((g) => g.key === plCat)) plCat = null;
+    if (!plCat && groups.length) plCat = groups[0].key;
+    groups.forEach((g) => {
+      const total = g.builtinTags.length + g.userItems.length;
+      if (!total) return;   // 空分类不占页签
+      const tab = el("button", {
+        class: "tab-btn" + (g.key === plCat ? " active" : ""),
+        title: g.key, "data-key": g.key,
+      });
+      tab.draggable = true;
+      tab.addEventListener("dragstart", (e) => {
+        plDragKey = g.key;
+        tab.classList.add("dragging");
+        try {
+          e.dataTransfer.setData("text/plain", g.key);
+          e.dataTransfer.effectAllowed = "move";
+        } catch { /* 忽略 */ }
+      });
+      tab.addEventListener("dragend", () => {
+        plDragKey = null;
+        tab.classList.remove("dragging");
+        clearPlDropMarks();
+      });
+      tab.append(el("span", { text: "📁 " + g.key + " (" + total + ")" }));
+      // 悬停显示删除分类按钮: 自带分类为隐藏 (meta 可恢复), 用户分类连带收藏真删
+      const isBuiltin = g.builtin != null;
+      tab.append(el("span", {
+        class: "wc-type-del", text: "✕",
+        title: isBuiltin ? "删除自带分类 " + g.key + " (含 " + g.builtinTags.length + " 个标签)" : "删除分类 " + g.key + " 及其中 " + g.userItems.length + " 条收藏",
         onclick: async (e) => {
           e.stopPropagation();
-          const ok = await confirmDialog(`确定删除自带分类「${g.builtinCat}」(含 ${g.builtinCount} 个标签)?`, { danger: true });
-          if (!ok) return;
-          await savePlMeta({ hidden_categories: [...new Set([...(plMeta.hidden_categories || []), g.builtinCat])] });
-          renderPromptChips();
-          toast(`分类「${g.builtinCat}」已删除 🗑️`, "success");
-        },
-      }));
-    }
-    if (g.userCat != null) {
-      // 用户分类: 悬停显示删除按钮 (连带所有收藏)
-      nameCell.append(el("span", {
-        class: "wc-pl-chip-del", text: "🗑", title: "删除该分类及其中所有收藏 (不可恢复)",
-        onclick: async (e) => {
-          e.stopPropagation();
-          const ok = await confirmDialog(`确定删除分类「${g.userCat}」? 其中 ${g.userCount} 条收藏将一并删除, 不可恢复。`, { danger: true });
+          const ok = isBuiltin
+            ? await confirmDialog("确定删除自带分类「" + g.key + "」(含 " + g.builtinTags.length + " 个标签)?", { danger: true })
+            : await confirmDialog("确定删除分类「" + g.key + "」? 其中 " + g.userItems.length + " 条收藏将一并删除, 不可恢复。", { danger: true });
           if (!ok) return;
           try {
-            const res = await post("/api/prompt-library/delete-category", { category: g.userCat });
-            plItems = res.items || [];
-            renderPromptChips();
-            toast(`分类「${g.userCat}」已删除 🗑️`, "success");
+            if (isBuiltin) {
+              await savePlMeta({ hidden_categories: [...new Set([...(plMeta.hidden_categories || []), g.key])] });
+            } else {
+              const res = await post("/api/prompt-library/delete-category", { category: g.key });
+              plItems = res.items || [];
+            }
+            if (plCat === g.key) plCat = null;
+            renderPlCats();
+            renderPlGrid();
+            toast("分类「" + g.key + "」已删除 🗑️", "success");
           } catch (err) { toast(err.message, "error"); }
         },
       }));
+      tab.addEventListener("click", () => {
+        if (plCat === g.key) return;
+        plCat = g.key;
+        renderPlCats();
+        renderPlGrid();
+      });
+      plTypes.append(tab);
+    });
+    if (!groups.length) {
+      plTypes.append(el("span", { class: "muted", style: "font-size:12.5px;padding:3px 0;", text: "暂无分类 — 展开上方「➕ 收藏新提示词」新建" }));
     }
-    const row = el("div", { class: "wc-pl-group", "data-key": g.key }, [
-      nameCell,
-      el("div", { class: "wc-pl-group-tags" }, g.chips),
-    ]);
-    // 拖拽排序: 按住分类名拖动
-    nameCell.addEventListener("dragstart", (e) => {
-      plDragKey = g.key;
-      row.classList.add("pl-dragging");
-      try {
-        e.dataTransfer.setData("text/plain", g.key);
-        e.dataTransfer.effectAllowed = "move";
-      } catch { /* 忽略 */ }
-    });
-    nameCell.addEventListener("dragend", () => {
-      plDragKey = null;
-      row.classList.remove("pl-dragging");
-      clearPlDropMarks();
-    });
-    return row;
   }
 
-  // ---- 提示词分类拖拽排序 ----
+  /** 渲染当前分类下的提示词网格 (搜索词只在当前分类内过滤, 与卡片库一致)。 */
+  function renderPlGrid() {
+    clear(plGrid);
+    if (!plCat) {
+      plGrid.append(el("div", { class: "gallery-empty", text: "请选择一个分类" }));
+      syncBuiltinSelBar();
+      return;
+    }
+    const kw = plKeyword.trim().toLowerCase();
+    const g = plGroups().find((x) => x.key === plCat);
+    if (!g) { plGrid.append(el("div", { class: "gallery-empty", text: "请选择一个分类" })); return; }
+    const bTags = g.builtinTags.filter(([en, zh]) =>
+      !kw || en.toLowerCase().includes(kw) || (zh || "").toLowerCase().includes(kw));
+    const uItems = g.userItems.filter((it) =>
+      !kw || it.text.toLowerCase().includes(kw) || g.key.toLowerCase().includes(kw));
+    const chips = [
+      ...bTags.map(([en, zh]) => makePromptChip(en, zh, { builtin: en })),
+      ...uItems.map((it) => makePromptChip(it.text, plZh.get(plKey(it.text)) || "", { userItem: it })),
+    ];
+    if (!chips.length) {
+      plGrid.append(el("div", { class: "gallery-empty", text: kw ? "当前分类没有匹配的提示词" : "该分类暂无提示词 — 展开上方「➕ 收藏新提示词」添加" }));
+      syncBuiltinSelBar();
+      return;
+    }
+    const frag = document.createDocumentFragment();
+    chips.forEach((c) => frag.append(c));
+    plGrid.append(frag);
+    syncBuiltinSelBar();
+  }
+
+  /** 兼容入口: 同时刷新分类页签与网格 (原先只渲染分组行)。 */
+  function renderPromptChips() {
+    renderPlCats();
+    renderPlGrid();
+  }
+
+  // ---- 提示词分类拖拽排序 (页签之间, 与卡片分类 tab 相同交互) ----
   let plDragKey = null;
   let plDropTargetKey = null;
 
   function clearPlDropMarks() {
-    $$(".wc-pl-group.drop-before", builtinBox).forEach((x) => x.classList.remove("drop-before"));
+    $$(".tab-btn.drop-before", plTypes).forEach((x) => x.classList.remove("drop-before"));
   }
 
-  builtinBox.addEventListener("dragover", (e) => {
+  plTypes.addEventListener("dragover", (e) => {
     if (!plDragKey) return;
     e.preventDefault();
     if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
-    const rows = [...builtinBox.querySelectorAll(".wc-pl-group")];
+    const tabs = [...plTypes.querySelectorAll(".tab-btn")];
     let target = null;
-    for (const r of rows) {
-      if (r.dataset.key === plDragKey) continue;
-      const rect = r.getBoundingClientRect();
-      if (e.clientY < rect.top + rect.height / 2) { target = r; break; }
+    for (const tb of tabs) {
+      if (tb.dataset.key === plDragKey) continue;
+      const r = tb.getBoundingClientRect();
+      if (e.clientX < r.left + r.width / 2) { target = tb; break; }
     }
     clearPlDropMarks();
-    (target || rows[rows.length - 1])?.classList.add("drop-before");
+    (target || tabs[tabs.length - 1])?.classList.add("drop-before");
     plDropTargetKey = target ? target.dataset.key : "__end__";
   });
-  builtinBox.addEventListener("dragleave", (e) => {
-    if (!builtinBox.contains(e.relatedTarget)) clearPlDropMarks();
+  plTypes.addEventListener("dragleave", (e) => {
+    if (!plTypes.contains(e.relatedTarget)) clearPlDropMarks();
   });
-  builtinBox.addEventListener("drop", async (e) => {
+  plTypes.addEventListener("drop", async (e) => {
     if (!plDragKey) return;
     e.preventDefault();
     const key = plDragKey;
@@ -477,7 +538,7 @@ export async function renderPanel(container, ctx, opts = {}) {
     without.splice(at, 0, key);
     plDropTargetKey = null;
     await savePlMeta({ category_order: without });
-    renderPromptChips();
+    renderPlCats();
     toast("分类顺序已保存 ↕️", "success");
   });
 
@@ -500,7 +561,7 @@ export async function renderPanel(container, ctx, opts = {}) {
             plItems = res.items || [];
             builtinSel.delete(en);
             promptSelection.set([...builtinSel]);
-            renderPromptChips();
+            renderPlGrid();   // 页签计数不变, 只刷当前分类的网格
             toast("已从提示词库删除 🗑️", "success");
           } catch (err) { toast(err.message, "error"); }
         },
@@ -543,9 +604,15 @@ export async function renderPanel(container, ctx, opts = {}) {
       const res = await post("/api/prompt-library/add", { text, category });
       plItems = res.items || [];
       plInput.value = "";
+      // 切到刚保存的分类: 新条目立刻可见, 不用再去页签里找
+      plCat = category;
+      plKeyword = "";
+      plSearch.value = "";
       renderPromptChips();
       await translatePromptLib(plItems.map((it) => it.text));
-      toast(`已保存到提示词库「${category}」📚`, "success");
+      toast(`已收藏到「${category}」📚`, "success");
+      // 保存完收起右侧面板 (与"新建卡片"保存后回占位的节奏一致); 连续收藏再点右上角按钮即可
+      renderEditPlaceholder();
     } catch (e) { toast(e.message, "error"); }
   }
 
@@ -740,6 +807,10 @@ export async function renderPanel(container, ctx, opts = {}) {
   // ---------------- 选中卡片 -> 编辑区 ----------------
   async function selectCard(name) {
     state.name = name;
+    editActive = true;                     // 右侧编辑卡片承载内容了
+    editLib = "cards";                     // 这个面板属于卡片库
+    editCard.classList.remove("hidden");
+    layout.classList.remove("single");
     clear(editCard);
     const isSpecial = name === "随机" || name === "顺序";
     const nameInput = el("input", { type: "text", value: name, readonly: isSpecial });
@@ -866,19 +937,72 @@ export async function renderPanel(container, ctx, opts = {}) {
     await loadCards();
   }  // 删除后同步共享选择 (其它分类的选中保留)
 
-  /** 编辑区占位 (未选中任何卡片) */
+  /** 编辑区复位 (未选中任何卡片 / 删除卡片 / 取消编辑)。
+   *  原先这里渲染一块"✏️ 编辑卡片 / 从左侧选择一张卡片后在此编辑…"的占位说明面板,
+   *  用户反馈多余 —— 现在直接隐藏右侧编辑卡片, 左栏网格占满整行 (.wc-panel-grid.single);
+   *  只有真正选中卡片或点"新建卡片"时右侧才出现。 */
   function renderEditPlaceholder() {
     state.name = null;
+    editActive = false;
+    editLib = null;
     clear(editCard);
+    editCard.classList.add("hidden");
+    layout.classList.add("single");
+  }
+
+  /** 收藏提示词: 在右侧编辑区展示与"新建卡片"同款的表单。
+   *  分类下拉的数据源是提示词库的分类 (内置分组 + 用户分类), 不是卡片分类。 */
+  function showPromptCreate() {
+    state.name = null;
+    editActive = true;                     // 右侧编辑卡片承载内容了
+    editLib = "prompts";                   // 这个面板属于提示词库
+    editCard.classList.remove("hidden");
+    layout.classList.remove("single");
+    clear(editCard);
+    // 分类留空: 让用户自己选/填 (留空保存时落 "默认" 分类, 见 savePromptLib)
+    plCatInput.value = "";
+    const addCurBtn = el("button", {
+      class: "btn btn-sm btn-file",
+      type: "button",
+      text: "➕ 添加当前提示词",
+      title: "把上方提示词编辑器中的当前内容填入此输入框",
+      onclick: () => {
+        const cur = (opts.addTarget?.get() || "").trim();
+        if (!cur) { toast("上方提示词为空, 没有可添加的内容", "warning"); return; }
+        const existing = plInput.value.trim().replace(/,\s*$/, "");
+        plInput.value = existing ? `${existing}, ${cur}` : cur;
+        plInput.dispatchEvent(new Event("input", { bubbles: true }));
+        toast("已填入当前提示词 🌸", "success");
+      },
+    });
+    const contentLabel = el("label", { class: "wc-field-label" }, [
+      document.createTextNode("内容"),
+      // 标题行右侧挂 Wildcards 按钮 (与图片生成页的提示词输入框同款交互)
+      wildcardsButton(plInput, { title: "内容" }),
+    ]);
+    const taBox = el("div", { class: "ta-box" }, [plInput]);
     editCard.append(
-      el("div", { class: "card-title", text: "✏️ 编辑卡片" }),
-      el("div", { class: "muted", text: "从左侧选择一张卡片后在此编辑。单击卡片选中/取消 (可多选), 双击打开编辑; 选中后可拖入上方提示词或点 \"添加选中\"" }),
+      el("div", { class: "card-title", text: "📚 收藏提示词" }),
+      el("div", { class: "field" }, [el("label", { text: "分类" }), plCatWrap]),
+      el("div", { class: "field" }, [contentLabel, taBox]),
+      el("div", { class: "wc-edit-actions" }, [
+        addCurBtn,
+        el("button", { class: "btn btn-sm btn-primary", text: "✅ 保存", onclick: savePromptLib }),
+        el("button", { class: "btn btn-sm btn-ghost", text: "✖ 取消", onclick: renderEditPlaceholder }),
+      ]),
     );
+    // 与"新建卡片"的提示词输入框一致: portal 补全 (逃出弹窗裁剪)
+    wireAutocomplete(plInput, taBox, { portal: editCard });
+    plInput.focus();
   }
 
   /** 新建卡片: 在右侧编辑区展示完整表单 (分类可选已有分类或自行输入) */
   function showCreate() {
     state.name = null;
+    editActive = true;                     // 新建表单也算编辑内容
+    editLib = "cards";                     // 这个面板属于卡片库
+    editCard.classList.remove("hidden");
+    layout.classList.remove("single");
     clear(editCard);
     const typeInput = el("input", { type: "text", placeholder: "从下拉选择已有分类, 或输入新分类" });
     const typeWrap = el("div", { class: "wc-type-wrap" }, [typeInput, el("button", {
