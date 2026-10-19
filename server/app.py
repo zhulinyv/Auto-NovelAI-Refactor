@@ -22,7 +22,7 @@ from utils.variable import VERSION
 # 一旦本目录被放进 sys.path, `import queue` 就会解析到它而不是标准库,
 # 使 /api/events 的 except queue.Empty 抛 AttributeError, SSE 事件流整体失效。
 # 改名后这个陷阱从根上消失 (不要改回 queue.py)。
-from .routes import generate, misc, plugins, queue_routes, settings, tools
+from .routes import anlas, generate, library, misc, plugins, queue_routes, settings, system, tools, wildcards
 
 
 def create_app() -> FastAPI:
@@ -35,15 +35,14 @@ def create_app() -> FastAPI:
     def _warm_tag_cache():
         """标签词典预热 (~2.5s 纯 CPU 解析 32.7 万行 CSV)。单独一个线程, 与下面的网络预热并行。"""
         try:
-            misc._get_tag_cache()
+            from .routes import library
+
+            library._get_tag_cache()
         except Exception as e:
             logger.warning(f"标签词典预热失败: {e}")
             logger.opt(exception=True).debug("标签词典预热失败堆栈:")
 
-    def _warm_caches():
-        # 标签词典是纯 CPU 且会长时间持有 GIL, 原先串在预热链最前面, 后面几个网络预热
-        # (点数查询最坏 N×45s、插件商店含 git) 都要等它解析完才开始。改为与它们并发启动。
-        threading.Thread(target=_warm_tag_cache, daemon=True, name="warmup-tags").start()
+    def _warm_anlas():
         try:
             from utils.generator import inquire_all_anlas
 
@@ -51,12 +50,15 @@ def create_app() -> FastAPI:
         except Exception as e:
             logger.debug(f"启动查询剩余点数失败: {e}")
             logger.opt(exception=True).debug("启动查询剩余点数失败堆栈:")
+
+    def _warm_plugins():
         try:
             plugins_store.list_plugins()
         except Exception as e:
             logger.warning(f"插件商店数据预热失败: {e}")
             logger.opt(exception=True).debug("插件商店数据预热失败堆栈:")
-        # 在线翻译多源引擎: 后台预导入 translators 库 (首次在线翻译不再卡几秒)
+
+    def _warm_translate():
         try:
             from utils.translate import _get_tss
 
@@ -65,9 +67,27 @@ def create_app() -> FastAPI:
             logger.debug(f"在线翻译库预热失败: {e}")
             logger.opt(exception=True).debug("在线翻译库预热失败堆栈:")
 
+    def _warm_caches():
+        # 四个预热任务彼此完全独立, 但历史上是**串行**跑的:
+        # 标签词典 (~2.5s 纯 CPU) -> 点数查询 (最坏 N×45s 网络) -> 插件商店 (含 git)
+        # -> 翻译库 (translators 导入)。串行时最后一个要等前面全部结束才开始,
+        # 而它们谁都不依赖谁。这里改成并发: 总耗时 = 最慢的那个, 而不是四者之和。
+        # (标签词典会长时间持有 GIL, 但 requests/git/subprocess 都会释放 GIL, 并发仍然有效。)
+        workers = [
+            ("warmup-tags", _warm_tag_cache),
+            ("warmup-anlas", _warm_anlas),
+            ("warmup-plugins", _warm_plugins),
+            ("warmup-translate", _warm_translate),
+        ]
+        threads = [threading.Thread(target=fn, daemon=True, name=name) for name, fn in workers]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
     threading.Thread(target=_warm_caches, daemon=True, name="warmup").start()
 
-    # 停止信号文件 (outputs/temp_break_<任务id>.json) 的清理机制:
+    # 停止信号文件 (data/temp/temp_break_<任务id>.json) 的清理机制:
     # 进程被杀 (插件变更 os.execv 重启 / 关窗 / 崩溃) 时任务来不及删自己的文件, 会一直堆积。
     # 这里启动时先清一次历史残留, 之后交给定期线程 + 退出兜底 (详见 utils/jobs.py)。
     try:
@@ -91,13 +111,21 @@ def create_app() -> FastAPI:
             response.headers["Cache-Control"] = "no-cache"
         return response
 
-    # API 路由
-    app.include_router(misc.router)
+    # API 路由。
+    #
+    # 顺序有讲究: FastAPI 按注册顺序匹配, 先注册的更"具体"的路由必须先登记。
+    # 原先 43 个路由挤在 routes/misc.py 一个文件里, 顺序就是文件里的书写顺序;
+    # 拆分后按"具体 -> 宽泛"重排 (见下面注释), 保证行为与原实现完全一致。
+    app.include_router(misc.router)  # /shutdown /open-dir
+    app.include_router(system.router)  # state / browse / favorites / upload / bg / image / hitokoto
     app.include_router(generate.router)
     app.include_router(tools.router)
     app.include_router(plugins.router)
     app.include_router(queue_routes.router)
     app.include_router(settings.router)
+    app.include_router(wildcards.router)  # /wildcards/* (含 /wildcards/{type}/{name} 通配)
+    app.include_router(library.router)  # suggest / prompt-library / translate
+    app.include_router(anlas.router)
 
     # 事件流 (SSE): 实时推送日志与任务状态
     @app.get("/api/events")

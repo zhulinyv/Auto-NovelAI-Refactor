@@ -16,11 +16,23 @@ from utils.naimeta import extract_data
 
 
 def image_to_base64(image_path) -> str:
-    with Image.open(image_path) as f:
+    """把图片读成 base64 字符串。
+
+    性能: 已经是 PNG 的文件直接读原始字节 —— 原先无论输入是什么格式, 都要
+    Image.open -> save(PNG) 完整重编码一次。图生图/重绘一次要编码 3~4 张全尺寸图
+    (1536x2048 单张 100~300ms), 这一步省掉的是纯粹的无用功: 对 PNG 而言
+    "解码再编码" 得到的字节流和原文件逐像素一致, 只是白烧 CPU。
+
+    非 PNG (webp/jpeg 等) 仍然转成 PNG: NovelAI 的 image/mask 字段要求 PNG。
+    """
+    path = str(image_path)
+    if path.lower().endswith(".png"):
+        with open(path, "rb") as f:
+            return base64.b64encode(f.read()).decode("utf-8")
+    with Image.open(path) as f:
         buffer = BytesIO()
         f.save(buffer, format="PNG")
-        img_base64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
-    return img_base64
+    return base64.b64encode(buffer.getvalue()).decode("utf-8")
 
 
 def process_image_by_orientation(image_path):
@@ -77,6 +89,14 @@ def is_fully_transparent(image_path) -> bool:
 
 
 def resize_image(image_path, output_path=None):
+    """把图片的宽高对齐到 64 的倍数 (就地覆盖), 返回路径。
+
+    性能: 尺寸本来就对齐时**直接返回, 不重写文件**。
+    原先无论是否需要缩放, 都会 open -> resize -> save 重编码一次; 而图生图/重绘的
+    输入在 _prepare_inpaint_inputs 里已经被对齐到 64 了, 于是这条链路上每次生成都要
+    白白重写 2~3 张全尺寸 PNG (1536x2048 单张 ~200ms 且产生数 MB 磁盘写入)。
+    """
+    target = output_path or image_path
     with Image.open(image_path) as image:
         w, h = image.size
         nw, nh = return_x64(w), return_x64(h)
@@ -84,9 +104,15 @@ def resize_image(image_path, output_path=None):
             nw = nw - 64 if nw > 64 else nw
         if nw < w and nh > h:
             nh = nh - 64 if nh > 64 else nh
+        if (nw, nh) == (w, h):
+            # 已经对齐: 没有缩放要做。只有调用方显式要另一个输出路径时才另存一份,
+            # 否则原文件就是最终结果 (逐像素一致, 重编码不会带来任何变化)。
+            if output_path and str(output_path) != str(image_path):
+                image.save(output_path)
+            return target
         image = image.resize((nw, nh), Image.Resampling.LANCZOS)
-        image.save(output_path or image_path)
-    return output_path or image_path
+        image.save(target)
+    return target
 
 
 def ensure_mask_grid(image_path) -> str:
