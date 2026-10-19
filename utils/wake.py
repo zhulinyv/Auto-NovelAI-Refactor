@@ -59,11 +59,15 @@ if str(BASE_DIR) not in sys.path:
 
 
 def _port() -> int:
-    try:
-        cfg = json.loads((BASE_DIR / "settings.json").read_text(encoding="utf-8"))
-        return int(cfg.get("port") or FALLBACK_PORT)
-    except Exception:
-        return FALLBACK_PORT
+    # 配置在项目根 settings.json; 曾有一版放在 data/, 两个位置都认
+    # (本脚本在启动前跑, 此时迁移逻辑还没执行过, 不能只认根目录)
+    for candidate in (BASE_DIR / "settings.json", BASE_DIR / "data" / "settings.json"):
+        try:
+            cfg = json.loads(candidate.read_text(encoding="utf-8"))
+            return int(cfg.get("port") or FALLBACK_PORT)
+        except Exception:
+            continue
+    return FALLBACK_PORT
 
 
 def _alive(port: int) -> bool:

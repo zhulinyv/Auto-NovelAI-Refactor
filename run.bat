@@ -5,12 +5,18 @@ rem ---- 自跳转只走一跳: 首次进入按 hide_terminal 二选一转起 (�
 if not "%~1"=="" goto begin
 cd /d "%~dp0"
 set "HIDE="
-for /f "tokens=2 delims=:{," %%A in ('findstr /i /c:"hide_terminal" settings.json 2^>nul') do set "HIDE=%%A"
+rem 配置在项目根 settings.json (曾有一版放在 data, 两个位置都认, 根目录优先)
+set "SETTINGS_FILE=settings.json"
+if not exist "%SETTINGS_FILE%" set "SETTINGS_FILE=data\settings.json"
+rem 文件不存在 (全新安装): 按"默认隐藏"处理, 与 utils/config.py 的 DEFAULTS.hide_terminal 一致
+if not exist "%SETTINGS_FILE%" goto hide_mode
+for /f "tokens=2 delims=:{," %%A in ('findstr /i /c:"hide_terminal" "%SETTINGS_FILE%" 2^>nul') do set "HIDE=%%A"
 if defined HIDE set "HIDE=%HIDE: =%"
-if /i not "%HIDE%"=="true" (
+if /i "%HIDE%"=="false" (
     start /max "" "%~f0" max
     exit
 )
+:hide_mode
 echo [ANR] 隐藏终端启动 (hide_terminal): 服务转入后台, 本窗口即将关闭...
 powershell -NoProfile -Command "try { Start-Process -FilePath '%~f0' -ArgumentList 'hidden' -WorkingDirectory '%~dp0' -WindowStyle Hidden -ErrorAction Stop } catch { exit 1 }"
 if errorlevel 1 (
