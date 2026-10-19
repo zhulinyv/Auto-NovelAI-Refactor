@@ -2,10 +2,12 @@
 // 内置提示词库 (参考 sd-webui-prompt-all-in-one 预设):
 //   分类分组展示, 同组标签横向排列, 可多选后一次性加入提示词。
 //   每个标签为 [英文 tag, 中文翻译]。
+//   分类名**不带 emoji**: 页签渲染时会统一加 "📁" 前缀, 名字里再带一个
+//   就成了 "📁 ✨ 画质" 两个 emoji 连排 (见 LEGACY_CATEGORY_NAMES)。
 // ============================================================
 export const builtinPromptGroups = [
   {
-    name: "✨ 画质",
+    name: "画质",
     tags: [
       ["best quality", "最佳质量"], ["masterpiece", "杰作"], ["high quality", "高质量"],
       ["very aesthetic", "高美感"], ["absurdres", "超高分辨率"], ["ultra-detailed", "超精细细节"],
@@ -13,7 +15,7 @@ export const builtinPromptGroups = [
     ],
   },
   {
-    name: "🎬 镜头",
+    name: "镜头",
     tags: [
       ["close-up", "特写"], ["portrait", "肖像"], ["upper body", "上半身"],
       ["cowboy shot", "七分身"], ["full body", "全身"], ["wide shot", "远景"],
@@ -22,7 +24,7 @@ export const builtinPromptGroups = [
     ],
   },
   {
-    name: "💡 光影",
+    name: "光影",
     tags: [
       ["cinematic lighting", "电影级光效"], ["soft lighting", "柔和光照"], ["dramatic shadow", "戏剧性阴影"],
       ["golden hour", "黄昏暖光"], ["rim lighting", "轮廓光"], ["backlighting", "逆光"],
@@ -31,7 +33,7 @@ export const builtinPromptGroups = [
     ],
   },
   {
-    name: "🌸 氛围",
+    name: "氛围",
     tags: [
       ["cherry blossoms", "樱花"], ["falling petals", "飘落花瓣"], ["starry night", "星空"],
       ["aurora", "极光"], ["sunset", "日落"], ["night sky", "夜空"],
@@ -40,7 +42,7 @@ export const builtinPromptGroups = [
     ],
   },
   {
-    name: "🎨 画风",
+    name: "画风",
     tags: [
       ["watercolor (medium)", "水彩"], ["impressionism", "印象派"], ["sketch", "素描"],
       ["lineart", "线稿"], ["flat color", "平涂上色"], ["semi-realistic", "半写实"],
@@ -49,7 +51,7 @@ export const builtinPromptGroups = [
     ],
   },
   {
-    name: "👗 服装",
+    name: "服装",
     tags: [
       ["school uniform", "校服"], ["maid outfit", "女仆装"], ["kimono", "和服"],
       ["lolita fashion", "洛丽塔"], ["gothic fashion", "哥特装"], ["hoodie", "连帽衫"],
@@ -58,7 +60,7 @@ export const builtinPromptGroups = [
     ],
   },
   {
-    name: "😄 表情动作",
+    name: "表情动作",
     tags: [
       ["smile", "微笑"], ["open mouth", "张嘴"], ["blush", "脸红"],
       ["crying", "哭泣"], ["surprised", "惊讶"], ["wink", "眨眼"],
@@ -67,3 +69,19 @@ export const builtinPromptGroups = [
     ],
   },
 ];
+
+/**
+ * 旧版分类名 -> 现分类名。
+ * 历史版本里分类名自带 emoji (如 "✨ 画质"), 而用户 meta (hidden_categories /
+ * category_order) 存的是当时的名字; 去掉 emoji 后这些记录匹配不上, 会让"已隐藏
+ * 的分类重新出现"和"自定义排序失效"。wildcards.js 加载 meta 时用它归一化。
+ */
+export const LEGACY_CATEGORY_NAMES = {
+  "✨ 画质": "画质",
+  "🎬 镜头": "镜头",
+  "💡 光影": "光影",
+  "🌸 氛围": "氛围",
+  "🎨 画风": "画风",
+  "👗 服装": "服装",
+  "😄 表情动作": "表情动作",
+};

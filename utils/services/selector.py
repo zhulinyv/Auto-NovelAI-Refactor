@@ -23,8 +23,10 @@ from utils.helpers import (
     show_next_img,
 )
 from utils.logger import logger
+from utils.paths import TEMP_DIR
 
-_QUEUE_FILE = "./outputs/temp_selector.npy"
+# 待浏览队列 (/ 快照) 与全局临时文件同处 data/temp: 属于进程级共享状态, 不按任务隔离
+_QUEUE_FILE = str(TEMP_DIR / "temp_selector.npy")
 # 操作历史: 支持无限制撤销 (每条记录含操作前的队列快照, 用于撤销后索引不向前跳)
 _HISTORY: list[dict] = []
 
@@ -112,7 +114,7 @@ def undo():
             Path(dst).unlink(missing_ok=True)
             logger.info(f"已撤销复制: 删除 {dst}")
         elif action == "delete":
-            # 删除时图片移入 outputs/selector_trash, 撤销即移回原位
+            # 删除时图片移入 data/caches/selector_trash, 撤销即移回原位
             shutil.move(dst, src)
             logger.info(f"已撤销删除: {dst} -> {src}")
         elif action == "skip":

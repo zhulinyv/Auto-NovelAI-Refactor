@@ -8,13 +8,31 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
 from utils.logger import logger
+from utils.paths import migrate_legacy
 
+# BASE_DIR 必须先于任何可能触发反向 import 的动作定义:
+# logger 的终端 sink 会 from utils.variable import VERSION, 而 variable 又
+# from utils.config import BASE_DIR, env —— 迁移过程中一旦打日志, 就会在 BASE_DIR
+# 尚未定义时形成半个模块的循环 import。
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# 全量迁移一次旧版本散落在 outputs / data 下的状态与临时文件 (幂等, 失败不阻断启动)。
+# 结果日志推迟到文件末尾 (env 实例建好之后) 再打, 避免循环 import。
+try:
+    _MIGRATED = migrate_legacy()
+except Exception:  # noqa: BLE001 - 迁移失败不该让应用起不来
+    _MIGRATED = []
+
+# settings.json 与 last.json 刻意留在**项目根目录**:
+# 这两个文件是用户日常要直接查看 / 手改 / 备份的, 放在根目录一眼就能看到;
+# 其余"程序自己用"的状态、缓存与临时文件仍然收在 data/ 下 (见 utils/paths.py)。
 SETTINGS_FILE = BASE_DIR / "settings.json"
+LAST_FILE = BASE_DIR / "last.json"
 OUTPUTS_DIR = BASE_DIR / "outputs"
 
 
@@ -44,7 +62,9 @@ DEFAULTS: dict[str, Any] = {
     "start_sound": True,
     "finish_sound": True,
     "check_update": True,
-    "hide_terminal": False,
+    # 默认隐藏终端黑窗口 (仅 Windows)。用户显式保存过该值时以用户配置为准 ——
+    # 常量只决定"从未配置过"的首次启动行为 (见 Settings.__init__)。
+    "hide_terminal": True,
     "disable_all_plugins": False,
     "skip_inquire_anlas": False,
     "anlas_remind_percent": 1,
@@ -148,13 +168,31 @@ class Settings:
         self.persist()
 
     def persist(self) -> None:
-        SETTINGS_FILE.write_text(
-            json.dumps(self.to_dict(), ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        # 原子写: 先写临时文件再 os.replace, 避免进程被杀时留下半截 settings.json
+        # (那会让下一次启动静默回落到默认值 —— 用户的 Token / 端口等全部丢失)
+        try:
+            SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+            tmp = SETTINGS_FILE.with_name(f".{SETTINGS_FILE.name}.tmp")
+            tmp.write_text(json.dumps(self.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+            os.replace(tmp, SETTINGS_FILE)
+        except OSError:
+            SETTINGS_FILE.write_text(
+                json.dumps(self.to_dict(), ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
 
 
 env = Settings()
+
+# 迁移结果在这里才打日志 (env 已建好, variable/logger 的循环不再成立)。
+# 迁移目标不一定是 data/ (settings.json / last.json 是搬回项目根), 所以只说"已归位"。
+try:
+    if _MIGRATED:
+        logger.info(f"已归位 {len(_MIGRATED)} 个旧版本残留文件")
+        for _line in _MIGRATED[:8]:
+            logger.debug(f"  {_line}")
+except Exception:
+    pass
 
 
 def update_env(**kwargs) -> None:

@@ -9,12 +9,11 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-import ujson as json
-
+from utils import jsonstore
 from utils.config import env
 from utils.helpers import read_json, update_repo
 from utils.logger import logger
-from utils.plugins import load_plugins
+from utils.plugins import PLUGINS_STATE_FILE, load_plugins
 
 try:
     from git import Repo
@@ -55,10 +54,7 @@ def list_plugins() -> list[dict]:
 def _list_plugins() -> list[dict]:
     """返回插件商店表格数据 (只看本地安装/禁用状态, 不联网检查更新)。"""
     plugins = _plugin_registry()
-    try:
-        disable_list = read_json("./outputs/temp_plugins.json").get("disable_plugin", [])
-    except FileNotFoundError:
-        disable_list = []
+    disable_list = jsonstore.read_dict(PLUGINS_STATE_FILE).get("disable_plugin", [])
 
     rows = []
     for key, info in plugins.items():
@@ -202,17 +198,12 @@ def toggle_plugin(name: str) -> str:
         return "共享模式下禁止启用或禁用插件"
     if not name:
         return "请选择有效插件"
-    try:
-        disable_list = read_json("./outputs/temp_plugins.json").get("disable_plugin", [])
-    except FileNotFoundError:
-        disable_list = []
+    disable_list = jsonstore.read_dict(PLUGINS_STATE_FILE).get("disable_plugin", [])
     if name in disable_list:
         disable_list.remove(name)
         message = f"插件 {name} 已启用 (点击应用后生效)"
     else:
         disable_list.append(name)
         message = f"插件 {name} 已禁用 (点击应用后生效)"
-    os.makedirs("./outputs", exist_ok=True)
-    with open("./outputs/temp_plugins.json", "w", encoding="utf-8") as f:
-        json.dump({"disable_plugin": disable_list}, f, ensure_ascii=False)
+    jsonstore.write(PLUGINS_STATE_FILE, {"disable_plugin": disable_list})
     return message

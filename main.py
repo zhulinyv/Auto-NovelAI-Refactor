@@ -32,9 +32,26 @@ if env.proxy:
 if env.hide_terminal:
     apply_console_visibility()
 
-# 确保必要目录存在
+# 确保必要目录存在 (data/ 下的状态与临时目录由 utils.paths 在导入时创建)
 for d in ("./outputs", "./plugins", "./wildcards"):
     Path(d).mkdir(parents=True, exist_ok=True)
+
+# 旧版散落文件的迁移报告 (utils.paths.migrate_legacy 在 utils.config 导入时已执行)
+try:
+    from utils.config import _MIGRATED as _migrated_files
+
+    if _migrated_files:
+        logger.info(f"已归位 {len(_migrated_files)} 个旧版本残留文件 (详见刚才的日志)")
+except Exception:
+    pass
+
+# 任务临时目录的兜底清理: 进程被强杀时来不及删 data/temp/job-* (幂等)
+try:
+    from utils.paths import start_temp_sweeper
+
+    start_temp_sweeper()
+except Exception as e:
+    logger.debug(f"临时目录清理线程启动失败: {e}")
 
 is_updated, commit = check_update(BASE_DIR)
 status = VERSION if is_updated else commit

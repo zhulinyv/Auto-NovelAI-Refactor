@@ -56,19 +56,40 @@ export function initEmoji() {
   }
   parseNode(document.body);
 
+  // 新增节点先攒着, 一帧统一 parse 一次。
+  // 这个 observer 监听整个 body 的 subtree: 日志刷屏 (生成时每条日志都是一次 DOM 插入)、
+  // 画廊/队列的重建都会逐个回调; 而 twemoji.parse 本身要遍历子树并替换节点,
+  // 逐条处理等于把同一个父节点反复解析。攒到下一帧再一次性处理, 既少调用又不丢节点。
+  let pending = [];
+  let scheduled = false;
+
+  const flush = () => {
+    scheduled = false;
+    const nodes = pending;
+    pending = [];
+    for (const node of nodes) {
+      // 节点可能已被后续渲染移除 (列表重建), 不再解析
+      if (!node.isConnected && node.parentNode === null) continue;
+      parseNode(node);
+    }
+  };
+
   const mo = new MutationObserver((mutations) => {
     for (const m of mutations) {
       for (const node of m.addedNodes) {
         if (node.nodeType === Node.ELEMENT_NODE) {
           // 跳过 twemoji 图片与加载失败的回退节点, 否则会重新 parse 形成无限替换循环 (闪烁跳动)
           if (node.classList && (node.classList.contains("twemoji") || node.classList.contains("native-emoji"))) continue;
-          parseNode(node);
+          pending.push(node);
         } else if (node.nodeType === Node.TEXT_NODE && node.parentNode) {
           // 回退节点 (native-emoji) 的父级也不要再 parse, 否则同样会进入无限替换循环
-          if (!node.parentNode.classList?.contains("native-emoji")) parseNode(node.parentNode);
+          if (!node.parentNode.classList?.contains("native-emoji")) pending.push(node.parentNode);
         }
       }
     }
+    if (!pending.length || scheduled) return;
+    scheduled = true;
+    requestAnimationFrame(flush);
   });
   mo.observe(document.body, { childList: true, subtree: true });
   return mo;

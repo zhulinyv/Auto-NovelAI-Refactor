@@ -11,6 +11,7 @@ from utils.helpers import check_stop, download, extract, playsound, reset_stop
 from utils.image_tools import revert_image_info
 from utils.images import IMAGE_EXTS, collect_images
 from utils.logger import logger
+from utils.paths import job_temp_path
 
 
 def _input_images(input_path: str | None, input_image: str | None) -> list[str]:
@@ -100,27 +101,32 @@ def run_upscale(kind: str, input_path: str | None, input_image: str | None, opti
     # 这里以 kind 作为引擎选择, 避免所有引擎都走 realcugan
     env_name = kind
 
+    # 引擎安装包是"下载一次、解压即弃"的中间文件: 放 data/temp 而不是 outputs/
+    # (否则图片浏览里会多出一个 temp.zip, 还要靠 "temp_" 前缀手工排除)
     if env_name == "realcugan" and not os.path.exists("./assets/realcugan-ncnn-vulkan"):
         logger.debug("正在下载 realcugan-ncnn-vulkan 超分引擎")
+        _zip = str(job_temp_path("upscale_engine.zip"))
         download(
             "https://huggingface.co/datasets/Xytpz/ANR_Upscale_Engine/resolve/main/realcugan-ncnn-vulkan.zip?download=true",
-            "./outputs/temp.zip",
+            _zip,
         )
-        extract("./outputs/temp.zip", "./assets/realcugan-ncnn-vulkan")
+        extract(_zip, "./assets/realcugan-ncnn-vulkan")
     elif env_name == "anime4k" and not os.path.exists("./assets/Anime4K"):
         logger.debug("正在下载 Anime4K 超分引擎")
+        _zip = str(job_temp_path("upscale_engine.zip"))
         download(
             "https://huggingface.co/datasets/Xytpz/ANR_Upscale_Engine/resolve/main/Anime4K.zip?download=true",
-            "./outputs/temp.zip",
+            _zip,
         )
-        extract("./outputs/temp.zip", "./assets/Anime4K")
+        extract(_zip, "./assets/Anime4K")
     elif env_name == "waifu2x" and not os.path.exists("./assets/waifu2x-caffe"):
         logger.debug("正在下载 waifu2x-caffe 超分引擎")
+        _zip = str(job_temp_path("upscale_engine.zip"))
         download(
             "https://huggingface.co/datasets/Xytpz/ANR_Upscale_Engine/resolve/main/waifu2x-caffe.zip?download=true",
-            "./outputs/temp.zip",
+            _zip,
         )
-        extract("./outputs/temp.zip", "./assets/waifu2x-caffe")
+        extract(_zip, "./assets/waifu2x-caffe")
 
     for image in _input_images(input_path, input_image):
         if check_stop():
