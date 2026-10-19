@@ -4,7 +4,7 @@
 - JobManager: 在后台线程中执行"非 NovelAI"任务 (超分/本地处理等), 并推送 job:start / job:done / job:failed
 - 当前任务注册表: 线程 -> 任务 id 映射, 供停止信号 (check_stop) 与实时事件定位当前任务;
   JobManager 与生图队列 (utils.gen_queue) 共用该注册表
-- 停止信号文件 (outputs/temp_break_<任务id>.json) 的清理: 任务收尾时删自己的文件,
+- 停止信号文件 (data/temp/temp_break_<任务id>.json) 的清理: 任务收尾时删自己的文件,
   另由 sweep_break_files / start_break_cleanup 兜住"进程被杀来不及收尾"留下的孤儿文件
 """
 
@@ -22,11 +22,14 @@ from typing import Any, Callable
 from utils.errors import JobAlreadyRunningError
 from utils.events import broker
 from utils.logger import logger
+from utils.paths import TEMP_DIR, cleanup_job_temp, start_temp_sweeper
 
 _job_lock = threading.Lock()
 
-# 停止信号文件 (temp_break_<任务id>.json) 的落盘位置与清理节奏
-OUTPUTS_DIR = "./outputs"
+# 停止信号文件 (temp_break_<任务id>.json) 的落盘位置与清理节奏。
+# 原先写在 outputs/ 里, 与用户生成的图片混在一起 (图片浏览要靠 "temp_" 前缀手工排除),
+# 现在统一到 data/temp/ —— 仍是进程级固定路径, 因为全局停止广播不属于任何任务。
+OUTPUTS_DIR = str(TEMP_DIR)
 BREAK_FILE_PREFIX = "temp_break_"
 BREAK_FILE_SUFFIX = ".json"
 JANITOR_INTERVAL = 60.0
@@ -80,7 +83,7 @@ def write_break_flag(flag: bool, job_id: str | None = None) -> None:
 
 
 def cleanup_break_file(job_id: str | None = None) -> None:
-    """任务结束后清理其停止信号文件。"""
+    """任务结束后清理其停止信号文件与专属临时目录。"""
     jid = job_id or current_job_id()
     if not jid:
         return
@@ -88,12 +91,18 @@ def cleanup_break_file(job_id: str | None = None) -> None:
         os.remove(break_file_path(jid))
     except OSError:
         pass
+    # 任务专属中间产物 (data/temp/job-<id>/): 生图 / 重绘 / 参考图等,
+    # 任务走完就删; 进程被杀留下的由 utils.paths.start_temp_sweeper 兜底
+    try:
+        cleanup_job_temp(jid)
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------- 孤儿停止信号清理
 # 停止信号文件原本只在任务走完 finally 时删除, 于是"进程被杀"就会漏:
 # 插件变更会 os.execv 重启后端、关窗/托盘退出、崩溃、被外部 kill —— 这些情况下
-# 任务来不及收尾, temp_break_<id>.json 会一直留在 outputs/ 里越积越多 (每个 15 字节)。
+# 任务来不及收尾, temp_break_<id>.json 会一直留在 data/temp/ 里越积越多 (每个 15 字节)。
 # 判定"已经没用了"的两条依据:
 #   1. 本进程的任务注册表 (线程级 _current_job + JobManager + 生图队列) 里没有这个 id;
 #   2. 文件里记的写入者 pid 已经不是活进程 (同一个 pid 重启说明是本进程的上一轮, 可清)。
@@ -198,16 +207,31 @@ def sweep_break_files(force: bool = False) -> list[str]:
             removed.append(name)
         except OSError:
             pass
-    # 无任务线程时读的全局兼容信号: 只有内容是 break=false 才能删 (读不到与读到 false 等价)
+    # 无任务线程时读的全局兼容信号 (temp_break.json): 判定规则比任务级信号更严格。
+    #
+    # 原先只允许删 break=false 的那份, 于是留下一个坑: 用户在没有任务时点"全局停止",
+    # stop_generate() 会写一份 break=true, 而它永远不会被清理 —— 只要下一个"没有任务上下文"
+    # 的线程 (旧插件自起的 worker / 外部调用) 调一次 check_stop(), 就会读到这个陈旧广播,
+    # 新任务一开跑就被判成"已被停止"。进程被杀时同理: 崩溃前写下的 break=true 会跨重启生效。
+    #
+    # 现在的判据:
+    #   - 写入者不是活进程 (崩溃残留 / 上一轮进程) -> 一定可删, 与 break 取值无关;
+    #   - 写入者是本进程且 break=false           -> 可删 (读不到与读到 false 等价);
+    #   - 写入者是本进程且 break=true            -> 保留 (这是尚未被消费的一次性广播);
+    #   - 写入者是另一个活进程                    -> 保留 (多开时不能替别人做主, _in_use 已判)。
     global_path = os.path.join(OUTPUTS_DIR, "temp_break.json")
     if os.path.exists(global_path):
         data = _read_break_file(global_path)
-        if not data.get("break") and not _in_use("", data, alive):
-            try:
-                os.remove(global_path)
-                removed.append("temp_break.json")
-            except OSError:
-                pass
+        owner = data.get("pid")
+        owner_is_other_alive = isinstance(owner, int) and owner != os.getpid() and _pid_alive(owner)
+        if not owner_is_other_alive:
+            removable = (owner != os.getpid()) or (not data.get("break"))
+            if removable and not _in_use("", data, alive):
+                try:
+                    os.remove(global_path)
+                    removed.append("temp_break.json")
+                except OSError:
+                    pass
     return removed
 
 
@@ -232,6 +256,11 @@ def start_break_cleanup(interval: float = JANITOR_INTERVAL) -> list[str]:
         return removed
     _cleanup_started = True
     atexit.register(_sweep_at_exit)
+    # 同时兜住任务专属临时目录 (data/temp/job-*): 进程被杀时它们没有机会自己删
+    try:
+        start_temp_sweeper()
+    except Exception:
+        logger.opt(exception=True).debug("临时目录清理线程启动失败堆栈:")
 
     def _loop():
         while True:

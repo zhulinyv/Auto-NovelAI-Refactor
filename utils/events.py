@@ -12,7 +12,17 @@ import time
 from collections import deque
 from typing import Any
 
-_EVENT_TYPES = ("log", "notice", "anlas:update", "job:start", "job:event", "job:done", "job:failed", "queue:update")
+_EVENT_TYPES = (
+    "log",
+    "notice",
+    "anlas:update",
+    "job:start",
+    "job:event",
+    "job:done",
+    "job:failed",
+    "queue:update",
+    "share:update",  # 共享链接状态变化 (由 utils/tunnel.py 发布)
+)
 
 
 class EventBroker:
@@ -28,8 +38,17 @@ class EventBroker:
         self._seq = 0  # 全局递增序号: 供轮询接口做增量拉取
 
     def publish(self, event_type: str, data: dict[str, Any]) -> None:
+        # 未知类型不再抛异常: 全项目有 20+ 处 publish 调用, 其中不少包在
+        # try/except: logger.debug 里 —— 拼错一个字符串就静默丢掉整条事件, 极难发现。
+        # 事件总线不该让业务逻辑失败: 记一条警告后照常投递 (前端不认识的类型会忽略)。
         if event_type not in _EVENT_TYPES:
-            raise ValueError(f"unknown event type: {event_type}")
+            # 延迟导入: logger 反过来 import 本模块的 broker, 顶层导入会成环
+            try:
+                from utils.logger import logger as _log
+
+                _log.warning(f"发布未知类型的事件: {event_type} (已照常投递, 请把它补进 _EVENT_TYPES)")
+            except Exception:
+                pass
         with self._lock:
             self._seq += 1
             payload = {"type": event_type, "seq": self._seq, "time": time.time(), **data}

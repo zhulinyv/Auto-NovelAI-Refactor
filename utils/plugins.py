@@ -30,13 +30,17 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
+from utils import jsonstore
 from utils.config import env
 from utils.gen_queue import gen_queue
-from utils.helpers import install_requirements, read_json
+from utils.helpers import install_requirements
 from utils.jobs import jobs
 from utils.logger import logger
+from utils.paths import STATE_DIR
 
 PLUGINS_ROOT = Path("./plugins").resolve()
+# 启用/禁用列表 (原 outputs/temp_plugins.json) 属于用户意图, 不是临时文件 —— 放在 state 下
+PLUGINS_STATE_FILE = STATE_DIR / "plugins.json"
 
 # ---------------------------------------------------------------- 数据类型
 
@@ -69,7 +73,9 @@ class Field:
     no_drag: bool = False  # type="filearea" 时仅允许点击选择文件, 禁用拖拽
     direct_path: bool = False  # type="filearea" 时用原生对话框取真实路径, 不上传
     hidden: bool = False  # 默认隐藏 (前端可通过彩蛋键位解锁显示, 如 naiv4vibebundle 的 Konami 码)
-    column: str = "left"  # "left"|"right"|"right_bottom" — "left" 表单列; "right" 右列(输出/图表/说明); "right_bottom" 右列底部(排在输出区之后, 如"说明"放结果下方)
+    column: str = (
+        "left"  # "left"|"right"|"right_bottom" — "left" 表单列; "right" 右列(输出/图表/说明); "right_bottom" 右列底部(排在输出区之后, 如"说明"放结果下方)
+    )
     inputs: list[str] = field(default_factory=list)  # type="chart" 时监听变化的参数 id 列表
     corner_of: str = ""  # type="select" 时作为角标下拉附属于指定字段 (如提示词预设)
     row_group: str = ""  # 相邻字段同一 row_group 时渲染到同一行 (如 variety 与 decrisp 并排)
@@ -156,6 +162,7 @@ _registry: dict[str, Plugin] = {}
 
 def register_plugin(plugin: Plugin) -> None:
     _registry[plugin.name] = plugin
+    invalidate_manifest_cache()
     logger.success(f"插件已注册: {plugin.name} ({len(plugin.panels)} 个面板)")
 
 
@@ -297,15 +304,13 @@ def _load_all_plugins() -> list[tuple[str, Callable]]:
     """
     global _registry
     _registry = {}
+    invalidate_manifest_cache()
 
     if env.share or env.disable_all_plugins:
         logger.warning("插件加载已跳过 (share 或 disable_all_plugins 开启)")
         return []
 
-    try:
-        disable_list = read_json("./outputs/temp_plugins.json").get("disable_plugin", [])
-    except FileNotFoundError:
-        disable_list = []
+    disable_list = jsonstore.read_dict(PLUGINS_STATE_FILE).get("disable_plugin", [])
 
     PLUGINS_ROOT.mkdir(parents=True, exist_ok=True)
 
@@ -340,8 +345,29 @@ def get_plugins() -> list[Plugin]:
 # ---------------------------------------------------------------- 对外接口
 
 
+# 清单缓存: 每个插件面板有几十个字段, get_manifest() 每次都要为每个 Field 复制一份
+# __dict__ 并重建整个嵌套结构。/api/state 每次请求都会调它, 而 waitBackendBack 在重启
+# 期间会以 400ms 间隔打 30 次 —— 纯属重复劳动。注册表变化时 (load_plugins) 失效即可。
+_MANIFEST_CACHE: list[dict] | None = None
+
+
+def invalidate_manifest_cache() -> None:
+    """插件注册表变化后调用, 让下次 get_manifest() 重建。"""
+    global _MANIFEST_CACHE
+    _MANIFEST_CACHE = None
+
+
 def get_manifest() -> list[dict]:
-    """返回给前端渲染的插件清单 (不含函数)。"""
+    """返回给前端渲染的插件清单 (不含函数); 结果按插件注册表缓存。"""
+    global _MANIFEST_CACHE
+    if _MANIFEST_CACHE is not None:
+        return _MANIFEST_CACHE
+    manifest = _build_manifest()
+    _MANIFEST_CACHE = manifest
+    return manifest
+
+
+def _build_manifest() -> list[dict]:
     manifest = []
     for plugin in _registry.values():
         panels = []
@@ -417,5 +443,10 @@ def run_action(plugin_name: str, panel_id: str, action_id: str, values: dict) ->
     job_name = f"plugin:{plugin_name}/{panel_id}/{action_id}"
     if action.uses_novelai:
         task = gen_queue.submit(job_name, _execute, label=f"{plugin.title} · {action.label}")
+        if task is None:
+            # 启用 "用量为空时跳过 nai5 任务" 且全部 Token 无剩余用量时, submit 不入队、返回 None。
+            # 原先直接取 task.id 会抛 AttributeError, 被路由层转成 HTTP 500 "执行失败: 'NoneType'…",
+            # 用户完全看不出真实原因。这里给出可读的提示 (与 /api/generate 的 429 同义)。
+            raise RuntimeError("全部 Token 剩余用量已用完, 已跳过本次插件任务")
         return task.id, True
     return jobs.submit(f"{job_name}", _execute), False

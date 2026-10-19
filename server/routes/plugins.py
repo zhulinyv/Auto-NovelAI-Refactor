@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import json
-import os
-
 from fastapi import APIRouter, HTTPException
 
-from utils.helpers import read_json
+from utils import jsonstore
 from utils.logger import logger
+from utils.paths import STATE_DIR
 from utils.plugins import get_manifest, plugins_reload_status, run_action
 from utils.services import plugins_store
 
@@ -21,22 +19,19 @@ async def plugins_reload_status_route():
     return plugins_reload_status()
 
 
-# 插件表单值持久化 (跨浏览器/刷新保留上次使用的设置)
-_VALUES_PATH = "./outputs/plugin_values.json"
+# 插件表单值持久化 (跨浏览器/刷新保留上次使用的设置); 落在 data/state 下。
+# 读-改-写整体走 jsonstore.update: 两个面板同时保存时不会互相覆盖 (原先各自
+# read 再 write, 后写的会把前一个面板刚存的值抹掉)。
+_VALUES_PATH = STATE_DIR / "plugin_values.json"
 
 
 def _load_plugin_values() -> dict:
-    try:
-        data = read_json(_VALUES_PATH)
-        return data if isinstance(data, dict) else {}
-    except Exception:
-        return {}
+    return jsonstore.read_dict(_VALUES_PATH)
 
 
-def _save_plugin_values(data: dict) -> None:
-    os.makedirs(os.path.dirname(_VALUES_PATH), exist_ok=True)
-    with open(_VALUES_PATH, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+def _update_plugin_values(mutator) -> dict:
+    """对插件表单值做一次原子的读-改-写, 返回更新后的完整数据。"""
+    return jsonstore.update(_VALUES_PATH, lambda cur: mutator(cur if isinstance(cur, dict) else {}), default={})
 
 
 @router.get("/plugins")
@@ -71,9 +66,12 @@ async def plugin_get_values(plugin_name: str, panel_id: str):
 @router.post("/plugin/{plugin_name}/{panel_id}/values")
 async def plugin_set_values(plugin_name: str, panel_id: str, payload: dict):
     """保存该插件面板的表单值 (颜色/模糊程度等, 换浏览器仍生效)。"""
-    data = _load_plugin_values()
-    data.setdefault(plugin_name, {})[panel_id] = payload.get("values", {})
-    _save_plugin_values(data)
+
+    def _merge(data: dict) -> dict:
+        data.setdefault(plugin_name, {})[panel_id] = payload.get("values", {})
+        return data
+
+    _update_plugin_values(_merge)
     return {"ok": True}
 
 
@@ -115,17 +113,16 @@ async def apply_plugins():
     except Exception as e:
         logger.error(f"插件加载失败: {e}")
         logger.opt(exception=True).debug("插件加载失败堆栈:")
-    # 延迟重启, 让响应先返回 (与 run.bat 一致: -X utf8)
-    import os
-    import sys
+    # 延迟重启, 让响应先返回。执行体复用 utils.helpers.restart (与设置页同一个实现:
+    # 解释器参数 / 环境变量标记都在那里统一维护), 这里只负责"先等响应发出去"。
     import threading
     import time
 
     def _restart():
         time.sleep(0.6)
-        # 标记为重启: 重启后不再自动打开浏览器窗口
-        os.environ["ANR_SKIP_BROWSER"] = "1"
-        os.execv(sys.executable, [sys.executable, "-X", "utf8"] + sys.argv)
+        from utils.helpers import restart as _do_restart
+
+        _do_restart()
 
     threading.Thread(target=_restart, daemon=True).start()
     return {"message": "后端重启中..."}

@@ -14,9 +14,9 @@ from datetime import date
 from pathlib import Path
 
 import requests
-import ujson as json
 
-from utils.config import env
+from utils import jsonstore
+from utils.config import LAST_FILE, env
 from utils.errors import NovelAIAPIError
 from utils.events import broker
 from utils.helpers import generate_random_str, send_anlas_remind_mail
@@ -198,13 +198,26 @@ def _safe_output_path(image_type: str, seed: int, default_path=None) -> Path:
     )
     _dir = base_path.rsplit("/", 1)[0]
     os.makedirs(_dir, exist_ok=True)
-    base_path = base_path.replace("<编号>", str(len(os.listdir(_dir))).zfill(5)) + ".png"
+    # <编号>: 以目录内现有文件数为起点, 但**必须避开已存在的文件**。
+    # 原先直接用 len(listdir) —— 两条生图通道并行跑同一 seed、同一目录时, 两边数到的
+    # 文件数相同, 于是算出同一个编号, 后写的把前一张覆盖掉 (静默丢图)。
+    index = len(os.listdir(_dir))
+    while True:
+        candidate = base_path.replace("<编号>", str(index).zfill(5)) + ".png"
+        if not os.path.exists(candidate):
+            break
+        index += 1  # 撞名就往后顺延, 直到找到空位
+    base_path = candidate
 
     target = Path(base_path).resolve()
     outputs_root = Path("./outputs").resolve()
     if not target.is_relative_to(outputs_root):
         logger.warning(f"输出路径超出 outputs 目录, 已回退到默认路径: {target}")
-        target = Path(f"./outputs/{image_type}/{date.today()}/{seed}_{generate_random_str(6)}.png").resolve()
+        # 回退路径带随机后缀, 撞名概率极低, 但仍做一次存在性检查 (并行任务兜底)
+        while True:
+            target = Path(f"./outputs/{image_type}/{date.today()}/{seed}_{generate_random_str(6)}.png").resolve()
+            if not target.exists():
+                break
     target.parent.mkdir(parents=True, exist_ok=True)
     return target
 
@@ -216,8 +229,11 @@ class Generator:
         self.url = url
 
     def generate(self, json_data: dict):
-        with open("last.json", "w", encoding="utf-8") as f:
-            json.dump(json_data, f, ensure_ascii=False, indent=4)
+        # 上次请求参数落到项目根 last.json (原子写: 前端"加载上次"随时可能在读)
+        try:
+            jsonstore.write(LAST_FILE, json_data)
+        except Exception:
+            pass
 
         logger.debug("正在发送生成请求...")
         # 重试逻辑在批量生成层 (generate_images) 统一处理: 429 无上限 / 其它最多 3 次

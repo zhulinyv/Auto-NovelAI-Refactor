@@ -28,6 +28,7 @@ from rich.progress import BarColumn, DownloadColumn, Progress, TextColumn, Trans
 
 from utils.config import env
 from utils.logger import console, logger, loguru_to_rich
+from utils.paths import SELECTOR_TRASH_DIR, TEMP_DIR
 from utils.variable import get_proxies
 
 try:
@@ -214,8 +215,6 @@ def _read_wildcard_file(category: str, name: str) -> str:
 # 但若某个卡片解析失败/自引用, 原实现会在 while matchers 里无限循环 (每次都对整段文本
 # 重新 findall)。这里显式设上限并把无法解析的标记留在原地, 保证一定有退出路径。
 _WILDCARD_MAX_ROUNDS = 50
-# 匹配失败 (分类为空 / 文件缺失) 时把该标记记下来, 后续轮次直接跳过
-_WILDCARD_SKIP: set[str] = set()
 
 
 def replace_wildcards(text: str) -> str:
@@ -271,7 +270,7 @@ def replace_wildcards(text: str) -> str:
 
 def _sequential_wildcard(category: str):
     """顺序 wildcard: 按文件名的字母顺序依次使用。"""
-    state_path = "./outputs/temp_wildcards.json"
+    state_path = str(TEMP_DIR / "temp_wildcards.json")
     names = _list_wildcard_txt(category)
     if not names:
         return "", ""
@@ -317,12 +316,12 @@ def find_and_replace_wildcards_from_dict(data: dict) -> dict:
 
 
 # ---------------------------------------------------------------- 任务控制
-# 停止信号为"每任务独立文件" (./outputs/temp_break_<任务id>.json):
+# 停止信号为"每任务独立文件" (data/temp/temp_break_<任务id>.json):
 # 生图队列多通道并行时, 停止某个任务不会误伤其它通道上正在运行的任务。
 # 另有一份旧格式的全局文件 (GLOBAL_STOP_FILE), 只用于"没有任务上下文"的场景
 # (插件线程池里的 worker、旧插件入口); 它是一次性广播, 读过即销毁。
 
-GLOBAL_STOP_FILE = "./outputs/temp_break.json"
+GLOBAL_STOP_FILE = str(TEMP_DIR / "temp_break.json")
 
 
 def reset_stop() -> None:
@@ -378,7 +377,7 @@ def stop_generate(job_id: str | None = None) -> None:
         logger.opt(exception=True).debug("写入停止信号失败堆栈:")
     # 全局信号 (无任务线程时的唯一信号, 也是旧插件的兼容入口)。两次 stop 之间没人会删它,
     # 所以每次都是"写一次、被读一次就销毁"; pid 供多开时判断写它的进程是否还活着。
-    os.makedirs("./outputs", exist_ok=True)
+    os.makedirs(str(TEMP_DIR), exist_ok=True)
     with open(GLOBAL_STOP_FILE, "w", encoding="utf-8") as f:
         json.dump({"break": True, "pid": os.getpid()}, f)
 
@@ -466,7 +465,7 @@ def _global_stop_owned_by_other_process(data: dict) -> bool:
 
 
 def _check_global_stop() -> bool:
-    """任务线程外读取全局停止文件 (outputs/temp_break.json), 读完即销毁。
+    """任务线程外读取全局停止文件 (data/temp/temp_break.json), 读完即销毁。
 
     它是"全局停止"留下的一次性广播。原先它被写死成 break=true 之后永不清理
     (utils.jobs 的孤儿清理只删 break=false 的那份), 于是只要点过一次全局停止, 之后
@@ -495,7 +494,10 @@ def check_stop() -> bool:
 
         jid = current_job_id()
         if jid:
-            return _check_stop_file(f"./outputs/temp_break_{jid}.json")
+            # 路径与 utils.jobs.break_file_path 必须同源, 否则会去读一个不存在的文件 (永远不停止)
+            from utils.jobs import break_file_path
+
+            return _check_stop_file(break_file_path(jid))
         return _check_global_stop()
     except Exception:
         logger.opt(exception=True).debug("读取停止信号失败堆栈:")
@@ -522,12 +524,18 @@ def playsound(file_path: str) -> None:
 # ---------------------------------------------------------------- 系统
 
 
+# 解释器启动参数: run.bat 与插件重启都用 -X utf8, 设置页的"重启"原先没带,
+# Windows 下会丢掉 UTF-8 模式 (中文路径 / 日志再次乱码)。统一到这里。
+_UTF8_FLAGS = ("-X", "utf8")
+
+
 def restart() -> None:
     logger.warning("开始重启...")
     # 标记为重启: 重启后不再自动打开浏览器窗口
     os.environ["ANR_SKIP_BROWSER"] = "1"
     p = sys.executable
-    os.execl(p, p, *sys.argv)
+    argv = [a for a in sys.argv if a not in _UTF8_FLAGS]
+    os.execv(p, [p, *_UTF8_FLAGS, *argv])
 
 
 def apply_console_visibility() -> None:
@@ -816,14 +824,17 @@ def _safe_img_paths(input_path: str) -> list[str]:
     ]
 
 
+_SELECTOR_QUEUE_FILE = str(TEMP_DIR / "temp_selector.npy")
+
+
 def _save_selector_queue(file_list: list[str]) -> None:
-    np.save("./outputs/temp_selector.npy", np.array(file_list))
+    np.save(_SELECTOR_QUEUE_FILE, np.array(file_list))
 
 
 def _load_selector_queue() -> list[str]:
-    if not os.path.exists("./outputs/temp_selector.npy"):
+    if not os.path.exists(_SELECTOR_QUEUE_FILE):
         return []
-    return [str(f) for f in np.load("./outputs/temp_selector.npy")]
+    return [str(f) for f in np.load(_SELECTOR_QUEUE_FILE)]
 
 
 def show_first_img(input_path: str):
@@ -894,7 +905,7 @@ def copy_current_img(current_img, output_path):
 
 
 # 筛选删除使用可撤销的本地回收站: send2trash 无法找回文件路径, 撤销删除会失效
-_SELECTOR_TRASH = Path("./outputs/selector_trash")
+_SELECTOR_TRASH = SELECTOR_TRASH_DIR
 
 
 def clear_selector_trash():
