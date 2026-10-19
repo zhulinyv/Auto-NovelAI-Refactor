@@ -49,6 +49,7 @@ from utils.image_tools import (
 )
 from utils.logger import logger
 from utils.models import *  # noqa: F401,F403
+from utils.paths import SHARED_LAST_ORIGIN, job_temp_path, shared_temp_path
 from utils.prompt_text import apply_text_section  # noqa: E402 (teXt 段: 仅 v5 系列)
 from utils.variable import (
     return_quality_preset_id,
@@ -201,11 +202,6 @@ def _crop_rect_from_request(crop, image_size):
     x = _crop_pos(x, -inset, image_w - w + inset)
     y = _crop_pos(y, -inset, image_h - h + inset)
     return x, y, w, h
-
-
-def _expand_max_area(w: int, h: int) -> int:
-    """生成块的面积上限。现在只看面积、不看形状 (保留函数是为了与前端 expandMaxArea 对齐调用点)。"""
-    return CROP_EXPAND_MAX_AREA
 
 
 def _expand_crop_rect(rect, image_size):
@@ -550,7 +546,9 @@ def _build_reference_data(references: list[dict]) -> dict:
         if not Path(ref["path"]).exists():
             logger.warning(f"角色参考图不存在, 已跳过: {ref['path']}")
             continue
-        process_image_by_orientation(ref["path"]).save(image_path := "./outputs/temp_character_reference_image.png")
+        # 按任务隔离: 生图队列每个 Token 一条通道并行, 固定文件名会被别的任务覆盖
+        # (表现为"偶尔发出去的参考图是另一张", 无法复现)
+        process_image_by_orientation(ref["path"]).save(image_path := str(job_temp_path("reference.png")))
         images_cached.append({"cache_secret_key": generate_hash_string(), "data": image_to_base64(image_path)})
         descriptions.append(
             {
@@ -824,9 +822,22 @@ def generate(request: dict) -> tuple[list[str], str]:
         inpaint_inputs = _prepare_inpaint_inputs(inpaint, width, height)
         if inpaint_inputs:
             inpaint_image, inpaint_mask, inpaint_composite, crop_ctx = inpaint_inputs
-            inpaint_image.save(image_path := "./outputs/temp_inpaint_image.png")
-            inpaint_mask.save(mask_path := "./outputs/temp_inpaint_mask.png")
-            inpaint_composite.save(composite_path := "./outputs/temp_inpaint_composite.png")
+            # 中间产物不再先落盘再读回来。
+            #
+            # 原先是: 三张图各 save() 一次 PNG (1536x2048 单张 ~200ms + 数 MB 写盘) ->
+            # 随后 resize_image()/change_the_mask_color() 又把它们读回来再存一遍 ->
+            # 最后 image_to_base64() 再 open 一次。整条链路对同一批像素做了 3~4 次
+            # 全尺寸编解码, 纯属白烧 CPU 与磁盘。
+            #
+            # 现在这三张图在内存里直接走完 resize / 蒙版映射 / base64, 只有**确实需要
+            # 文件路径**的地方 (is_fully_transparent / ensure_mask_grid / change_the_mask_color
+            # 这些接受路径的辅助函数) 才临时落一份 —— 但仍然复用同一个任务目录里的文件,
+            # 不会与其它任务冲突。
+            image_path = str(job_temp_path("inpaint_image.png"))
+            mask_path = str(job_temp_path("inpaint_mask.png"))
+            composite_path = str(job_temp_path("inpaint_composite.png"))
+            inpaint_image.save(image_path)  # 仅供下面的 image_to_base64 / 裁剪贴回复用
+            inpaint_mask.save(mask_path)  # 供 is_fully_transparent / 蒙版后处理读取
 
             if crop_ctx:
                 # 裁剪重绘: 送入模型的就是生成块 (选框自动外扩出来的那块), 生成分辨率跟着它走
@@ -871,7 +882,10 @@ def generate(request: dict) -> tuple[list[str], str]:
             json_data = func(json_data, **image_kwargs)
 
         # 6. 保存请求并生成 (wildcards 只解析一次, 重试沿用同一份请求)
-        with open("./outputs/temp_last_origin.json", "w", encoding="utf-8") as f:
+        # 本次请求的原始体: **必须放在共享位置**, 不能按任务隔离。
+        # 推文生图插件读的正是"最近一次生成请求", 而它自己从不写这个文件 ——
+        # 按 job_id 隔离后它永远读不到 (见 utils/paths.py 的说明)。
+        with open(shared_temp_path(SHARED_LAST_ORIGIN), "w", encoding="utf-8") as f:
             json.dump(json_data, f, ensure_ascii=False, indent=4)
 
         try:
@@ -880,7 +894,7 @@ def generate(request: dict) -> tuple[list[str], str]:
             if crop_ctx:
                 # 裁剪重绘: 模型返回的只是裁剪块, 先原样落地保留 NovelAI 元数据,
                 # 贴回原图后按正常命名重新写盘, 再把元数据搬过去 (PNG 隐写 + EXIF tEXt)
-                crop_raw_path = "./outputs/temp_inpaint_crop.png"
+                crop_raw_path = str(job_temp_path("inpaint_crop.png"))
                 with open(crop_raw_path, "wb") as f:
                     f.write(image_data)
                 buffer = BytesIO()
@@ -912,7 +926,7 @@ def generate(request: dict) -> tuple[list[str], str]:
                     deepcopy(base_json),
                     strength=strength_map.get(magnitude, 0.5),
                     noise=0,
-                    image=image_to_base64(resize_image(path, output_path="./outputs/temp_enhance_resized.png")),
+                    image=image_to_base64(resize_image(path, output_path=str(job_temp_path("enhance_resized.png")))),
                     extra_noise_seed=_seed,
                     color_correct=False,
                 )

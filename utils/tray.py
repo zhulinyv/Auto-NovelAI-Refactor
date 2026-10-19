@@ -26,8 +26,37 @@ from utils.variable import VERSION
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 ICON_PATH = BASE_DIR / "assets" / "logo.ico"
-PROFILE_DIR = BASE_DIR / ".webui-browser"
+# 托管窗口的专用浏览器 profile。
+# 原先是项目根下的 .webui-browser/ —— 里面有上万个文件 (Edge 的扩展/缓存/i18n 数据),
+# 虽然没有进版本库, 但会让任何 find/备份/杀毒全盘扫描变得极慢, 也污染项目目录。
+# 现挪到 data/browser-profile/ (data/ 本来就是这个项目的"非源码"目录)。
+PROFILE_DIR = BASE_DIR / "data" / "browser-profile"
 PID_FILE = PROFILE_DIR / "pid"
+
+
+def _migrate_profile_dir() -> None:
+    """把旧位置 (.webui-browser) 的 profile 搬过来 (仅一次, 失败静默)。
+
+    搬的是一个上万文件的目录, 用 os.replace 走同盘 rename (近乎瞬时);
+    跨盘时会退回 shutil.move 的复制+删除, 可能较慢 —— 那也只发生一次。
+    搬运失败不影响功能: 浏览器会用新目录重新建一个干净 profile, 只是会丢登录态。
+    """
+    legacy = BASE_DIR / ".webui-browser"
+    if not legacy.is_dir() or PROFILE_DIR.exists():
+        return
+    try:
+        import shutil
+
+        PROFILE_DIR.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            os.replace(legacy, PROFILE_DIR)  # 同盘: 原子 rename
+        except OSError:
+            shutil.move(str(legacy), str(PROFILE_DIR))
+    except Exception:
+        pass
+
+
+_migrate_profile_dir()
 
 # 支持 --app 无地址栏窗口的 Chromium 系浏览器 (未命中则退回普通标签页)
 _CHROMIUM_EXES = {
