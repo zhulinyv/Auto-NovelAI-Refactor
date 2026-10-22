@@ -93,6 +93,7 @@ async def upscale(payload: dict):
             payload.get("path"),
             payload.get("image"),
             payload.get("options") or {},
+            output_dir=payload.get("output_dir"),
         )
     except Exception as e:
         logger.error(f"提交超分任务失败: {e}")

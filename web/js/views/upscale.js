@@ -7,6 +7,7 @@ import { gallery } from "../components.js";
 
 let S = null;
 let pathCtl = null;
+let saveDirCtl = null;
 let imgCtl = null;
 let galleryEl = null;
 let infoEl = null;
@@ -32,7 +33,7 @@ export async function render(container, ctx) {
   pathCtl = pathCtlInput;
   pathField.append(el("div", { class: "file-pick-row" }, [pathCtlInput, pathBtn]));
 
-  // 单张图片: 点击/拖入均打开系统选择框, 直接取真实路径 (不上传副本, 处理后保存到原目录)
+  // 单张图片: 点击/拖入均打开系统选择框, 直接取真实路径 (不上传副本)
   const imgPick = imageDropZone({
     label: "单张图片",
     placeholder: "点击选择或拖入图片",
@@ -42,12 +43,23 @@ export async function render(container, ctx) {
   imgCtl = imgPick;
   const imgField = imgPick.node;
 
+  // 另存目录: 留空 = 保存到原图所在目录 (原行为), 填写后统一保存到该目录。
+  // 与上方批处理路径同一套"输入框 + 选择文件夹按钮"排版。
+  const saveDirInput = el("input", { type: "text", placeholder: "留空 = 保存到原图所在目录, 例如: D:/images/out" });
+  const saveDirBtn = folderPickButton(saveDirInput);
+  saveDirCtl = saveDirInput;
+  const saveDirField = el("div", { class: "field" }, [
+    el("label", { text: "保存目录" }),
+    el("div", { class: "file-pick-row" }, [saveDirInput, saveDirBtn]),
+  ]);
+
   const tabsWrap = el("div");
   // 左栏: 一张实底卡包含 输入 + 各引擎参数(含模型)
   const baseCard = el("div", { class: "card", style: "margin:0;" }, [
     el("div", { class: "card-title" }, ["📂 输入"]),
     pathField,
     imgField,
+    saveDirField,
     tabsWrap,
   ]);
 
@@ -169,6 +181,7 @@ function renderEngine(eng, body) {
       kind: eng.id,
       path: pathCtl.value.trim() || null,
       image: imgCtl.get() || null,
+      output_dir: saveDirCtl.value.trim() || null,
       options: Object.fromEntries(Object.entries(options).map(([k, v]) => [k, v.value])),
     };
     runBtn.disabled = true;

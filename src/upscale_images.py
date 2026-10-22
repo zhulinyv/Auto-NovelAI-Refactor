@@ -6,6 +6,7 @@ import os
 import platform
 import subprocess
 import time
+from pathlib import Path
 
 from utils.helpers import check_stop, download, extract, playsound, reset_stop
 from utils.image_tools import revert_image_info
@@ -23,6 +24,26 @@ def _input_images(input_path: str | None, input_image: str | None) -> list[str]:
     os.makedirs("./outputs", exist_ok=True)
     reset_stop()  # 重置本任务的停止信号
     return collect_images(input_path, input_image, exts=IMAGE_EXTS)
+
+
+def _prepare_output_dir(output_dir: str | None) -> str | None:
+    """校验并创建"另存目录"; 未填写返回 None (各图仍保存到原图所在目录)。
+
+    放在任务开头做一次 (而不是每张图各判断一次), 目录不可用时任务直接以
+    job:failed 收尾并在前端显示原因 —— 总比悄悄存回原目录、让人以为文件丢了要好。
+    """
+    text = (output_dir or "").strip()
+    if not text:
+        return None
+    target = Path(text).expanduser()
+    if target.exists() and not target.is_dir():
+        raise ValueError(f"保存目录不是文件夹: {text}")
+    try:
+        target.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        raise ValueError(f"保存目录不可用: {text} ({e})") from e
+    logger.info(f"超分结果将保存到 {target}")
+    return str(target.resolve())
 
 
 def _ensure_windows() -> bool:
@@ -91,11 +112,21 @@ def run_cmd(code: str):
         return None
 
 
-def run_upscale(kind: str, input_path: str | None, input_image: str | None, options: dict | None = None) -> list[str]:
-    """执行指定类型的超分处理 (本地任务, 不进生图队列, 多线程并行)。"""
+def run_upscale(
+    kind: str,
+    input_path: str | None,
+    input_image: str | None,
+    options: dict | None = None,
+    output_dir: str | None = None,
+) -> list[str]:
+    """执行指定类型的超分处理 (本地任务, 不进生图队列, 多线程并行)。
+
+    output_dir: 结果另存目录; 留空则保存到各原图所在目录 (原行为)。
+    """
     if not _ensure_windows():
         return []
     options = options or {}
+    save_dir = _prepare_output_dir(output_dir)  # 先校验, 免得多下载一遍引擎才报错
     image_list: list[str] = []
     # 前端把引擎类型放在 kind 字段 (realcugan / anime4k / waifu2x),
     # 这里以 kind 作为引擎选择, 避免所有引擎都走 realcugan
@@ -134,7 +165,8 @@ def run_upscale(kind: str, input_path: str | None, input_image: str | None, opti
             break
 
         name, extension = os.path.splitext(os.path.basename(image))
-        output_dir = os.path.dirname(os.path.abspath(image))
+        # 另存目录 (含批处理) > 原图所在目录
+        output_dir = save_dir or os.path.dirname(os.path.abspath(image))
 
         if env_name == "realcugan":
             noise = int(options.get("noise", 3))
