@@ -132,6 +132,25 @@ export async function render(container, ctx) {
     grid.append(f);
   }
   tf("🌐 代理地址", "proxy", "text", "本地代理格式: http://127.0.0.1:xxx");
+  // 服务地址: 留空 = NovelAI 官方; 填第三方站点 (中转站) 即切换到该站点。
+  // 端点由后端 utils/api_endpoint.py 从这一个地址推导 (支持裸域名 / 带 /v1 / 完整生成地址)。
+  // 排版: 一句短的放在标签右侧 (span.hint, 与 tf 的提示同款小字),
+  // 三种写法的长说明仍放输入框下方 —— 两行都塞右侧会把标签行挤爆。
+  {
+    const input = el("input", { type: "text", value: settings.base_url ?? "" });
+    const f = el("div", { class: "field" }, [
+      // 与其它字段一致: 说明用 span.hint 跟在标题右侧 (小字, 见 .field > label .hint)
+      el("label", {}, [
+        document.createTextNode("🛰️ 服务地址"),
+        el("span", { class: "hint", text: "留空 = NovelAI 官方; 填中转站地址 (如 https://api.example.com) 即切换到第三方站点" }),
+      ]),
+      input,
+      el("div", { class: "muted", text: "支持三种写法: 裸域名 / 带 /v1 / 完整生成地址; 中转站不按 Anlas 计费, 生成按钮只显示张数" }),
+    ]);
+    fields.base_url = input;
+    otherFields.push(f);
+    grid.append(f);
+  }
   tf("📁 自定义路径", "custom_path", "text", "支持 <类型> <日期> <种子> <随机字符> <编号>");
   tf("🔢 端口号", "port", "number", "理论范围 1 - 65535");
   cf("🔊 启动提示音", "start_sound");

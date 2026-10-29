@@ -59,7 +59,7 @@ from utils.variable import (
     return_undesired_contentc_preset,
 )
 
-image_generator = Generator("https://image.novelai.net/ai/generate-image")
+image_generator = Generator("generate")
 
 # Enhance "Max" 选项 (仅 v5 系列) 的分辨率上限: 宽高乘积不超过 1536 × 2048
 ENHANCE_MAX_SIZE = (1536, 2048)
@@ -951,7 +951,12 @@ def generate(request: dict) -> tuple[list[str], str]:
 
         try:
             resolved_json = find_and_replace_wildcards_from_dict(json_data)
-            image_data = _generate_with_retry(image_generator, resolved_json, f"第 {i + 1} 张")
+            image_data = _generate_with_retry(
+                image_generator,
+                resolved_json,
+                f"第 {i + 1} 张",
+                on_frame=lambda frame: _emit_preview(frame, i + 1, quantity, _seed),
+            )
             if crop_ctx:
                 # 裁剪重绘: 模型返回的只是裁剪块, 先原样落地保留 NovelAI 元数据,
                 # 贴回原图后按正常命名重新写盘, 再把元数据搬过去 (PNG 隐写 + EXIF tEXt)

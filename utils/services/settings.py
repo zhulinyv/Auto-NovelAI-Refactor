@@ -81,9 +81,9 @@ def save_settings(data: dict) -> dict:
     """保存配置: 立即生效, 返回变更标志供前端提示 (端口 / 隐藏终端等需注意的重启事项)。"""
     # 规范化: 空字符串转 None (可选字段)
     normalized = dict(data)
-    for key in ("token", "proxy", "custom_path", "smtp_mail", "smtp_token"):
+    for key in ("token", "proxy", "base_url", "custom_path", "smtp_mail", "smtp_token"):
         if key in normalized and normalized[key] in (None, ""):
-            normalized[key] = None if key in ("proxy", "token", "smtp_mail", "smtp_token") else ""
+            normalized[key] = None if key in ("proxy", "token", "base_url", "smtp_mail", "smtp_token") else ""
     for key in ("cool_time", "port", "smtp_num", "anlas_remind_percent"):
         try:
             normalized[key] = int(normalized.get(key, 0))
@@ -95,6 +95,14 @@ def save_settings(data: dict) -> dict:
             normalized["anlas_remind_percent"] = max(-1, min(100, int(normalized["anlas_remind_percent"])))
         except (TypeError, ValueError):
             normalized["anlas_remind_percent"] = -1
+
+    if normalized.get("base_url"):
+        from utils.api_endpoint import EndpointError, resolve_endpoints
+
+        try:
+            resolve_endpoints(normalized["base_url"])
+        except EndpointError as e:
+            raise ValueError(f"服务地址无效: {e}") from e
 
     _normalize_tokens(normalized)
 

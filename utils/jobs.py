@@ -365,4 +365,13 @@ class JobManager:
             )
 
 
+def emit_job_event(event_name: str, data: dict[str, Any]) -> None:
+    """在当前任务线程里推送一条自定义事件 (模块级封装, 供非 JobManager 调用方使用)。
+
+    生图过程可见 (每步预览帧) 走这条通道: gen_queue 的通道线程已用 set_current_job
+    注册过任务 id, 所以这里能正确带上 id/name, 前端按任务定位预览框。
+    """
+    jobs.emit(event_name, data)
+
+
 jobs = JobManager()

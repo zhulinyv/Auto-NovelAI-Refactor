@@ -16,7 +16,7 @@ from utils.images import IMAGE_EXTS, collect_images
 from utils.logger import logger
 from utils.models import director
 
-generator = Generator("https://image.novelai.net/ai/augment-image")
+generator = Generator("augment")
 
 
 def _input_images(input_path: str | None, input_image: str | None) -> list[str]:

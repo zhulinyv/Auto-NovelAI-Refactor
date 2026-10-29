@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
 from utils.config import env
 from utils.errors import NovelAIAPIError
@@ -25,17 +25,19 @@ def generate_with_retry(
     desc: str,
     max_retries: int = 3,
     log_scope: str = "生成重试失败",
+    on_frame: Callable[[dict], None] | None = None,
 ) -> Any:
     """发送一次生成请求并自动重试; 返回 generator.generate() 的结果。
 
     log_scope 只影响失败时的 debug 日志前缀 (生图 / 导演工具分别区分)。
+    on_frame 透传给 generator.generate(): 有它才走流式, 每步回调一次预览帧。
     """
     retries = 0
     while True:
         if check_stop():
             raise StopGeneration("已停止生成")
         try:
-            data = generator.generate(json_data)
+            data = generator.generate(json_data, on_frame=on_frame) if on_frame else generator.generate(json_data)
             if not data:
                 raise NovelAIAPIError("NovelAI 未返回图片数据")
             return data
