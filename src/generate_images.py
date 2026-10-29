@@ -721,10 +721,12 @@ def _model_function_map(model: str, kind: str):
 # ---------------------------------------------------------------- 主流程
 
 
-def generate(request: dict) -> tuple[list[str], str]:
+def generate(request: dict, preview: bool = True) -> tuple[list[str], str]:
     """按请求生成一张或多张图片, 返回 (图片路径列表, 结果信息)。
 
     由生图队列 (utils.gen_queue) 调度: 排队 / 并发 / 冷却均由队列管理。
+
+    preview=False 用于"只算账不花钱"的预演 (费用预估接口): 不现场编码 Vibe。
     """
     model = request["model"]
     positive_input = request.get("positive_prompt", "")
@@ -807,7 +809,7 @@ def generate(request: dict) -> tuple[list[str], str]:
         # 3. 角色与参考数据
         v4_pos, v4_neg, char_prompts = _build_character_data(characters)
         ref_data = _build_reference_data(references) if use_reference else None
-        ref_imgs, ref_infos, ref_strengths = _build_vibe_data(vibe, model)
+        ref_imgs, ref_infos, ref_strengths = _build_vibe_data(vibe, model, encode=preview)
 
         # 4. 构建基础 JSON
         # 正面提示词的拼接顺序 (前面已由前端补上 Transparent BG): furry 前缀 -> 用户输入 -> 质量预设。
