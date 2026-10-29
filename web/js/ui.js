@@ -476,6 +476,39 @@ export function choiceDialog(title, message, choices) {
   });
 }
 
+/** 文本输入对话框: 返回输入值 (取消/空开时 null)。
+ *  用在“重命名”这类只需要一个字符串的场景。 */
+export function inputDialog(title, value = "", { placeholder = "", multiline = false } = {}) {
+  return new Promise((resolve) => {
+    const overlay = el("div", {
+      style: "position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:5200;display:flex;align-items:center;justify-content:center;",
+    });
+    const input = multiline
+      ? el("textarea", { rows: 4, placeholder })
+      : el("input", { type: "text", placeholder });
+    input.value = value || "";
+    input.style.width = "100%";
+    const done = (v) => { document.removeEventListener("keydown", onKey); overlay.remove(); resolve(v); };
+    const onKey = (e) => {
+      if (e.key === "Escape") done(null);
+      if (e.key === "Enter" && !multiline) { e.preventDefault(); done(input.value.trim() || null); }
+    };
+    const box = el("div", { class: "card dialog-solid", style: "width:360px;animation:pop-in 0.2s ease;" }, [
+      el("div", { class: "card-title", text: title || "" }),
+      el("div", { class: "field" }, [input]),
+      el("div", { style: "display:flex;gap:10px;justify-content:flex-end;margin-top:12px;" }, [
+        el("button", { class: "btn btn-sm", text: "取消", onclick: () => done(null) }),
+        el("button", { class: "btn btn-sm btn-primary", text: "确定", onclick: () => done(input.value.trim() || null) }),
+      ]),
+    ]);
+    overlay.append(box);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) done(null); });
+    document.addEventListener("keydown", onKey);
+    document.body.append(overlay);
+    setTimeout(() => { input.focus(); input.select?.(); }, 30);
+  });
+}
+
 // ---------------- 事件总线 ----------------
 
 class Bus {

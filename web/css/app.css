@@ -482,6 +482,18 @@
 .field-row { display: flex; gap: 14px; align-items: flex-end; margin-bottom: 12px; }
 .field-row .field { flex: 1; margin-bottom: 0; min-width: 0; }
 .field > input, .field > select, .field > textarea { width: 100%; }
+/* 输入框 + 右侧小字说明 (如「服务地址」): 单开一行, 说明不折行时贴右,
+   窄屏 (或说明太长) 时自动换到下一行, 不挤压输入框。 */
+.field-inline-hint { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.field-inline-hint > input { flex: 1 1 320px; min-width: 0; }
+/* 右侧小字: 有富余宽度时与输入框同行; 列窄时整段换到下一行(不再切成一句一列),
+   所以给个 reasonable 的最小宽度, 避免被压缩成竖排。 */
+.field-inline-hint > .hint {
+  flex: 1 1 200px; min-width: 160px;
+  font-weight: 400; font-size: 12px; line-height: 1.45;
+  color: var(--text-2); opacity: 0.75;
+}
+
 
 /* ------- 滑条 + 数字输入 (统一组件) ------- */
 .slider-row { display: flex; gap: 10px; align-items: center; width: 100%; }
@@ -2265,6 +2277,16 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
 .wc-types .tab-btn { padding: 3px 11px; font-size: 12.5px; font-weight: 700; border-radius: 8px; background: transparent; border-color: var(--border); color: var(--text-2); }
 .wc-types .tab-btn:hover { border-color: var(--primary); color: var(--text); }
 .wc-types .tab-btn.active { background: var(--surface-3); border-color: var(--primary); color: var(--text); }
+/* 分类末尾的"新建分类": 虚线边框区分它是动作而不是已有分类 */
+.wc-type-add {
+  flex: none; padding: 3px 11px; font-size: 12.5px; font-weight: 700; border-radius: 8px;
+  background: transparent; border: 1px dashed var(--border); color: var(--text-2);
+  cursor: pointer; white-space: nowrap; transition: border-color 0.15s, color 0.15s;
+}
+.wc-type-add:hover { border-color: var(--primary); color: var(--text); }
+/* 导入弹窗里的"分类"一行: 与弹窗整体留白一致 */
+.wc-vibe-import-cat { margin-top: 10px; margin-bottom: 2px; }
+
 .wc-search { width: 100%; margin-bottom: 10px; }
 .wc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
 
@@ -2803,6 +2825,135 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
 .wc-field-label .wc-open-btn { flex-shrink: 0; }
 /* 当前分类的提示词网格: 与卡片网格同样的弹性换行, 但项是胶囊标签 */
 .wc-pl-grid { display: flex; flex-wrap: wrap; gap: 6px; align-content: flex-start; min-height: 120px; }
+
+/* 卡片 / Vibe 右上角操作按钮 (✏️ 编辑 · 🗑️ 删除)。
+   原先靠双击卡片打开编辑, 一是难发现, 二是触摸屏/单击选中后容易误触。
+   现在改成常驻按钮: 默认半透明, 悬停卡片时变清晰, 不抢封面的视觉。 */
+.wildcard-card, .wc-vibe-card { position: relative; }
+.wc-card-acts {
+  position: absolute; top: 4px; right: 4px; z-index: 3;
+  display: flex; gap: 4px; opacity: 0; transition: opacity 0.15s ease;
+}
+.wildcard-card:hover .wc-card-acts,
+.wc-vibe-card:hover .wc-card-acts,
+.wc-card-acts:focus-within { opacity: 1; }
+.wc-card-act {
+  width: 24px; height: 24px; padding: 0; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12.5px; cursor: pointer;
+  border-radius: 7px; border: 1px solid var(--border);
+  background: var(--panel-solid); color: var(--text);
+  transition: border-color 0.12s ease, transform 0.12s ease;
+}
+.wc-card-act:hover { border-color: var(--primary); transform: translateY(-1px); }
+.wc-card-act-danger:hover { border-color: var(--danger); }
+/* 触摸屏没有 hover: 一直显示, 否则永远点不到 */
+@media (hover: none) { .wc-card-acts { opacity: 1; } }
+
+/* Vibe 详情菜单 (编辑按钮弹出): 信息 + 分类 + 操作 */
+.wc-vibe-detail { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+.wc-vibe-detail-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+.wc-vibe-cat-select { width: 100%; }
+
+/* 风格迁移: 上传区 + 已选卡片 (启用勾选 / 缩略图 / 两个滑条 / 需编码提示) */
+.vibe-up-zone { min-height: 74px; }
+.vibe-up-zone.dragging { border-color: var(--primary); background: var(--surface-3); }
+.vibe-cards { display: flex; flex-direction: column; gap: 10px; margin: 10px 0 4px; }
+.vibe-sel-card {
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 10px 12px; background: var(--panel-solid);
+}
+.vibe-sel-card.need-encode { border-color: #d9a441; }
+.vibe-sel-head { display: flex; align-items: center; gap: 10px; }
+.vibe-sel-check { display: flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--text-2); cursor: pointer; }
+.vibe-sel-thumb {
+  width: 44px; height: 44px; object-fit: cover; border-radius: 7px;
+  border: 1px solid var(--border); flex: 0 0 auto;
+}
+.vibe-sel-ph { display: flex; align-items: center; justify-content: center; font-size: 20px; background: var(--surface-3); }
+.vibe-sel-name {
+  flex: 1 1 auto; min-width: 0; font-size: 13px; font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.vibe-need-badge {
+  flex: 0 0 auto; font-size: 11px; padding: 1px 7px; border-radius: 999px;
+  background: rgba(217, 164, 65, 0.18); color: #d9a441; border: 1px solid rgba(217, 164, 65, 0.5);
+}
+.vibe-sel-del {
+  flex: 0 0 auto; width: 24px; height: 24px; padding: 0; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; font-size: 12px;
+  border-radius: 7px; border: 1px solid var(--border); background: transparent; color: var(--text-2);
+}
+.vibe-sel-del:hover { border-color: var(--danger); color: var(--danger); }
+.vibe-sel-sliders { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
+@media (max-width: 900px) { .vibe-sel-sliders { grid-template-columns: 1fr; } }
+.vibe-sel-sliders .field { margin-bottom: 0; }
+/* 取消勾选 = 停用: 卡片和图片都留着, 只是这次生成不发送 */
+.vibe-sel-card.is-off, .vibe-item.is-off { opacity: 0.55; }
+.vibe-sel-card.is-off .vibe-sel-sliders, .vibe-item.is-off .vibe-right { opacity: 0.8; }
+.vibe-item-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+
+/* 卡片标题行 (标题 + 右上角按钮) */
+.wc-title-row { display: flex; align-items: center; gap: 8px; }
+
+/* 素材库 Vibe 卡片: 可单击多选 */
+.wc-vibe-card { cursor: pointer; }
+.wc-vibe-card.selected { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(120, 160, 255, 0.25) inset; }
+.wc-vibe-card.selected::after {
+  content: "✓"; position: absolute; left: 6px; top: 4px;
+  width: 18px; height: 18px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700; color: #fff; background: var(--primary);
+}
+
+/* 只显示 Vibe 库的窗口: 顶部只有一条按钮栏 */
+.wc-vibe-bar { display: flex; gap: 8px; padding: 8px 14px; border-bottom: 1px solid var(--border); }
+
+
+
+/* ---------------- Vibe 库 (素材库第三个库) ----------------
+   与卡片库同款网格, 但每张卡展示的是"缩略图 + 名称 + 已有编码的模型"。 */
+.wc-vibe-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; min-height: 120px; }
+.wc-vibe-card {
+  display: flex; flex-direction: column; gap: 4px; padding: 8px;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2);
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.wc-vibe-card:hover { border-color: var(--primary); transform: translateY(-1px); }
+.wc-vibe-thumb {
+  width: 100%; aspect-ratio: 1 / 1; border-radius: 8px; overflow: hidden;
+  background: var(--surface-3); display: flex; align-items: center; justify-content: center;
+}
+.wc-vibe-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.wc-vibe-ph { font-size: 34px; opacity: 0.55; }
+.wc-vibe-name { font-size: 12.5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wc-vibe-ops { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 2px; }
+.wc-vibe-ops .btn { padding: 1px 6px; font-size: 11px; }
+.wc-vibe-import { display: flex; flex-direction: column; gap: 6px; margin: 2px 0 4px; }
+.wc-vibe-import-line { font-size: 12.5px; color: var(--text-2); line-height: 1.5; }
+.wc-vibe-import-actions { display: flex; gap: 8px; margin-top: 10px; }
+
+/* 生成页: Vibe 库标题行 (说明 + 刷新按钮) */
+.vibe-lib-hint { flex: 1; min-width: 0; font-size: 12px; }
+
+/* 生成页: Vibe 库选择列表 */
+  display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 8px;
+  border: 1px solid transparent; cursor: pointer; font-size: 12.5px;
+}
+
+/* 生成页: 输出区的实时预览 (生图过程可见) */
+/* 费用预估按钮: 让"20⚡"读起来是一个整体。
+   twemoji 是 1em 见方的 SVG, 闪电图形本身只占中间约 60%, 左右各有约 0.2em 的空白,
+   所以光把 margin 归零看着仍像多了个空格 —— 必须用负 margin 把图形"拉"过去。 */
+.btn-lg img.twemoji { margin-left: 0.02em; margin-right: 0.02em; }
+.btn-lg img.twemoji:last-of-type { margin-left: -0.16em; margin-right: 0; }
+
+
+.gen-preview { position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.gen-preview img { max-width: 100%; border-radius: 10px; display: block; }
+.gen-preview-bar { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-2); }
+.gen-preview-track { width: 160px; height: 5px; border-radius: 3px; background: var(--surface-3); overflow: hidden; }
+.gen-preview-fill { height: 100%; background: var(--primary); transition: width 0.18s ease; }
 .wc-pl-chip {
   display: inline-flex; align-items: baseline; gap: 6px;
   padding: 3px 11px; font-size: 12.5px; font-weight: 600; color: var(--text);

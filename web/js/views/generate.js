@@ -4,9 +4,10 @@
 //   Row2: 左侧页签(参数设置/角色分区/角色参考/风格迁移) + 右侧输出画廊
 //   Wildcards 功能入口在每个提示词输入框右上角 (点击弹出全屏编辑窗口)
 // ============================================================
-import { $, $$, el, clear, toast, bus, sliderRow, edgeScroll, imageDropZone, fileDropZone, wireAutocomplete, wildcardsButton } from "../ui.js";
-import { post, imageUrl, fetchLast, openDir } from "../api.js";
+import { $, $$, el, clear, toast, bus, sliderRow, edgeScroll, imageDropZone, fileDropZone, wireAutocomplete, wildcardsButton, confirmDialog } from "../ui.js";
+import { get, post, imageUrl, fetchLast, openDir } from "../api.js";
 import { gallery, imageEditor, roleList, characterRegionPicker } from "../components.js";
+import { openWildcardsModal } from "../wildcardsModal.js";
 
 let S = null;
 let C = {};
@@ -16,6 +17,12 @@ let charRegion = null;
 let refList = null;
 let vibeList = null;
 let genGalleryEl = null;
+let previewBox = null;          // 输出区的生成中预览 (每步一帧)
+let previewImg = null;
+let previewFill = null;
+let previewLabel = null;
+let previewJobId = null;
+
 let infoEl = null;
 let sendBtn = null;
 let sendPnginfoBtn = null;
@@ -23,6 +30,19 @@ let openDirBtn = null;
 let aiChoiceRow = null;
 let inpaintCtlRow = null;
 let vibeBundleRow = null;
+// Vibe 库选择状态: 已选中的库条目 id -> 强度 (前端只传 id + 强度, 编码解析在后端)
+let vibeLibSelected = new Map();   // 已启用: id -> 参考强度 (strength)
+let vibeLibInfo = new Map();       // 已启用: id -> 信息提取强度 (information)
+let vibeLibDisabled = new Set();   // 取消勾选 = 停用: 卡片保留, 但这次生成不发送
+// 暂存的无编码图片 (不入库): id -> {name, image(dataURL), information, strength}。
+// 生成时后端编码成功才写进素材库, 之后这张卡片会自动换成库里的条目。
+let vibeStaged = new Map();
+let vibePendingIds = new Set();    // 当前模型 + 信息提取强度下缺编码的 id (由 estimate 回填)
+let vibeUnencodableIds = new Set(); // 其中"当前模型根本编不了码"的那部分 (V5 等)
+let vibeLibItems = [];
+let vibeCardsEl = null;            // 已选 Vibe 的卡片区 (图 + 两个滑条)
+const VIBE_DEFAULT_CATEGORY = "默认";   // 上传的 Vibe 统一落到这个分类
+
 let nai3VibeRow = null;
 let resHintEl = null;
 let charSection = null;
@@ -805,6 +825,8 @@ function buildModelBar(bar, saved) {
   C.quantity.node.classList.add("mb-quantity");
 
   C.generateBtn = el("button", { class: "btn btn-primary btn-lg", text: "🚀 开始生成" });
+  // 费用预估: 参数变化后 350ms 合并请求一次, 结果显示在按钮上 ("🚀 开始生成: 20🔋")
+  C.generateBtn.title = "预估花费会显示在按钮上 (与官网计费公式一致, 官方为准)";
   C.stopBtn = el("button", { class: "btn btn-danger btn-lg", text: "⏹ 停止" });
   C.stopBtn.title = "停止生成";
 
@@ -819,29 +841,514 @@ function buildModelBar(bar, saved) {
   );
 }
 
+// ---------------- 生图过程可见 (每步预览帧) ----------------
+
+/** 建立预览框里的 img/进度条/文字 (只建一次)。 */
+function ensurePreviewNodes() {
+  if (!previewBox) return;
+  if (previewImg && previewImg.isConnected) return;
+  clear(previewBox);
+  previewImg = el("img", { alt: "生成中的预览" });
+  previewFill = el("div", { class: "gen-preview-fill", style: "width:0%" });
+  previewLabel = el("span", { text: "" });
+  previewBox.append(
+    previewImg,
+    el("div", { class: "gen-preview-bar" }, [
+      el("div", { class: "gen-preview-track" }, [previewFill]),
+      previewLabel,
+    ]),
+  );
+}
+
+/** 收到一帧预览: 直接换图 + 更新进度 (前端解码 JPEG, 不落盘)。 */
+function showPreviewFrame(ev) {
+  if (!previewBox) return;
+  // 只显示本页提交的那个任务的帧; 其它通道/插件的帧不混进来
+  if (previewJobId && ev.id && ev.id !== previewJobId) return;
+  ensurePreviewNodes();
+  previewBox.classList.remove("hidden");
+  // 生成过程中只显示过程帧: 把上一次的结果图藏起来, 否则两批图上下叠在一起
+  if (genGalleryEl) genGalleryEl.classList.add("hidden");
+  if (ev.image) previewImg.src = ev.image;
+  const total = Number(ev.total) || 0;
+  const step = Number(ev.step);
+  const pct = total > 0 && Number.isFinite(step) ? Math.min(100, Math.round(((step + 1) / total) * 100)) : 0;
+  if (previewFill) previewFill.style.width = pct + "%";
+  if (previewLabel) {
+    const parts = [];
+    if (Number.isFinite(step) && total > 0) parts.push("第 " + (step + 1) + "/" + total + " 步");
+    if (ev.index && ev.count > 1) parts.push("第 " + ev.index + "/" + ev.count + " 张");
+    previewLabel.textContent = parts.join(" · ");
+  }
+}
+
+function hidePreview() {
+  previewJobId = null;
+  if (previewBox) previewBox.classList.add("hidden");
+  // 生成结束: 恢复结果画廊 (随后的刷新会把新图放进来)
+  if (genGalleryEl) genGalleryEl.classList.remove("hidden");
+}
+
+bus.on("job:event", (ev) => {
+  if (ev.name !== "preview") return;
+  showPreviewFrame(ev);
+});
+bus.on("job:done", () => { hidePreview(); resolveStagedVibes(); });
+bus.on("job:failed", () => hidePreview());
+
+// ---------------- 费用预估 (按钮上的 “🚀 开始生成: 20🔋”) ----------------
+
+let estimateTimer = 0;
+let estimateSeq = 0;
+
+/** 参数变动后调用: 350ms 防抖, 避免拖滑块时每一帧都发请求。 */
+export function scheduleEstimate() {
+  clearTimeout(estimateTimer);
+  estimateTimer = setTimeout(refreshEstimate, 350);
+}
+
+/** 请求 /api/generate/estimate, 把结果显示在生成按钮上。 */
+async function refreshEstimate() {
+  if (!C.generateBtn) return;
+  const btn = C.generateBtn;
+  if (btn.disabled) return;   // 生成中不改文案
+  const seq = ++estimateSeq;
+  let request;
+  try {
+    request = await collectRequest({ forEstimate: true });
+  } catch {
+    return;   // 请求还没成型 (如图生图蒙版导出中): 保持原样
+  }
+  if (seq !== estimateSeq) return;
+  try {
+    const est = await post("/api/generate/estimate", request);
+    if (seq !== estimateSeq) return;
+    applyEstimate(est);
+  } catch {
+    /* 预估失败不影响生成, 保持原按钮文案 */
+  }
+}
+
+function applyEstimate(est) {
+  const btn = C.generateBtn;
+  if (!btn) return;
+  // 当前模型 + 当前"信息提取强度"下缺编码的条目 -> 卡片上打"需编码"
+  vibePendingIds = new Set(est.pending_ids || []);
+  vibeUnencodableIds = new Set(est.unencodable_ids || []);
+  syncVibeBadges();
+  if (est.is_relay) {
+    // 中转站按它自己的价格计费, Anlas 预估没有意义: 只提示张数
+    btn.textContent = "🚀 开始生成" + (est.count > 1 ? " × " + est.count : "");
+    btn.title = "中转站按它自己的价格计费, 这里不显示 Anlas 预估";
+    return;
+  }
+  // 统一成"🚀 开始生成: 20⚡": 0 就是 0, 不再写"免费" (和实际扣费口径一致)
+  const total = Number(est.anlas) || 0;
+  btn.textContent = "🚀 开始生成: " + total + "⚡";
+
+  const encode = (est.parts && est.parts.encode) || 0;
+  const bits = [];
+  if (est.count > 1) bits.push("共 " + est.count + " 张, 每张 " + est.per_image);
+  if (est.parts && est.parts.base) bits.push("基础 " + est.parts.base);
+  if (est.parts && est.parts.enhance) bits.push("Enhance +" + est.parts.enhance);
+  if (est.parts && est.parts.precise) bits.push("角色参考 +" + est.parts.precise);
+  if (est.parts && est.parts.vibe_extra) bits.push("超量 Vibe +" + est.parts.vibe_extra);
+  if (encode) bits.push("Vibe 编码 +" + encode);
+  if (est.pending_names && est.pending_names.length) bits.push("待编码: " + est.pending_names.join("、"));
+  // 明确的算式: 张数 x 每张 = 总数。用户看到"15"时能自己对上账,
+  // 不必再猜"是不是把一张参考算成三次"。
+  const lines = [];
+  if (est.count > 1) {
+    lines.push("算式: " + est.count + " 张 × 每张 " + est.per_image + " = " + total);
+  }
+  const detail = [];
+  if (est.parts && est.parts.base) detail.push("基础 " + (est.parts.base / (est.count || 1)) + "/张");
+  if (est.enhance) detail.push("已含 Enhance");
+  if (est.precise_count) detail.push("角色参考 " + est.precise_count + " 张 × " + 5);
+  if (est.vibe_count > 4) detail.push("Vibe " + est.vibe_count + " 个 (超出 4 个的部分 +2/个)");
+  if (encode) detail.push("待编码 " + (est.pending_encodes || 0) + " 个 × 2");
+  if (detail.length) lines.push(detail.join(" · "));
+  if (total === 0) lines.push("本次不扣点数 (订阅免费区间)");
+  else if (est.free_reason) lines.push("超出免费区间: " + est.free_reason);
+  lines.push("预估仅供参考, 实际以 NovelAI 扣费为准");
+  btn.title = lines.join("\n");
+}
+
+// ---------------- Vibe 素材库选择器 ----------------
+
+/** 读取 Vibe 库并渲染选择列表 (force=true 时忽略缓存)。 */
+async function loadVibeLib(force = false) {
+  if (!force && vibeLibItems.length) { renderVibeCards(); return; }
+  try {
+    const res = await get("/api/vibes");
+    vibeLibItems = res.items || [];
+    // 库里已经没有的条目要从选择里剔除, 否则会带着一个无效 id 去生成
+    const alive = new Set(vibeLibItems.map((i) => i.id));
+    for (const id of [...vibeLibSelected.keys()]) {
+      if (alive.has(id)) continue;
+      vibeLibSelected.delete(id);
+      vibeLibInfo.delete(id);
+    }
+    renderVibeCards();
+  } catch (e) {
+    toast("读取 Vibe 库失败: " + e.message, "error");
+  }
+}
+
+/** 打开"只显示 Vibe 库"的窗口 (复用素材库弹窗, 但隐藏提示词编辑器与另两个库)。 */
+function openVibeLibrary() {
+  // 弹窗需要一个 source 输入框做提示词同步; Vibe 模式用不到, 给个游离的 textarea 即可
+  openWildcardsModal(document.createElement("textarea"), { only: "vibes" });
+}
+
+/** 素材库 Vibe 库 "添加选中" -> 加进风格迁移并启用。 */
+async function addVibesToSelection(ids) {
+  if (!Array.isArray(ids) || !ids.length) return;
+  if (!vibeLibItems.length) await loadVibeLib(true);
+  let n = 0;
+  for (const id of ids) {
+    const item = vibeLibItems.find((x) => x.id === id);
+    if (!item) continue;
+    vibeLibSelected.set(id, Number(item.strength) || 0.6);
+    // 用条目自己的信息提取强度, 才能直接命中已有编码 (不要用默认 1.0)
+    vibeLibInfo.set(id, item.information != null ? Number(item.information) : 1);
+    vibeLibDisabled.delete(id);
+    n++;
+  }
+  if (!n) return;
+  renderVibeCards();
+  updateRefVisibility();
+  scheduleEstimate();
+}
+
+/** 上传区: 支持 .vibe / .naiv4vibebundle 文件, 以及 jpg / png / webp 图片 (这三种图片可存元数据)。 */
+function vibeUploadZone(onFiles) {
+  const wrap = el("div", { class: "field" });
+  const zone = el("div", { class: "img-drop-zone vibe-up-zone" }, [
+    el("div", { class: "img-drop-empty", html: "🎭<br>点击或拖入 .vibe / .naiv4vibebundle / 图片 (jpg·png·webp)" }),
+  ]);
+  const input = el("input", {
+    type: "file", multiple: true, style: "display:none;",
+    accept: ".vibe,.naiv4vibe,.naiv4vibebundle,.json,image/png,image/jpeg,image/webp",
+  });
+  zone.addEventListener("click", () => input.click());
+  input.addEventListener("change", () => {
+    const files = [...(input.files || [])];
+    if (files.length) onFiles(files);
+    input.value = "";
+  });
+  zone.addEventListener("dragover", (e) => { e.preventDefault(); zone.classList.add("dragging"); });
+  zone.addEventListener("dragleave", () => zone.classList.remove("dragging"));
+  zone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    zone.classList.remove("dragging");
+    const files = [...((e.dataTransfer && e.dataTransfer.files) || [])];
+    if (files.length) onFiles(files);
+  });
+  wrap.append(zone, input);
+  return { node: wrap };
+}
+
+/** 上传处理: 文件导入素材库 -> 自动落「默认」分类 -> 立刻选中并显示卡片。 */
+async function handleVibeUpload(files) {
+  const model = C.model.get();
+  const DOC_RE = /\.(vibe|naiv4vibe|naiv4vibebundle|json)$/i;
+  const IMG_RE = /\.(png|jpe?g|webp)$/i;
+  const docs = files.filter((f) => DOC_RE.test(f.name));
+  const imgs = files.filter((f) => IMG_RE.test(f.name));
+  const unknown = files.filter((f) => !DOC_RE.test(f.name) && !IMG_RE.test(f.name));
+  if (unknown.length) {
+    toast("不支持的文件: " + unknown.map((f) => f.name).join("、") + " (支持 .vibe / .naiv4vibebundle / jpg·png·webp)", "warning");
+  }
+  const added = [];
+
+  if (docs.length) {
+    const form = new FormData();
+    docs.forEach((f) => form.append("files", f));
+    try {
+      const res = await fetch("/api/vibes/import?category=" + encodeURIComponent(VIBE_DEFAULT_CATEGORY), { method: "POST", body: form });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "导入失败");
+      (data.added || []).forEach((x) => added.push(x));
+      const skipped = data.skipped || [];
+      if (skipped.length) toast("有 " + skipped.length + " 个文件没读到编码, 已跳过", "warning");
+    } catch (e) { toast("导入 Vibe 文件失败: " + e.message, "error"); }
+  }
+
+  if (imgs.length) {
+    // 先探测: 图里自带编码就直接入库 (免费); 没有编码就**只在本次会话里暂存**,
+    // 不写入素材库 —— 等生成时编码成功后再入库 (见 resolveStagedVibes)。
+    const form = new FormData();
+    imgs.forEach((f) => form.append("files", f));
+    const url = "/api/vibes/import-image?encode=false"
+      + "&category=" + encodeURIComponent(VIBE_DEFAULT_CATEGORY)
+      + "&model=" + encodeURIComponent(model);
+    try {
+      const res = await fetch(url, { method: "POST", body: form });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "导入失败");
+      (data.results || []).filter((r) => r.ok && r.item).forEach((r) => added.push(r.item));
+
+      const bad = (data.results || []).filter((r) => !r.ok && !r.needs_encode);
+      if (bad.length) {
+        toast(bad.map((r) => "・" + r.file + ": " + (r.message || "导入失败")).join("\n"), "error", 12000);
+      }
+
+      // 没有编码的图片: 暂存到本页, 生成时才编码并入库
+      const need = (data.results || []).filter((r) => r.needs_encode);
+      for (const r of need) {
+        const file = imgs.find((f) => f.name === r.file) || imgs[0];
+        if (!file) continue;
+        await stageImage(file, model);
+      }
+    } catch (e) { toast("导入图片失败: " + e.message, "error"); }
+  }
+  if (!added.length) return;
+  await loadVibeLib(true);
+  for (const it of added) {
+    if (!it || !it.id) continue;
+    // 以刷新后的库数据为准 (含 strength / information): 滑条初值必须等于库里
+    // 存编码时用的"信息提取强度", 否则会被判成"需编码"而白花 2 Anlas 重编码。
+    const full = vibeLibItems.find((x) => x.id === it.id) || it;
+    vibeLibSelected.set(full.id, Number(full.strength) || 0.6);
+    vibeLibInfo.set(full.id, full.information != null ? Number(full.information) : 1);
+    vibeLibDisabled.delete(full.id);
+  }
+  renderVibeCards();
+  updateRefVisibility();
+  scheduleEstimate();
+  toast("已导入 " + added.length + " 个 Vibe 到素材库「" + VIBE_DEFAULT_CATEGORY + "」分类", "success");
+}
+
+/** 已选 Vibe 的卡片: 启用勾选框 + 缩略图 + 两个滑条 + "需编码"提示。 */
+function renderVibeCards() {
+  if (!vibeCardsEl || !vibeCardsEl.isConnected) return;
+  clear(vibeCardsEl);
+  if (!vibeLibSelected.size) return;   // 没有选中就不显示占位文案 (避免堆一排空提示)
+  for (const [id] of [...vibeLibSelected]) {
+    const stagedOne = vibeStaged.get(id);
+    const item = stagedOne
+      ? { id, name: stagedOne.name, thumbnail: stagedOne.image,
+          information: stagedOne.information, strength: stagedOne.strength }
+      : vibeLibItems.find((i) => i.id === id);
+    if (!item) continue;
+    const card = el("div", { class: "vibe-sel-card", "data-vibe-id": id });
+    if (vibePendingIds.has(id)) card.classList.add("need-encode");
+    if (vibeLibDisabled.has(id)) card.classList.add("is-off");
+
+    // 注意: el() 对属性用 setAttribute, checked:false 会写成 checked="false",
+    // 而 HTML 里只要该属性存在就算勾选 —— 所以必须创建后再赋 property。
+    const box = el("input", { type: "checkbox" });
+    box.checked = !vibeLibDisabled.has(id);
+    box.addEventListener("change", () => {
+      // 取消勾选只表示"这次生成不用它", 卡片和图片都保留 (再勾回来即可)
+      if (box.checked) vibeLibDisabled.delete(id);
+      else vibeLibDisabled.add(id);
+      renderVibeCards();
+      updateRefVisibility();
+      scheduleEstimate();
+    });
+    const thumb = item.thumbnail
+      ? el("img", { class: "vibe-sel-thumb", src: item.thumbnail, alt: item.name, loading: "lazy" })
+      : el("div", { class: "vibe-sel-thumb vibe-sel-ph", text: "🎭" });
+    const badge = el("span", {
+      class: "vibe-need-badge",
+      text: vibeUnencodableIds.has(id) ? "模型不支持编码" : "需编码",
+    });
+    badge.title = vibeUnencodableIds.has(id)
+      ? "当前模型不能现场编码 Vibe (只有 V4 / V4.5 系列支持), 这次生成会跳过它"
+      : "当前模型 + 这个信息提取强度还没有编码, 生成前会现场编码 (2 Anlas)";
+    badge.style.display = vibePendingIds.has(id) ? "" : "none";
+
+    const info = sliderRow({ min: 0, max: 1, step: 0.01, value: vibeLibInfo.get(id) ?? 1 });
+    const strength = sliderRow({ min: 0, max: 1, step: 0.01, value: vibeLibSelected.get(id) ?? 0.6 });
+    const onInfo = () => { vibeLibInfo.set(id, info.get()); scheduleEstimate(); };
+    const onStrength = () => { vibeLibSelected.set(id, strength.get()); };
+    info.input.addEventListener("input", onInfo);
+    info.num.addEventListener("input", onInfo);
+    info.num.addEventListener("change", onInfo);
+    strength.input.addEventListener("input", onStrength);
+    strength.num.addEventListener("input", onStrength);
+    strength.num.addEventListener("change", onStrength);
+
+    card.append(
+      el("div", { class: "vibe-sel-head" }, [
+        el("label", { class: "vibe-sel-check" }, [box, el("span", { text: "启用" })]),
+        thumb,
+        el("span", { class: "vibe-sel-name", text: item.name, title: item.name }),
+        badge,
+        el("button", {
+          class: "vibe-sel-del", text: "🗑️", title: "从本次生成中移除",
+          onclick: () => {
+            vibeLibSelected.delete(id);
+            vibeLibInfo.delete(id);
+            vibeLibDisabled.delete(id);
+            vibeStaged.delete(id);
+            renderVibeCards();
+            updateRefVisibility();
+            scheduleEstimate();
+          },
+        }),
+      ]),
+      el("div", { class: "vibe-sel-sliders" }, [
+        el("div", { class: "field" }, [el("label", { text: "信息提取强度" }), info.node]),
+        el("div", { class: "field" }, [el("label", { text: "参考强度" }), strength.node]),
+      ]),
+    );
+    vibeCardsEl.append(card);
+  }
+}
+
+/** 只更新"需编码"徽标, 不重建卡片 (否则拖动滑条会失焦)。 */
+function syncVibeBadges() {
+  if (!vibeCardsEl || !vibeCardsEl.isConnected) return;
+  for (const card of vibeCardsEl.querySelectorAll("[data-vibe-id]")) {
+    const need = vibePendingIds.has(card.dataset.vibeId);
+    card.classList.toggle("need-encode", need);
+    const badge = card.querySelector(".vibe-need-badge");
+    if (!badge) continue;
+    badge.style.display = need ? "" : "none";
+    const unsupported = vibeUnencodableIds.has(card.dataset.vibeId);
+    badge.textContent = unsupported ? "模型不支持编码" : "需编码";
+    badge.title = unsupported
+      ? "当前模型不能现场编码 Vibe (只有 V4 / V4.5 系列支持), 这次生成会跳过它"
+      : "当前模型 + 这个信息提取强度还没有编码, 生成前会现场编码 (2 Anlas)";
+  }
+}
+
+/** 读文件为 dataURL (暂存图片要用它发给后端编码)。 */
+function readAsDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result || ""));
+    fr.onerror = () => reject(new Error("读取图片失败"));
+    fr.readAsDataURL(file);
+  });
+}
+
+/** 暂存一张没有编码的图片: 只放本页内存, 不写素材库; 生成时再编码入库。 */
+async function stageImage(file) {
+  let dataUrl;
+  try {
+    dataUrl = await readAsDataURL(file);
+  } catch (e) {
+    toast("读取图片失败: " + e.message, "error");
+    return;
+  }
+  const id = "staged-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 6);
+  vibeStaged.set(id, {
+    name: file.name.replace(/\.[^.]+$/, ""),
+    image: dataUrl,
+    information: 1,
+    strength: 0.6,
+  });
+  vibeLibSelected.set(id, 0.6);
+  vibeLibInfo.set(id, 1);
+  vibeLibDisabled.delete(id);
+  renderVibeCards();
+  updateRefVisibility();
+  scheduleEstimate();
+  toast("这张图片不含编码, 已暂存; 生成时会编码 (2 Anlas) 并自动入库", "info", 12000);
+}
+
+/** 生成结束后: 暂存图片已被后端编码入库, 把卡片换成库里的条目 (之后就能免费用)。 */
+async function resolveStagedVibes() {
+  if (!vibeStaged.size) return;
+  let swapped = 0;
+  for (const [id, one] of [...vibeStaged]) {
+    try {
+      const blob = await (await fetch(one.image)).blob();
+      const form = new FormData();
+      form.append("file", blob, (one.name || "staged") + ".png");
+      const res = await fetch("/api/vibes/find-by-image", { method: "POST", body: form });
+      if (!res.ok) continue;
+      const data = await res.json();
+      if (!data.found || !data.item) continue;
+      const lib = data.item;
+      const strength = Number(vibeLibSelected.get(id) ?? lib.strength) || 0.6;
+      const info = vibeLibInfo.get(id) ?? (lib.information != null ? Number(lib.information) : 1);
+      vibeStaged.delete(id);
+      vibeLibSelected.delete(id);
+      vibeLibInfo.delete(id);
+      vibeLibSelected.set(lib.id, Number(strength) || 0.6);
+      vibeLibInfo.set(lib.id, Number(info));
+      vibeLibDisabled.delete(lib.id);
+      swapped++;
+    } catch { /* 归位失败不影响生成结果 */ }
+  }
+  if (!swapped) return;
+  await loadVibeLib(true);
+  renderVibeCards();
+  scheduleEstimate();
+  toast("已把 " + swapped + " 张暂存图片的编码存入素材库", "success");
+}
+
+/** 已选的库条目 -> collectRequest 用的 vibe 字段。 */
+function vibeLibPayload(forEstimate = false) {
+  if (!vibeLibSelected.size) return null;
+  const strengths = {};
+  const informations = {};
+  const ids = [];
+  const staged = [];
+  for (const [id, strength] of vibeLibSelected) {
+    if (vibeLibDisabled.has(id)) continue;   // 停用的条目仍然占着卡片, 但不参与生成
+    if (vibeStaged.has(id)) {
+      const one = vibeStaged.get(id);
+      // 预演只报"要花 2 Anlas", 不传图片本体 (否则每次改滑条都要发几 MB)
+      staged.push(forEstimate
+        ? { id, name: one.name }
+        : { id, name: one.name, image: one.image, information: vibeLibInfo.get(id) ?? one.information,
+            strength });
+      continue;
+    }
+    ids.push(id);
+    strengths[id] = strength;
+    informations[id] = vibeLibInfo.get(id) ?? 1;
+  }
+  if (!ids.length && !staged.length) return null;
+  // informations: 每条 Vibe 自己的"信息提取强度"。后端按 (模型, 该数值) 精确查编码,
+  // 改了这个值就必须重新编码 —— 与官网行为一致。
+  const out = { library_ids: ids, strengths, informations };
+  if (staged.length) out.staged = staged;
+  return out;
+}
+/** 打开"只显示 Vibe 库"的窗口 (复用素材库弹窗, 但隐藏提示词编辑器与另两个库)。 */
 // ---------------- Row2 左: 页签 ----------------
 
 /** nai3 风格迁移编辑器: 图片放左半 (支持拖拽), 信息/画风强度放右半左对齐。 */
 function buildVibeEditor(container) {
-  const items = []; // {node, dz, info, style}
+  const items = []; // {node, dz, info, style, enabled}
   const state = { count: 0 };
   const max = 10;
   function createItem(idx) {
     const dz = imageDropZone({ label: "参考图 #" + (idx + 1), placeholder: "点击选择或拖入图片", native: true });
     const info = sliderRow({ min: 0, max: 1, step: 0.01, value: 1 });
     const style = sliderRow({ min: 0, max: 1, step: 0.01, value: 0.6 });
+    // 启用复选框 (与 V4/V5 的卡片一致): 取消勾选只是这次生成不用它, 图片和参数都保留
+    const enabled = el("input", { type: "checkbox" });   // 同上: 用 property 而不是属性
+    enabled.checked = true;
+    const head = el("div", { class: "vibe-item-head" }, [
+      el("label", { class: "vibe-sel-check" }, [enabled, el("span", { text: "启用" })]),
+    ]);
     const item = el("div", { class: "vibe-item" }, [
       el("div", { class: "vibe-left" }, [dz.node]),
       el("div", { class: "vibe-right" }, [
+        head,
         el("div", { class: "field" }, [el("label", { text: "信息提取强度" }), info.node]),
         el("div", { class: "field" }, [el("label", { text: "画风参考强度" }), style.node]),
       ]),
     ]);
-    return { node: item, dz, info, style };
+    enabled.addEventListener("change", () => {
+      item.classList.toggle("is-off", !enabled.checked);
+      scheduleEstimate();
+    });
+    return { node: item, dz, info, style, enabled };
   }
   function render() {
-    // 先保存当前各参考图的值 (图片/强度), 重建后恢复, 避免添加/删除导致已添加的图片丢失
-    const saved = items.map((it) => ({ path: it.dz.get(), info: it.info.get(), style: it.style.get() }));
+    // 先保存当前各参考图的值 (图片/强度/启用), 重建后恢复, 避免添加/删除导致已添加的图片丢失
+    const saved = items.map((it) => ({
+      path: it.dz.get(), info: it.info.get(), style: it.style.get(), enabled: it.enabled.checked,
+    }));
     clear(container);
     items.length = 0;
     const btnRow = el("div", { style: "display:flex;gap:8px;margin-bottom:10px;" }, [
@@ -856,6 +1363,8 @@ function buildVibeEditor(container) {
         if (v.path) it.dz.set(v.path);
         it.info.set(v.info);
         it.style.set(v.style);
+        it.enabled.checked = v.enabled !== false;
+        it.node.classList.toggle("is-off", !it.enabled.checked);
       }
       items.push(it);
       container.append(it.node);
@@ -863,7 +1372,12 @@ function buildVibeEditor(container) {
   }
   render();
   return {
-    getItems: () => items.map((it) => ({ path: it.dz.get(), information_strength: it.info.get(), style_strength: it.style.get() })),
+    getItems: () => items.map((it) => ({
+      path: it.dz.get(),
+      information_strength: it.info.get(),
+      style_strength: it.style.get(),
+      enabled: it.enabled.checked,
+    })),
     setItems: (arr) => {
       state.count = Math.min(max, arr.length);
       render();
@@ -873,6 +1387,7 @@ function buildVibeEditor(container) {
         if (v.path) it.dz.set(v.path);
         if (v.information_strength != null) it.info.set(v.information_strength);
         if (v.style_strength != null) it.style.set(v.style_strength);
+        if (v.enabled === false) { it.enabled.checked = false; it.node.classList.add("is-off"); }
       });
     },
   };
@@ -969,23 +1484,55 @@ function buildLeftTabs(saved) {
       { id: "fidelity", label: "Fidelity", type: "slider", min: 0, max: 1, step: 0.05, default: 1 },
       { id: "mode", label: "模式", type: "select", options: S.app.cr_modes, default: "character&style" },
     ],
-    onChange: () => updateVibeVisibility(),
+    onChange: () => {
+      updateVibeVisibility();
+      scheduleEstimate();
+    },
   });
   refSection.append(refWrap);
   bodies[2].append(refSection);
 
   // 4. 风格迁移
+  // 上传入口支持三种来源: .vibe / .naiv4vibebundle 文件, 以及 jpg·png·webp 图片
+  // (这三种图片格式能存元数据, 所以可以直接从图里读出编码)。
+  // 无论哪种, 都先落素材库「默认」分类, 再作为库引用参与生成 —— 同一个 Vibe
+  // 换模型后还能复用编码, 也方便在素材库里统一管理。
   vibeBundleRow = el("div", { class: "card", style: "margin:0;" }, [
-    el("div", { class: "card-title" }, ["🎭 风格迁移 (Vibe)"]),
+    el("div", { class: "card-title wc-title-row" }, [
+      el("span", { text: "🎭 风格迁移 (Vibe)" }),
+      el("span", { class: "spacer" }),
+      el("button", {
+        class: "btn btn-sm", text: "🎭 Vibe 库",
+        title: "打开 Vibe 素材库 (只显示 Vibe 库, 可多选后添加)",
+        onclick: () => openVibeLibrary(),
+      }),
+    ]),
   ]);
-  C.vibeBundle = fileDropZone({
-    label: "📦 *.naiv4vibebundle 文件",
-    placeholder: "点击选择或拖入 .naiv4vibebundle 文件",
-    accept: ".naiv4vibebundle,.json",
-    onChange: () => updateRefVisibility(),
-  });
+  const vibeUpload = vibeUploadZone(handleVibeUpload);
+  vibeCardsEl = el("div", { class: "vibe-cards" });
   C.vibeNormalize = field("🔁 Normalize Reference Strength", "checkbox", { value: true });
-  vibeBundleRow.append(C.vibeBundle.node, C.vibeNormalize.node);
+  const vibeLibHint = el("div", { class: "muted vibe-lib-hint" },
+    ["上传后自动提取编码并存入素材库「默认」分类; 换模型或改动「信息提取强度」后需要重新编码 (每个 2 Anlas)"]);
+  vibeBundleRow.append(
+    vibeUpload.node,
+    vibeLibHint,
+    C.vibeNormalize.node,   // 放在卡片区之上: 始终位于第一个 Vibe 上方
+    vibeCardsEl,
+  );
+  // 兼容既有调用点 (隐藏"角色参考"页签 / 重置时清空选择): 用一个轻量对象冒充原来的 fileDropZone
+  C.vibeBundle = {
+    node: vibeUpload.node,
+    get: () => [...vibeLibSelected.keys()].some((id) => !vibeLibDisabled.has(id)),
+    set: () => {
+      vibeLibSelected.clear();
+      vibeLibInfo.clear();
+      vibeLibDisabled.clear();
+      renderVibeCards();
+          updateRefVisibility();
+      scheduleEstimate();
+    },
+  };
+  loadVibeLib();
 
   nai3VibeRow = el("div", { class: "card hidden", style: "margin:0;margin-top:10px;" }, [
     el("div", { class: "card-title" }, ["🎭 风格迁移 (Vibe)"]),
@@ -998,6 +1545,9 @@ function buildLeftTabs(saved) {
   // 关键: 把页签内容插入 DOM
   wrap.append(...bodies);
 
+  // 参考图 / 角色 / 图生图这些控件不是统一字段, 用事件委托兜住
+  wrap.addEventListener("input", () => scheduleEstimate());
+  wrap.addEventListener("change", () => scheduleEstimate());
   return wrap;
 }
 
@@ -1163,6 +1713,8 @@ function buildRightPanel() {
     ]),
   ]);
   genGalleryEl = el("div", { class: "gallery", style: "flex:1;" });
+  // 生图过程可见: 每步的预览帧画在这里 (生成结束后自动收起)
+  previewBox = el("div", { class: "gen-preview hidden" });
   // 两个"发送"按钮放在同一行, 右侧留出"打开保存目录"按钮
   sendBtn = el("button", { class: "btn btn-sm hidden", text: "📤 发送到图生图" });
   sendPnginfoBtn = el("button", { class: "btn btn-sm hidden", text: "🔮 发送到法术解析" });
@@ -1174,7 +1726,7 @@ function buildRightPanel() {
     openDirBtn,
   ]);
   infoEl = el("div", { class: "info-box", style: "margin-top:10px;" });
-  card.append(genGalleryEl, btnRow, infoEl);
+  card.append(previewBox, genGalleryEl, btnRow, infoEl);
   return card;
 }
 
@@ -1566,7 +2118,11 @@ function updateResHint() {
 }
 
 function bindEvents() {
-  C.model.input?.addEventListener("change", () => applyModelChange());
+  C.model.input?.addEventListener("change", () => {
+    applyModelChange();
+    // 模型变了: Vibe 库条目对当前模型的"需编码"标记要跟着刷新, 费用也会变
+      scheduleEstimate();
+  });
   C.resolution.input?.addEventListener("change", () => {
     const res = C.resolution.get();
     if (res && res !== "自定义") {
@@ -1601,6 +2157,8 @@ function bindEvents() {
   C.height.input?.addEventListener("change", () => snap64(C.height, "高"));
   C.sm.input?.addEventListener("change", () => setVisible(C.smDyn, isNai3(C.model.get()) && C.sm.get()));
   C.generateBtn.addEventListener("click", onGenerate);
+  wireEstimateTriggers();
+  scheduleEstimate();
   C.stopBtn.addEventListener("click", async () => {
     try {
       // 后端把"运行中 + 还在排队的图片生成任务"一起停掉, 返回实际处理的任务数;
@@ -1651,9 +2209,21 @@ function updateInpaintVisibility() {
 
 // ---------------- 收集请求 ----------------
 
-async function collectRequest() {
-  const inpaint = editor.hasImage() ? await editor.exportImages() : null;
-  if (inpaint) {
+async function collectRequest({ forEstimate = false } = {}) {
+  // 费用预估只需要知道"用不用图生图 / 强度多少", 不需要把整张图 base64 出去:
+  // exportImages 每次都要导出图片 + 蒙版 (可达数 MB), 拖一下滑块就触发一次会明显卡顿,
+  // 而且这些字节对算价毫无用处。
+  let inpaint;
+  if (!editor.hasImage()) {
+    inpaint = null;
+  } else if (forEstimate) {
+    inpaint = {
+      strength: C.inpaintStrength.get(),
+      noise: C.inpaintNoise.get(),
+      mask_strength: C.maskStrength.get(),
+    };
+  } else {
+    inpaint = await editor.exportImages();
     inpaint.strength = C.inpaintStrength.get();
     inpaint.noise = C.inpaintNoise.get();
     inpaint.mask_strength = C.maskStrength.get();
@@ -1665,12 +2235,18 @@ async function collectRequest() {
     .map((c, i) => ({ ...c, position: charPositions[i] ?? c.position ?? "A1" }))
     .filter((c) => c.enabled);
   const references = refList.getItems();
-  const vibeImages = vibeList.getItems().filter((v) => v.path);
+  const vibeImages = vibeList.getItems().filter((v) => v.path && v.enabled !== false);
 
   const isNai3Model = isNai3(C.model.get());
+  const libVibe = vibeLibPayload(forEstimate);
   const vibe = isNai3Model
     ? { images: vibeImages, normalize: true }
-    : { bundle_path: C.vibeBundle.get() || null, normalize: C.vibeNormalize.get() };
+    : {
+        bundle_path: null,   // 上传的文件都先进素材库, 生成时只按 library_ids 传
+        normalize: C.vibeNormalize.get(),
+        // 素材库里勾选的条目 (id + 强度), 后端解析成编码并处理缺失模型编码
+        ...(libVibe || {}),
+      };
 
   return {
     model: C.model.get(),
@@ -1704,6 +2280,21 @@ async function collectRequest() {
     references,
     vibe,
   };
+}
+
+/** 把"会影响费用"的控件都挂上预估刷新 (参数/分辨率/步数/张数/SMEA/参考/Vibe)。 */
+function wireEstimateTriggers() {
+  const watch = [C.model, C.width, C.height, C.steps, C.quantity, C.sm, C.smDyn, C.seed, C.scale];
+  for (const f of watch) {
+    const node = f?.node;
+    if (!node) continue;
+    node.addEventListener("input", scheduleEstimate);
+    node.addEventListener("change", scheduleEstimate);
+  }
+  // 分辨率预设会改写宽高, 单独再挂一次 (它走的是自己的 change)
+  C.resolution?.node?.addEventListener("change", () => setTimeout(scheduleEstimate, 30));
+  C.enhance?.node?.addEventListener("change", scheduleEstimate);
+  C.enhanceAmount?.node?.addEventListener("change", scheduleEstimate);
 }
 
 async function onGenerate() {
@@ -1743,8 +2334,10 @@ async function onGenerate() {
     const res = await post("/api/generate", request);
     if (res.position && res.position > 1) {
       infoEl.textContent = "🚦 已加入生图队列, 当前第 " + res.position + " 位, 等待前面的任务完成...";
+      previewJobId = res.job_id;
       toast(`已加入生图队列 (第 ${res.position} 位): ${res.job_id}`, "info", 5000);
     } else {
+      previewJobId = res.job_id;
       toast(`生成任务已启动: ${res.job_id}`, "success");
     }
   } catch (e) {
@@ -1907,3 +2500,6 @@ export function setGenerateState(state, opts = {}) {
     ));
   }
 }
+
+// 素材库的 Vibe 库点"添加选中" -> 通过 bus 送到这里 (两个窗口共用同一份素材库)
+bus.on("vibes:add", (ids) => { addVibesToSelection(ids); });

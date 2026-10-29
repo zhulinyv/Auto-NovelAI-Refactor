@@ -7,7 +7,7 @@
 //         选择按分类分桶保存, 切换分类不清其它分类的选中, 可跨分类 "添加选中"。
 //   封面约定: 卡片同目录下的 <名称>.png/jpg/webp 即为其封面
 // ============================================================
-import { $, $$, el, clear, toast, confirmDialog, wireAutocomplete, wildcardsButton, edgeScroll } from "../ui.js";
+import { $, $$, el, clear, toast, confirmDialog, inputDialog, wireAutocomplete, wildcardsButton, edgeScroll } from "../ui.js";
 import { get, post, del, imageUrl } from "../api.js";
 import { getCurrentOutputImage } from "./generate.js";
 import { builtinPromptGroups, LEGACY_CATEGORY_NAMES } from "../data/builtinPrompts.js";
@@ -52,7 +52,22 @@ export const promptSelection = {
   onChange(fn) { this._listeners.add(fn); },
 };
 
-/** 弹窗面板当前所在的库 (cards / prompts), 弹窗共用按钮据此切换作用对象 */
+/** Vibe 库当前多选的条目 id (弹窗的 "添加选中" 据此把它们送进生成页的风格迁移)。 */
+export const vibeSelection = {
+  ids: [],
+  _listeners: new Set(),
+  set(ids) {
+    this.ids = ids || [];
+    for (const fn of this._listeners) {
+      try { fn(this.ids); } catch { /* 忽略监听器异常 */ }
+    }
+  },
+  clear() { this.set([]); },
+  count() { return this.ids.length; },
+  onChange(fn) { this._listeners.add(fn); },
+};
+
+/** 弹窗面板当前所在的库 (cards / prompts / vibes), 弹窗共用按钮据此切换作用对象 */
 export const activeLib = {
   lib: "cards",
   _listeners: new Set(),
@@ -76,6 +91,7 @@ export async function renderPanel(container, ctx, opts = {}) {
   clear(container);
   cardSelection.set({});
   promptSelection.set([]);
+  vibeSelection.set([]);
   activeLib.set("cards");
   let selection = new Set();       // 当前分类的选中卡片 (与 cardSelection.map[state.type] 同步)
   const selectionStore = new Map(); // 分类 -> Set<卡片名>: 跨分类保留选择
@@ -97,6 +113,7 @@ export async function renderPanel(container, ctx, opts = {}) {
   const libTabs = el("div", { class: "wc-lib-tabs" }, [
     el("button", { class: "tab-btn active", text: "🗂️ 卡片库", onclick: () => switchLib("cards") }),
     el("button", { class: "tab-btn", text: "📚 提示词库", onclick: () => switchLib("prompts") }),
+    el("button", { class: "tab-btn", text: "🎭 Vibe 库", onclick: () => switchLib("vibes") }),
   ]);
   // 分类栏启用横向滚动: 分类多到放不下时不再换行把版面撑高,
   // 而是在一行内滚 (两端渐隐箭头, 悬停自动滚; "分类" 前缀固定在左不随内容滚)
@@ -189,18 +206,55 @@ export async function renderPanel(container, ctx, opts = {}) {
     plSelText,
   ]);
 
+  // ---------------- Vibe 库 (第三个库): 分类 + 编码文件与图片导入 ----------------
+  let vibeLoaded = false;
+  let vibeItems = [];
+  let vibeCategories = ["默认"];
+  let vibeType = "默认";          // 当前选中的分类 (与卡片库的 state.type 同义)
+  let vibeKeyword = "";           // 搜索词 (只在当前分类内过滤, 与卡片库一致)
+  let vibeImportCategory = null;  // 导入弹窗里选/填的分类 (为空时用 vibeType)
+  const vibeGrid = el("div", { class: "wc-vibe-grid" });
+  const vibeHint = el("div", { class: "muted", style: "padding:6px 2px;", text: "" });
+  /** 当前默认分类名: 后端把 categories[0] 当作默认分类, 它可以被删 (会换成剩下的第一个) */
+  const vibeDefaultCat = () => vibeCategories[0] || "默认";
+  // 搜索: 放在分类页签下方, 与卡片库/提示词库同一套视觉与防抖
+  const vibeSearchBox = el("input", {
+    type: "text",
+    class: "wc-search",
+    placeholder: "🔍 搜索 Vibe 名称...",
+  });
+  // 分类页签栏: 与卡片库/提示词库同一套视觉 (可横向滚动)
+  const vibeTypesEl = el("div", { class: "wc-types" });
+  const vibeTypeScroller = edgeScroll(vibeTypesEl, { label: "分类" });
+  const vibesFileInput = el("input", { type: "file", accept: ".naiv4vibe,.naiv4vibebundle,.json", multiple: true, style: "display:none;" });
+  const vibesImageInput = el("input", { type: "file", accept: "image/png,image/jpeg,image/webp", multiple: true, style: "display:none;" });
+  const vibeAddBtn = el("button", {
+    class: "btn btn-sm hidden", text: "➕ 导入 Vibe",
+    onclick: () => vibeImportDialog(),
+  });
+  const vibeLibBox = el("div", { class: "hidden" }, [
+    vibeTypeScroller,
+    vibeSearchBox,
+    vibeHint,
+    vibeGrid,
+    vibesFileInput,
+    vibesImageInput,
+  ]);
+
   const createBtn = el("button", { class: "btn btn-sm", text: "➕ 新建卡片", onclick: () => { switchLib("cards"); showCreate(); } });
   const browseCard = el("div", { class: "card wc-browse" }, [
     el("div", { class: "wc-browse-head" }, [
       el("div", { class: "card-title", text: "🗂️ 素材库" }),
       countEl,
       el("span", { class: "spacer" }),
-      plAddBtn,      // 提示词库的入口 (与"新建卡片"同位, 由 switchLib 按当前库二选一显示)
+      plAddBtn,      // 提示词库的入口 (与"新建卡片"同位, 由 switchLib 按当前库三选一显示)
+      vibeAddBtn,    // Vibe 库的入口
       createBtn,     // 卡片库的入口
     ]),
     libTabs,
     cardLibBox,
     promptLibBox,
+    vibeLibBox,
   ]);
 
   const editCard = el("div", { class: "card wc-edit" });
@@ -240,25 +294,437 @@ export async function renderPanel(container, ctx, opts = {}) {
   // 否则会出现"在卡片库里挂着收藏提示词表单"这种错位 (面板内容与所在库不匹配)。
   let editLib = null;
 
+  // ---------------- Vibe 库: 列表 / 导入 / 编码 / 导出 / 删除 ----------------
+  // 三种导入来源都会落到同一个库里 (data/state/vibes/<id>.json, 缩略图是同名图片文件):
+  //   .naiv4vibe / .naiv4vibebundle  直接解析 (不花钱)
+  //   图片                            先读 PNG 元数据里的编码 (不花钱), 没有才按需编码 (2 Anlas)
+  async function loadVibes() {
+    try {
+      const res = await get("/api/vibes");
+      vibeItems = res.items || [];
+      vibeCategories = res.categories || ["默认"];
+      // 当前分类若已被删空, 回落到第一个可用分类
+      if (!vibeCategories.includes(vibeType)) vibeType = vibeCategories[0] || "默认";
+      renderVibes();
+    } catch (e) {
+      toast("读取 Vibe 库失败: " + e.message, "error");
+    }
+  }
+
+  /** 编辑按钮 -> 展开详情菜单 (导出 / 改名 / 换分类 / 补编码 都在这里) */
+  function editVibe(item) {
+    const overlay = el("div", {
+      style: "position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:5200;display:flex;align-items:center;justify-content:center;",
+    });
+    let closed = false;
+    const close = () => {
+      if (closed) return;
+      closed = true;
+      document.removeEventListener("keydown", onKey);
+      overlay.remove();
+    };
+    function onKey(e) { if (e.key === "Escape") close(); }
+
+    // 分类下拉: 直接列出现有分类, 选完立刻生效
+    const catSelect = el("select", { class: "wc-vibe-cat-select" });
+    const curCat = item.category || vibeDefaultCat();
+    const cats = [...new Set([...(vibeCategories || []), curCat])];
+    for (const c of cats) {
+      const opt = el("option", { value: c, text: c });
+      if (c === curCat) opt.selected = true;
+      catSelect.append(opt);
+    }
+    catSelect.addEventListener("change", async () => {
+      try {
+        const r = await post("/api/vibes/" + item.id + "/category", { category: catSelect.value });
+        vibeItems = r.items || vibeItems;
+        vibeCategories = r.categories || vibeCategories;
+        vibeType = catSelect.value;
+        renderVibes();
+        toast("已移到分类「" + catSelect.value + "」", "success");
+        close();
+      } catch (e) { toast(e.message, "error"); }
+    });
+
+    const rowBtn = (text, onclick, danger = false) =>
+      el("button", { class: "btn btn-sm" + (danger ? " btn-danger" : ""), text, onclick });
+
+    const box = el("div", { class: "card dialog-solid", style: "width:400px;animation:pop-in 0.2s ease;" }, [
+      el("div", { class: "card-title", text: "🎭 " + item.name }),
+      el("div", { class: "wc-vibe-detail" }, [
+        el("div", { class: "muted", text: "已有编码模型: " + vibeModelLabel(item.models) }),
+        el("div", { class: "muted", text: "信息提取: " + (item.information ?? "—") + " · 参考强度: " + (item.strength ?? "—") }),
+      ]),
+      el("div", { class: "field", style: "margin-top:10px;" }, [
+        el("label", { text: "所属分类" }),
+        catSelect,
+      ]),
+      el("div", { class: "wc-vibe-detail-actions" }, [
+        rowBtn("📤 导出 .naiv4vibe", () => { close(); exportVibe(item); }),
+        rowBtn("✏️ 重命名", () => { close(); renameVibe(item); }),
+        rowBtn("🗑️ 删除", () => { close(); deleteVibe(item); }, true),
+      ]),
+      el("div", { style: "display:flex;justify-content:flex-end;margin-top:14px;" }, [
+        el("button", { class: "btn btn-sm", text: "关闭", onclick: close }),
+      ]),
+    ]);
+    overlay.append(box);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+    document.addEventListener("keydown", onKey);
+    document.body.append(overlay);
+  }
+
+  function vibeModelLabel(models) {
+    return (models || []).join(" / ") || "未编码";
+  }
+
+  /** 搜索匹配: 只看名称 (不区分大小写)。 */
+  function vibeMatches(item, kw) {
+    return String(item.name || "").toLowerCase().includes(kw);
+  }
+
+  function renderVibes() {
+    clear(vibeGrid);
+    // 上方是分类页签 + 搜索框: 无关键词时只显示选中分类, 有关键词时跨分类匹配
+    renderVibeTypes();
+    const kw = vibeKeyword.trim().toLowerCase();
+    const inType = vibeItems.filter((it) => (it.category || vibeDefaultCat()) === vibeType);
+    // 有关键词时跨全部分类搜索: vibe 条目不多, "记得名字但忘了放哪个分类"才是常态
+    const shown = kw ? vibeItems.filter((it) => vibeMatches(it, kw)) : inType;
+    if (!vibeItems.length) {
+      vibeHint.textContent = "还没有 Vibe。点右上角「➕ 导入 Vibe」添加 .naiv4vibe / .naiv4vibebundle 文件, 或直接拖入图片。";
+    } else if (kw) {
+      vibeHint.textContent = "全部分类中匹配 " + shown.length + " / " + vibeItems.length + " 个 Vibe (关键词: " + vibeKeyword.trim() + ")";
+    } else {
+      vibeHint.textContent = "「" + vibeType + "」· " + inType.length + " / " + vibeItems.length + " 个 Vibe。导入的图片若没有现成编码, 需要按模型现场编码 (每次 2 Anlas)。";
+    }
+    if (!shown.length) {
+      const empty = !vibeItems.length
+        ? "点击右上角「➕ 导入 Vibe」开始"
+        : (kw ? "没有匹配的 Vibe" : "该分类暂无 Vibe");
+      vibeGrid.append(el("div", { class: "gallery-empty", text: empty }));
+      return;
+    }
+    for (const item of shown) {
+      const thumb = el("div", { class: "wc-vibe-thumb" });
+      if (item.thumbnail) {
+        thumb.append(el("img", { src: item.thumbnail, alt: item.name, loading: "lazy" }));
+      } else {
+        thumb.append(el("div", { class: "wc-vibe-ph", text: "🎭" }));
+      }
+      const models = el("div", { class: "muted", style: "font-size:11px;" },
+        ["模型: " + vibeModelLabel(item.models)]);
+      // 右上角两个按钮: ✏️ 展开详情菜单 (含导出) / 🗑️ 删除
+      const acts = el("div", { class: "wc-card-acts" });
+      const editBtn = el("button", { class: "wc-card-act", type: "button", text: "✏️", title: "编辑这个 Vibe" });
+      editBtn.addEventListener("click", (e) => { e.stopPropagation(); editVibe(item); });
+      const delBtn = el("button", { class: "wc-card-act wc-card-act-danger", type: "button", text: "🗑️", title: "删除这个 Vibe" });
+      delBtn.addEventListener("click", (e) => { e.stopPropagation(); deleteVibe(item); });
+      acts.append(editBtn, delBtn);
+      const card = el("div", { class: "wc-vibe-card" }, [
+        acts,
+        thumb,
+        el("div", { class: "wc-vibe-name", text: item.name, title: item.name }),
+        models,
+      ]);
+      // 单击多选 (与卡片库一致, 再点取消); 右上角按钮不算选中
+      if (vibeSelection.ids.includes(item.id)) card.classList.add("selected");
+      card.addEventListener("click", (e) => {
+        if (e.target.closest("button")) return;
+        const ids = new Set(vibeSelection.ids);
+        if (ids.has(item.id)) ids.delete(item.id);
+        else ids.add(item.id);
+        vibeSelection.set([...ids]);
+        card.classList.toggle("selected", ids.has(item.id));
+      });
+      vibeGrid.append(card);
+    }
+  }
+
+  // 搜索防抖: 与卡片库一致, 150ms 合并一次; 只重建网格, 不重新请求接口
+  let vibeSearchTimer = 0;
+  vibeSearchBox.addEventListener("input", () => {
+    clearTimeout(vibeSearchTimer);
+    vibeSearchTimer = setTimeout(() => {
+      vibeKeyword = vibeSearchBox.value;
+      renderVibes();
+    }, 150);
+  });
+
+  /** 分类页签 (可拖拽排序 / 双击改名 / 点 ➕ 新建) */
+  function renderVibeTypes() {
+    clear(vibeTypesEl);
+    for (const t of vibeCategories) {
+      const btn = el("button", {
+        class: "tab-btn" + (t === vibeType ? " active" : ""),
+        // 与卡片库/提示词库同款: 分类名前缀文件夹图标
+        text: "📁 " + t,
+        title: "点击切换分类; 双击改名",
+      });
+      btn.addEventListener("click", () => {
+        vibeType = t;
+        renderVibes();
+      });
+      btn.addEventListener("dblclick", async (e) => {
+        e.preventDefault();
+        const name = await inputDialog("重命名分类", t);
+        if (!name || name === t) return;
+        try {
+          const r = await post("/api/vibes/categories/rename", { from: t, to: name });
+          vibeCategories = r.categories || vibeCategories;
+          vibeItems = r.items || vibeItems;
+          vibeType = name;
+          renderVibes();
+        } catch (err) { toast(err.message, "error"); }
+      });
+      // 删除分类 (默认分类也能删): 分类连同其中的 Vibe 一起移入系统回收站 (与卡片库一致)
+      btn.append(el("span", {
+        class: "wc-type-del", text: "✕", title: "删除分类「" + t + "」(其中的 Vibe 会一起移入回收站)",
+        onclick: async (e) => {
+          e.stopPropagation();
+          const rest = vibeCategories.filter((c) => c !== t);
+          if (!rest.length) {
+            toast("至少要保留一个分类 —— 请先新建一个分类再删这个", "warning");
+            return;
+          }
+          const n = vibeItems.filter((x) => (x.category || vibeDefaultCat()) === t).length;
+          const okDel = await confirmDialog(
+            n
+              ? "确定删除分类「" + t + "」吗? 其中 " + n + " 个 Vibe 会一起移入系统回收站 (需要时可以从回收站恢复)。"
+              : "确定删除空分类「" + t + "」吗?",
+            { danger: true },
+          );
+          if (!okDel) return;
+          try {
+            const r = await post("/api/vibes/categories/delete", { category: t });
+            vibeItems = r.items || vibeItems;
+            vibeCategories = r.categories || vibeCategories;
+            if (vibeType === t) vibeType = vibeCategories[0] || "默认";
+            renderVibes();
+            toast(
+              "分类「" + t + "」已删除" + (r.moved ? ", " + r.moved + " 个 Vibe 已移入回收站" : ""),
+              "success",
+            );
+          } catch (err) { toast(err.message, "error"); }
+        },
+      }));
+      vibeTypesEl.append(btn);
+    }
+    // 分类末尾: 新建分类 (空分类会存进 vibes/_meta.json, 切走再回来还在)
+    vibeTypesEl.append(el("button", {
+      class: "wc-type-add", type: "button", text: "➕ 新建分类",
+      title: "新建一个空分类",
+      onclick: async () => {
+        const name = (await inputDialog("新建 Vibe 分类", ""))?.trim();
+        if (!name) return;
+        if (vibeCategories.includes(name)) { toast("分类「" + name + "」已存在", "warning"); return; }
+        try {
+          const r = await post("/api/vibes/categories", { category: name });
+          vibeCategories = r.categories || vibeCategories;
+          vibeType = name;
+          renderVibes();
+          toast("分类「" + name + "」已创建", "success");
+        } catch (e) { toast(e.message, "error"); }
+      },
+    }));
+  }
+
+  async function exportVibe(item) {
+    try {
+      const r = await post("/api/vibes/" + item.id + "/export");
+      toast(r.path ? "已导出: " + r.path : "已导出", "success");
+    } catch (e) { toast(e.message, "error"); }
+  }
+
+  async function renameVibe(item) {
+    const name = await inputDialog("重命名 Vibe", item.name);
+    if (!name) return;
+    try {
+      const r = await post("/api/vibes/" + item.id + "/rename", { name });
+      vibeItems = r.items || vibeItems;
+      renderVibes();
+    } catch (e) { toast(e.message, "error"); }
+  }
+
+  async function deleteVibe(item) {
+    if (!(await confirmDialog("确定删除「" + item.name + "」吗? 会连同缩略图与原图移入系统回收站, 需要时可以从回收站恢复。", { danger: true }))) return;
+    try {
+      const r = await del("/api/vibes/" + item.id);
+      vibeItems = r.items || vibeItems;
+      renderVibes();
+      toast("已移入回收站", "success");
+    } catch (e) { toast(e.message, "error"); }
+  }
+
+  /** 导入对话框: 让用户选"编码文件"还是"图片", 图片还会问要不要现在编码。
+   *
+   *  用独立弹窗而不是往 toast 里塞内容: toast 是 flex 横排 + max-width 380,
+   *  再 append 一整块 div 会把说明文字挤成一列 (实测截图), 而且难以点按钮。
+   */
+  function vibeImportDialog() {
+    vibesFileInput.value = "";
+    vibesImageInput.value = "";
+
+    const overlay = el("div", {
+      style: "position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:5200;display:flex;align-items:center;justify-content:center;",
+    });
+    let closed = false;
+    const close = () => {
+      if (closed) return;
+      closed = true;
+      document.removeEventListener("keydown", onKey);
+      overlay.remove();
+    };
+    function onKey(e) { if (e.key === "Escape") close(); }
+
+    // 分类: 既可从已有分类里选 (datalist 下拉), 也可以直接输入新名字
+    vibeImportCategory = vibeType;
+    const catInput = el("input", { type: "text", value: vibeType, list: "vibe-import-cat-options" });
+    const catList = el("datalist", { id: "vibe-import-cat-options" },
+      (vibeCategories || []).map((c) => el("option", { value: c })));
+    catInput.addEventListener("input", () => { vibeImportCategory = catInput.value.trim() || vibeType; });
+
+    // 选完文件先收起弹窗, 上传在后台继续 (change 事件不受关闭影响)
+    vibesFileInput.onchange = () => { close(); uploadVibeFiles(); };
+    vibesImageInput.onchange = () => { close(); uploadVibeImages(); };
+
+    const box = el("div", { class: "card dialog-solid", style: "width:400px;animation:pop-in 0.2s ease;" }, [
+      el("div", { class: "card-title", text: "🎭 导入 Vibe" }),
+      el("div", { class: "wc-vibe-import" }, [
+        el("div", { class: "wc-vibe-import-line", text: "📄 .naiv4vibe / .naiv4vibebundle —— 直接读编码, 不花点数" }),
+        el("div", { class: "wc-vibe-import-line", text: "🖼️ 图片 —— 先找图里自带的编码; 没有才现场编码 (2 Anlas)" }),
+        el("div", { class: "field wc-vibe-import-cat" }, [
+          el("label", {}, [
+            document.createTextNode("📁 导入到分类"),
+            el("span", { class: "hint", text: "可下拉选已有分类, 也可直接输入新名字" }),
+          ]),
+          catInput,
+          catList,
+        ]),
+        el("div", { class: "wc-vibe-import-actions" }, [
+          el("button", {
+            class: "btn btn-sm btn-primary", text: "📁 选择 Vibe 文件",
+            onclick: () => vibesFileInput.click(),
+          }),
+          el("button", {
+            class: "btn btn-sm", text: "🖼️ 选择图片",
+            onclick: () => vibesImageInput.click(),
+          }),
+        ]),
+      ]),
+      el("div", { style: "display:flex;justify-content:flex-end;margin-top:14px;" }, [
+        el("button", { class: "btn btn-sm", text: "关闭", onclick: close }),
+      ]),
+    ]);
+    overlay.append(box);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+    document.addEventListener("keydown", onKey);
+    document.body.append(overlay);
+  }
+
+  async function uploadVibeFiles() {
+    const files = vibesFileInput.files;
+    if (!files?.length) return;
+    const form = new FormData();
+    for (const f of files) form.append("files", f);
+    try {
+      const res = await fetch(
+        "/api/vibes/import?category=" + encodeURIComponent(vibeImportCategory || vibeType),
+        { method: "POST", body: form },
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "导入失败");
+      vibeItems = data.items || vibeItems;
+      vibeCategories = data.categories || vibeCategories;
+      // 导入到新分类时切过去, 让用户立刻看到结果
+      if (vibeImportCategory) vibeType = vibeImportCategory;
+      renderVibes();
+      const n = (data.added || []).length;
+      toast("已导入 " + n + " 个 Vibe" + (data.skipped?.length ? " (" + data.skipped.length + " 个被跳过)" : ""), "success");
+    } catch (e) { toast(e.message, "error"); }
+  }
+
+  async function uploadVibeImages() {
+    const files = vibesImageInput.files;
+    if (!files?.length) return;
+    const model = (S?.model?.get?.() || "nai-diffusion-4-5-full");
+    const form = new FormData();
+    for (const f of files) form.append("files", f);
+    try {
+      // encode=false: 只读图里自带的编码, 绝不花钱 (素材库不做现场编码)
+      const probe = await fetch(
+        "/api/vibes/import-image?encode=false&category=" + encodeURIComponent(vibeImportCategory || vibeType) + "&model=" + encodeURIComponent(model),
+        { method: "POST", body: form },
+      );
+      const probed = await probe.json();
+      if (!probe.ok) throw new Error(probed.detail || "导入失败");
+      vibeItems = probed.items || vibeItems;
+      if (probed.categories) vibeCategories = probed.categories;
+      renderVibes();
+      const okCount = (probed.results || []).filter((r) => r.ok).length;
+      if (okCount) toast("已导入 " + okCount + " 个 (图片自带编码, 未花点数)", "success");
+
+      // 没有编码的图片: 素材库直接拒绝 (要到生成页"风格迁移"里拖入才会收下并排队编码)
+      const need = probed.needs_encode || [];
+      if (need.length) {
+        toast("导入失败: 所选图片不含编码 —— " + need.map((r) => r.file).join("、"), "error", 12000);
+      }
+      // 其它失败/不支持的原因也如实说出 (例如当前模型不支持编码)
+      const failed = (probed.results || []).filter((r) => !r.ok && !r.needs_encode);
+      if (failed.length) {
+        toast(failed.map((r) => "・" + r.file + ": " + (r.message || "导入失败")).join("\n"), "error", 12000);
+      }
+    } catch (e) { toast("导入失败: " + e.message, "error"); }
+  }
+
+  /** 右侧面板的标题行: 标题 + 右上角关闭按钮 (只收起面板, 不影响左侧网格)。 */
+  function panelTitle(text) {
+    return el("div", { class: "card-title wc-title-row" }, [
+      el("span", { text }),
+      el("span", { class: "spacer" }),
+      el("button", {
+        class: "btn btn-sm btn-ghost", text: "✖", title: "关闭这个面板",
+        onclick: () => renderEditPlaceholder(),
+      }),
+    ]);
+  }
+
+  /** 切到卡片库时自动选中第一个分类 (与提示词库 / Vibe 库的行为一致)。 */
+  async function ensureCardTypeSelected() {
+    if (state.type || !allTypes.length) return;
+    state.type = allTypes[0];
+    selection = selectionStore.get(state.type) || new Set();
+    await loadTypes();
+    await loadCards();
+    syncSelection();
+  }
   function switchLib(which) {
     const isCards = which === "cards";
-    [...libTabs.children].forEach((b, i) => b.classList.toggle("active", i === 0 === isCards));
+    const isVibes = which === "vibes";
+    [...libTabs.children].forEach((b, i) => b.classList.toggle("active", i === ["cards", "prompts", "vibes"].indexOf(which)));
     cardLibBox.classList.toggle("hidden", !isCards);
-    promptLibBox.classList.toggle("hidden", isCards);
+    promptLibBox.classList.toggle("hidden", which !== "prompts");
+    vibeLibBox.classList.toggle("hidden", !isVibes);
     // 提示词库下没有"卡片"概念: 头部按钮按当前库二选一 (新建卡片 <-> 收藏新提示词)
     createBtn.classList.toggle("hidden", !isCards);
-    plAddBtn.classList.toggle("hidden", isCards);
+    plAddBtn.classList.toggle("hidden", which !== "prompts");
+    if (vibeAddBtn) vibeAddBtn.classList.toggle("hidden", !isVibes);
     // 右侧编辑面板: "有编辑内容 且 面板属于当前所在库" 才显示。
     // 收藏提示词的面板属于提示词库 → 切到卡片库时收起 (避免"卡片库里挂着收藏表单"的错位),
     // 切回提示词库时恢复 (没保存的草稿还在)。
-    const showEdit = editActive && editLib === (isCards ? "cards" : "prompts");
+    // 面板只在自己所属的库显示: 原来只区分 cards / 其它, 于是"收藏提示词"表单
+    // 会在切到 Vibe 库时继续挂着 (用户看到过)。
+    const showEdit = editActive && editLib === which;
     editCard.classList.toggle("hidden", !showEdit);
     layout.classList.toggle("single", !showEdit);
-    // 同步当前库给弹窗 (共用按钮的作用对象随之切换)
-    activeLib.set(isCards ? "cards" : "prompts");
+    // 同步当前库给弹窗 (共用按钮的作用对象随之切换; Vibe 库下这些按钮会因无选择而禁用)
+    activeLib.set(which);
     // 首次进入提示词库: loadPromptLib 内部拿到数据后会自己渲染, 不必在这里先渲染一次
     // (否则数据还没回来就画一屏"暂无分类", 闪一下)
-    if (!isCards && !plLoaded) { plLoaded = true; loadPromptLib(); }
+    if (which === "prompts" && !plLoaded) { plLoaded = true; loadPromptLib(); }
+    if (isVibes && !vibeLoaded) { vibeLoaded = true; loadVibes(); }
+    // 卡片库: 没选分类时自动落到第一个 (另两个库首次进入就有内容, 这里保持一致)
+    if (isCards) ensureCardTypeSelected();
   }
 
   // ---------------- 内置提示词 (参考 PAI 预设: 分类分组, 横向标签, 可多选) ----------------
@@ -367,6 +833,10 @@ export async function renderPanel(container, ctx, opts = {}) {
       g.builtin = group.name;
       g.builtinTags = group.tags.filter(([en]) => !deletedTags.has(en));
     }
+    // 用户显式新建的空分类 (没有条目, 也要出现)
+    for (const c of plMeta.categories || []) {
+      if (!deletedCats.has(c)) groupOf(c);
+    }
     plItems.forEach((it) => {
       const cat = it.category || "默认";
       if (deletedCats.has(cat)) return;
@@ -389,7 +859,9 @@ export async function renderPanel(container, ctx, opts = {}) {
     if (!plCat && groups.length) plCat = groups[0].key;
     groups.forEach((g) => {
       const total = g.builtinTags.length + g.userItems.length;
-      if (!total) return;   // 空分类不占页签
+      // 空分类默认不占页签; 但"用户显式新建"的空分类要显示, 否则刚建完就看不见
+      const userCreated = (plMeta.categories || []).includes(g.key);
+      if (!total && !userCreated) return;
       const tab = el("button", {
         class: "tab-btn" + (g.key === plCat ? " active" : ""),
         title: g.key, "data-key": g.key,
@@ -408,7 +880,9 @@ export async function renderPanel(container, ctx, opts = {}) {
         tab.classList.remove("dragging");
         clearPlDropMarks();
       });
-      tab.append(el("span", { text: "📁 " + g.key + " (" + total + ")" }));
+      // 与卡片库/Vibe 库同款: 只显示"📁 分类名", 数量放进 tooltip, 避免三个库样式不一致
+      tab.title = g.key + " · " + total + " 条";
+      tab.append(el("span", { text: "📁 " + g.key }));
       // 悬停显示删除分类按钮: 自带分类为隐藏 (meta 可恢复), 用户分类连带收藏真删
       const isBuiltin = g.builtin != null;
       tab.append(el("span", {
@@ -426,6 +900,9 @@ export async function renderPanel(container, ctx, opts = {}) {
             } else {
               const res = await post("/api/prompt-library/delete-category", { category: g.key });
               plItems = res.items || [];
+              // 后端同时把该分类从 meta.categories 摘掉了, 这里必须同步过来,
+              // 否则"显式新建过的空分类"会被 plGroups() 重新渲染 (表现: 提示已删除但分类还在)
+              if (res.meta) plMeta = res.meta;
             }
             if (plCat === g.key) plCat = null;
             renderPlCats();
@@ -443,8 +920,28 @@ export async function renderPanel(container, ctx, opts = {}) {
       plTypes.append(tab);
     });
     if (!groups.length) {
-      plTypes.append(el("span", { class: "muted", style: "font-size:12.5px;padding:3px 0;", text: "暂无分类 — 展开上方「➕ 收藏新提示词」新建" }));
+      plTypes.append(el("span", { class: "muted", style: "font-size:12.5px;padding:3px 0;", text: "暂无分类 — 点右侧「➕ 新建分类」或展开上方「➕ 收藏新提示词」" }));
     }
+    // 分类末尾: 新建分类
+    plTypes.append(el("button", {
+      class: "wc-type-add", type: "button", text: "➕ 新建分类",
+      title: "新建一个空分类",
+      onclick: async () => {
+        const name = (await inputDialog("新建提示词分类", ""))?.trim();
+        if (!name) return;
+        if ((plMeta.categories || []).includes(name) || plGroups().some((g) => g.key === name)) {
+          toast("分类「" + name + "」已存在", "warning");
+          return;
+        }
+        try {
+          await savePlMeta({ categories: [...new Set([...(plMeta.categories || []), name])] });
+          plCat = name;
+          renderPlCats();
+          renderPlGrid();
+          toast("分类「" + name + "」已创建", "success");
+        } catch (e) { toast(e.message, "error"); }
+      },
+    }));
   }
 
   /** 渲染当前分类下的提示词网格 (搜索词只在当前分类内过滤, 与卡片库一致)。 */
@@ -648,6 +1145,7 @@ export async function renderPanel(container, ctx, opts = {}) {
           const ok = await confirmDialog(`确定删除分类「${t}」? 该分类下的所有卡片和封面将移到回收站。`, { danger: true });
           if (!ok) return;
           try {
+            // 大分类 (上百张卡片 + 封面) send2trash 要搬一会儿, 先给个即时反馈
             await post("/api/wildcards/delete-type", { type: t });
             toast(`分类 <${t}> 已删除 (移到回收站) 🗑️`, "success");
             if (state.type === t) { state.type = null; renderEditPlaceholder(); selection = new Set(); }
@@ -672,6 +1170,28 @@ export async function renderPanel(container, ctx, opts = {}) {
       });
       typeList.append(tab);
     });
+    // 分类末尾: 新建分类 (卡片库的分类就是 wildcards/ 下的目录)
+    typeList.append(el("button", {
+      class: "wc-type-add", type: "button", text: "➕ 新建分类",
+      title: "新建一个空分类",
+      onclick: async () => {
+        const name = (await inputDialog("新建卡片库分类", ""))?.trim();
+        if (!name) return;
+        if (allTypes.includes(name)) { toast("分类「" + name + "」已存在", "warning"); return; }
+        try {
+          const res = await post("/api/wildcards/create-type", { type: name });
+          allTypes = res.types || allTypes;
+          state.type = name;
+          state.name = null;
+          state.lastIdx = -1;
+          selection = new Set();
+          await loadTypes();
+          await loadCards();
+          syncSelection();
+          toast("分类「" + name + "」已创建", "success");
+        } catch (e) { toast(e.message, "error"); }
+      },
+    }));
   }
 
   async function loadCards() {
@@ -747,11 +1267,29 @@ export async function renderPanel(container, ctx, opts = {}) {
   function renderCard(card) {
     const item = el("div", {
       class: "wildcard-card" + (card.special ? " wildcard-special" : ""),
-      title: "点击选中/取消 · 双击编辑\n" + (card.tags || card.name),
+      title: "点击选中/取消 · 拖入提示词\n" + (card.tags || card.name),
       draggable: true,
     });
     item.dataset.name = card.name;
     item.append(el("span", { class: "wc-check", text: "✓" }));
+
+    // 右上角操作: 编辑 / 删除 (特殊卡片"随机/顺序"没有实体文件, 不提供删除)
+    const acts = el("div", { class: "wc-card-acts" });
+    const editBtn = el("button", { class: "wc-card-act", type: "button", text: "✏️", title: "编辑这张卡片" });
+    editBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      selectCard(card.name);
+    });
+    acts.append(editBtn);
+    if (!card.special) {
+      const delBtn = el("button", { class: "wc-card-act wc-card-act-danger", type: "button", text: "🗑️", title: "删除这张卡片" });
+      delBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        deleteCard(card.name);
+      });
+      acts.append(delBtn);
+    }
+    item.append(acts);
     if (card.cover) {
       // 只在"封面刚被替换过"时加时间戳: 原先恒用 bust=true, 等于每次网格渲染都让浏览器
       // 重新下载全部封面 (缓存完全失效)。_coverBust 由上传/更换封面的代码路径写入。
@@ -778,9 +1316,6 @@ export async function renderPanel(container, ctx, opts = {}) {
       state.lastIdx = idx;
       syncSelection();
     });
-
-    // 双击: 打开编辑区 (选择状态不受影响)
-    item.addEventListener("dblclick", () => selectCard(card.name));
 
     item.addEventListener("dragstart", (e) => {
       if (!selection.has(card.name)) {
@@ -893,7 +1428,7 @@ export async function renderPanel(container, ctx, opts = {}) {
     }
 
     editCard.append(
-      el("div", { class: "card-title", text: `✏️ <${state.type}:${name}>` }),
+      panelTitle("✏️ <" + state.type + ":" + name + ">"),
       coverBox,
       el("div", { class: "field" }, [el("label", { text: "名称" }), nameInput]),
       isSpecial ? null : wireTagsField(tagsInput),
@@ -929,6 +1464,9 @@ export async function renderPanel(container, ctx, opts = {}) {
 
   async function deleteCard(name) {
     if (!state.type || !name) { toast("请先选择卡片", "warning"); return; }
+    // 独立删除按钮比双击误触风险高, 加一次确认 (移到系统回收站, 可恢复)
+    const okDelete = await confirmDialog("确定删除卡片「" + name + "」吗? 会移到系统回收站, 可恢复。", { danger: true });
+    if (!okDelete) return;
     await del(`/api/wildcards/${encodeURIComponent(state.type)}/${encodeURIComponent(name)}`);
     toast("已删除 (移到回收站) 🗑️", "success");
     selection.delete(name);
@@ -1031,7 +1569,7 @@ export async function renderPanel(container, ctx, opts = {}) {
     });
 
     editCard.append(
-      el("div", { class: "card-title", text: "✨ 新建卡片" }),
+      panelTitle("✨ 新建卡片"),
       el("div", { class: "field" }, [el("label", { text: "分类" }), typeWrap]),
       el("div", { class: "field" }, [el("label", { text: "名称" }), nameInput]),
       el("div", { class: "field" }, [el("label", { text: "提示词" }), tagsInput]),
@@ -1081,6 +1619,16 @@ export async function renderPanel(container, ctx, opts = {}) {
   renderEditPlaceholder();
   await loadTypes();
   await loadCards();
+  if (!(opts && opts.only === "vibes")) await ensureCardTypeSelected();
+
+  // 只显示 Vibe 库的模式 (从生成页的"🎭 Vibe 库"按钮打开): 藏掉库页签与编辑面板
+  if (opts && opts.only === "vibes") {
+    libTabs.classList.add("hidden");
+    createBtn.classList.add("hidden");
+    plAddBtn.classList.add("hidden");
+    browseCard.classList.add("wc-only-vibes");
+    switchLib("vibes");
+  }
 }
 
 // 兼容旧入口

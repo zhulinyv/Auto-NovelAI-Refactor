@@ -568,13 +568,68 @@ def _build_reference_data(references: list[dict]) -> dict:
     }
 
 
-def _build_vibe_data(vibe: dict | None, model: str) -> tuple[list, list, list]:
-    """vibe 迁移 -> reference_image_multiple / information / strength。"""
+def _emit_preview(frame: dict, index: int, total: int, seed) -> None:
+    """把一步生成的预览帧推给前端 (生图过程可见)。
+
+    frame 形如 {"step": 3, "samp": 0, "image": "data:image/jpeg;base64,...", "total": 28}。
+    事件走 jobs.emit -> broker("job:event") -> SSE, 前端画到输出区的预览框里。
+    中间帧只是预览, 不落盘 (一张成品 1-2MB, 28 帧预览会白占几百 MB)。
+    """
+    try:
+        from utils.jobs import emit_job_event
+
+        emit_job_event(
+            "preview",
+            {
+                "image": frame.get("image"),
+                "step": frame.get("step"),
+                "total": frame.get("total"),
+                "index": index,
+                "count": total,
+                "seed": str(seed),
+            },
+        )
+    except Exception:
+        logger.opt(exception=True).debug("推送生成预览失败堆栈:")
+
+
+def _build_vibe_data(vibe: dict | None, model: str, encode: bool = True) -> tuple[list, list, list]:
+    """vibe 配置 -> reference_image_multiple / information / strength。
+
+    三种来源 (可并存):
+      - vibe.library_ids: vibes 素材库的条目 (新), 缺当前模型编码时现场编码 (每次 2 Anlas)
+      - vibe.staged:      前端暂存的图片 (未入库), 生成时现场编码并落库
+      - vibe.bundle_path: 旧版 .naiv4vibebundle 文件, 顺带导入素材库以便以后按模型复用
+    """
     reference_image_multiple = []
     reference_information_extracted_multiple = []
     reference_strength_multiple = []
     if not vibe:
         return reference_image_multiple, reference_information_extracted_multiple, reference_strength_multiple
+
+    # 新版: 素材库引用 + 暂存图片。
+    # 注意 library_ids 可能是空数组 (只拖了图片、没选库里条目), 所以必须同时看 staged,
+    # 否则暂存图片会被整段跳过 —— 表现为"拖入图片后直接文生图, 既没编码也没用上这张图"。
+    if vibe.get("library_ids") or vibe.get("staged"):
+        from utils.services import vibes as vibes_lib
+
+        resolved = vibes_lib.resolve_for_request(
+            vibe,
+            model,
+            encode=(vibes_lib.encode_via_api if encode else None),
+        )
+        if resolved["pending"]:
+            names = "、".join(str(x.get("name")) for x in resolved["pending"][:3])
+            logger.warning(f"以下 Vibe 没有 {model} 的现成编码, 本次已跳过: {names}")
+        if resolved["images"]:
+            reference_image_multiple.extend(resolved["images"])
+            reference_strength_multiple.extend(resolved["strengths"])
+            reference_information_extracted_multiple.extend(resolved["informations"])
+            return (
+                reference_image_multiple,
+                reference_information_extracted_multiple,
+                reference_strength_multiple,
+            )
 
     if model in ["nai-diffusion-3", "nai-diffusion-furry-3"]:
         for img in vibe.get("images", []):
@@ -713,7 +768,13 @@ def generate(request: dict) -> tuple[list[str], str]:
         "nai-diffusion-4-5-full",
         "nai-diffusion-4-5-curated",
     ]
-    use_vibe = bool(vibe.get("bundle_path")) or any(i.get("path") for i in vibe.get("images", []))
+    use_vibe = (
+        bool(vibe.get("bundle_path"))
+        or bool(vibe.get("library_ids"))
+        # 只拖了图片 (还没入库) 也是 vibe 生成: 要现场编码, 不能退化成文生图
+        or bool(vibe.get("staged"))
+        or any(i.get("path") for i in vibe.get("images", []))
+    )
 
     skipped = 0  # 重试后仍失败的图片数量
 

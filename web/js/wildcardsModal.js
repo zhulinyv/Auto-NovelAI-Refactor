@@ -11,9 +11,9 @@
 // 触发按钮由 ui.js 的 wildcardsButton() 创建 (.wc-open-btn),
 // 此处在 document 上做一次全局点击委托统一打开弹窗。
 // ============================================================
-import { $, $$, el, clear, toast, wireAutocomplete } from "./ui.js";
+import { $, $$, el, clear, toast, bus, wireAutocomplete } from "./ui.js";
 import { post } from "./api.js";
-import { renderPanel, cardSelection, cardDrag, promptSelection, activeLib } from "./views/wildcards.js";
+import { renderPanel, cardSelection, cardDrag, promptSelection, vibeSelection, activeLib } from "./views/wildcards.js";
 import { appState } from "./app.js";
 
 let modalOpen = false;
@@ -84,9 +84,10 @@ try {
  * @param {HTMLTextAreaElement|HTMLInputElement} source 触发弹窗的提示词输入框
  * @param {object} opts { title: 弹窗中显示的输入框名称 }
  */
-export function openWildcardsModal(source, { title = "提示词" } = {}) {
+export function openWildcardsModal(source, { title = "提示词", only = null } = {}) {
   if (modalOpen || !source) return;
   modalOpen = true;
+  const onlyVibes = only === "vibes";   // 只显示 Vibe 库: 不展示提示词编辑器与其它两个库
   const initialValue = source.value ?? "";
 
   const overlay = el("div", { class: "wc-modal" });
@@ -96,11 +97,13 @@ export function openWildcardsModal(source, { title = "提示词" } = {}) {
   const closeBtn = el("button", { class: "btn btn-sm btn-danger", type: "button", text: "✖ 关闭" });
   const header = el("div", { class: "wc-modal-header" }, [
     el("div", { class: "wc-modal-title" }, [
-      "🃏 Wildcards",
-      el("span", { class: "wc-modal-sub", text: title }),
+      onlyVibes ? "🎭 Vibe 库" : "🃏 Wildcards",
+      onlyVibes ? null : el("span", { class: "wc-modal-sub", text: title }),
     ]),
     closeBtn,
   ]);
+  // Vibe 模式下只留"添加选中 / 清除选择"两个按钮
+  const vibeBar = el("div", { class: "wc-vibe-bar" });
 
   // ---- 顶部: 提示词标签块编辑器 (双模式) ----
   const ta = el("textarea", { rows: 6, placeholder: source.placeholder || "在此输入提示词..." });
@@ -469,6 +472,14 @@ export function openWildcardsModal(source, { title = "提示词" } = {}) {
       addTarget.set(cur ? `${cur}, ${tags.join(", ")}` : tags.join(", "));
       promptSelection.clear();
       toast(`已添加 ${tags.length} 个提示词到提示词 🌸`, "success");
+    } else if (activeLib.lib === "vibes") {
+      // Vibe 库: 交给生成页加进"风格迁移"并直接启用 (两边共享同一个素材库)
+      const ids = [...vibeSelection.ids];
+      if (!ids.length) { toast("请先在 Vibe 库点击选中条目 (再点取消)", "warning"); return; }
+      bus.emit("vibes:add", ids);
+      vibeSelection.clear();
+      toast("已添加 " + ids.length + " 个 Vibe 到风格迁移 🎭", "success");
+      if (onlyVibes) close();
     } else {
       // 卡片库: 跨分类逐桶添加
       addCardsBatch(Object.entries(cardSelection.map).map(([type, names]) => ({ type, names: names || [] })));
@@ -476,18 +487,23 @@ export function openWildcardsModal(source, { title = "提示词" } = {}) {
   });
   clearSelBtn.addEventListener("click", () => {
     if (activeLib.lib === "prompts") promptSelection.clear();
+    else if (activeLib.lib === "vibes") vibeSelection.clear();
     else cardSelection.set({});
   });
   /** 共用按钮状态: 随当前库和各自选择数量刷新 */
   function refreshSelBtns() {
     if (!addSelBtn.isConnected) return;
-    const n = activeLib.lib === "prompts" ? promptSelection.tags.length : cardSelection.count();
+    let n;
+    if (activeLib.lib === "prompts") n = promptSelection.tags.length;
+    else if (activeLib.lib === "vibes") n = vibeSelection.count();
+    else n = cardSelection.count();
     addSelBtn.disabled = !n;
     addSelBtn.textContent = n ? `➕ 添加选中 (${n})` : "➕ 添加选中";
     clearSelBtn.disabled = !n;
   }
   cardSelection.onChange(refreshSelBtns);
   promptSelection.onChange(refreshSelBtns);
+  vibeSelection.onChange(refreshSelBtns);
   activeLib.onChange(refreshSelBtns);
 
   // ---- 拖拽: 卡片库 -> 提示词编辑器 ----
@@ -543,11 +559,17 @@ export function openWildcardsModal(source, { title = "提示词" } = {}) {
   document.addEventListener("keydown", onKey);
 
   overlay.append(box);
-  box.append(header, promptSec, body);
+  if (onlyVibes) {
+    // 把两个按钮从已构建好的 promptSec 里移到顶部工具条 (promptSec 本身不插入 DOM)
+    vibeBar.append(addSelBtn, clearSelBtn);
+    box.append(header, vibeBar, body);
+  } else {
+    box.append(header, promptSec, body);
+  }
   document.body.append(overlay);
   document.body.style.overflow = "hidden";
 
-  renderPanel(body, { app: appState || null }, { addTarget }).catch((e) => {
+  renderPanel(body, { app: appState || null }, { addTarget, only }).catch((e) => {
     clear(body);
     body.append(el("div", { class: "card" }, [el("div", { class: "muted", text: "Wildcards 加载失败: " + e.message })]));
   });

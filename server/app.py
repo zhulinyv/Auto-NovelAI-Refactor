@@ -22,7 +22,7 @@ from utils.variable import VERSION
 # 一旦本目录被放进 sys.path, `import queue` 就会解析到它而不是标准库,
 # 使 /api/events 的 except queue.Empty 抛 AttributeError, SSE 事件流整体失效。
 # 改名后这个陷阱从根上消失 (不要改回 queue.py)。
-from .routes import anlas, generate, library, misc, plugins, queue_routes, settings, system, tools, wildcards
+from .routes import anlas, generate, library, misc, plugins, queue_routes, settings, system, tools, vibes, wildcards
 
 
 def create_app() -> FastAPI:
@@ -67,6 +67,15 @@ def create_app() -> FastAPI:
             logger.debug(f"在线翻译库预热失败: {e}")
             logger.opt(exception=True).debug("在线翻译库预热失败堆栈:")
 
+    def _seed_builtin_vibes():
+        try:
+            from utils.services import vibes as vibes_service
+
+            vibes_service.seed_builtin()
+        except Exception as e:
+            logger.warning(f"自带示例 Vibe 入库失败: {e}")
+            logger.opt(exception=True).debug("自带示例 Vibe 入库失败堆栈:")
+
     def _warm_caches():
         # 四个预热任务彼此完全独立, 但历史上是**串行**跑的:
         # 标签词典 (~2.5s 纯 CPU) -> 点数查询 (最坏 N×45s 网络) -> 插件商店 (含 git)
@@ -78,6 +87,7 @@ def create_app() -> FastAPI:
             ("warmup-anlas", _warm_anlas),
             ("warmup-plugins", _warm_plugins),
             ("warmup-translate", _warm_translate),
+            ("warmup-vibes", _seed_builtin_vibes),
         ]
         threads = [threading.Thread(target=fn, daemon=True, name=name) for name, fn in workers]
         for t in threads:
@@ -133,6 +143,7 @@ def create_app() -> FastAPI:
     app.include_router(queue_routes.router)
     app.include_router(settings.router)
     app.include_router(wildcards.router)  # /wildcards/* (含 /wildcards/{type}/{name} 通配)
+    app.include_router(vibes.router)  # /vibes/* (编码文件与图片导入, 需在通配路由之后)
     app.include_router(library.router)  # suggest / prompt-library / translate
     app.include_router(anlas.router)
 
