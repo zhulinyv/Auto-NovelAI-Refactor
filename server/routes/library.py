@@ -268,14 +268,23 @@ async def prompt_library_delete(payload: dict):
 
 
 @router.post("/prompt-library/delete-category")
-async def prompt_library_delete_category(payload: dict):
-    """删除提示词库中的整个分类 (连同该分类下的所有收藏, 不可恢复)。"""
+def prompt_library_delete_category(payload: dict):
+    """删除提示词库中的整个分类 (连同该分类下的所有收藏, 不可恢复)。
+
+    同步 def: 要读写 JSON 落盘, 别占着事件循环。
+    另外必须把该分类从 meta.categories 里摘掉 —— 否则"显式新建的空分类"仍会被
+    plGroups() 渲染出来, 表现就是"提示已删除但分类还在"。
+    """
     category = str(payload.get("category") or "").strip()
     if not category:
         raise HTTPException(status_code=400, detail="分类不能为空")
     items = [x for x in _read_prompt_lib() if x["category"] != category]
     _write_prompt_lib(items)
-    return {"items": items}
+    meta = _read_prompt_lib_meta()
+    if category in (meta.get("categories") or []):
+        meta["categories"] = [c for c in meta["categories"] if c != category]
+        jsonstore.write(_PROMPT_LIB_META_FILE, meta)
+    return {"items": items, "meta": meta}
 
 
 _PROMPT_LIB_META_FILE = STATE_DIR / "prompt_library_meta.json"
@@ -283,7 +292,7 @@ _PROMPT_LIB_META_FILE = STATE_DIR / "prompt_library_meta.json"
 
 def _read_prompt_lib_meta():
     """提示词库附加信息: 自带标签/分类隐藏列表 + 分类自定义排序。"""
-    meta = {"hidden_tags": [], "hidden_categories": [], "category_order": []}
+    meta = {"hidden_tags": [], "hidden_categories": [], "category_order": [], "categories": []}
     data = jsonstore.read_dict(_PROMPT_LIB_META_FILE)
     for key in meta:
         if isinstance(data.get(key), list):
@@ -300,7 +309,7 @@ async def prompt_library_meta_get():
 async def prompt_library_meta_save(payload: dict):
     """部分更新提示词库附加信息 (hidden_tags / hidden_categories / category_order)。"""
     meta = _read_prompt_lib_meta()
-    for key in ("hidden_tags", "hidden_categories", "category_order"):
+    for key in ("hidden_tags", "hidden_categories", "category_order", "categories"):
         if key in payload and isinstance(payload[key], list):
             meta[key] = [str(x) for x in payload[key]]
     jsonstore.write(_PROMPT_LIB_META_FILE, meta)
