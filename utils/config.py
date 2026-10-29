@@ -71,7 +71,7 @@ DEFAULTS: dict[str, Any] = {
     "skip_nai5_no_usage": False,
     "format_input": True,
     # 界面: 是否使用新版生图界面 (左侧 2/5 放生图模型 / 提示词 / 参数设置, 右侧 3/5 放输出图片)。
-    # 默认关闭, 即保持原有的上下 + 左右两栏界面; 切换后刷新页面生效。
+    # 默认开启; 关掉则回到原有的上下 + 左右两栏界面。切换后刷新页面生效。
     "use_new_gen_ui": True,
     "remove_nsfw": True,
     "smtp_num": 0,
