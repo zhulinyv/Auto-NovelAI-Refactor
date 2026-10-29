@@ -72,7 +72,7 @@ DEFAULTS: dict[str, Any] = {
     "format_input": True,
     # 界面: 是否使用新版生图界面 (左侧 2/5 放生图模型 / 提示词 / 参数设置, 右侧 3/5 放输出图片)。
     # 默认关闭, 即保持原有的上下 + 左右两栏界面; 切换后刷新页面生效。
-    "use_new_gen_ui": False,
+    "use_new_gen_ui": True,
     "remove_nsfw": True,
     "smtp_num": 0,
     "smtp_mail": None,
