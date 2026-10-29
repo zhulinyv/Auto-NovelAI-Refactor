@@ -341,8 +341,7 @@ def migrate_legacy() -> int:
     except OSError as e:
         logger.warning(f"旧清单改名失败 (内容已拆分, 可手动删除): {e}")
     logger.success(
-        f"已把 vibes.json 拆成 {moved} 个条目文件 (data/state/vibes/<id>.json + 同名缩略图),"
-        f"旧文件留档为 {archive.name}"
+        f"已把 vibes.json 拆成 {moved} 个条目文件 (data/state/vibes/<id>.json + 同名缩略图),旧文件留档为 {archive.name}"
     )
     return moved
 
