@@ -443,6 +443,20 @@ def list_items() -> list[dict]:
             continue
         encodings = raw.get("encodings") or {}
         models = [m for m, v in encodings.items() if isinstance(v, dict) and v]
+        # 每个模型下已存编码的"信息提取强度"—— 同一模型换个强度就会多存一份编码,
+        # 前端编辑弹窗要把它们全列出来 (只回数值, 不回几十 KB 的编码本体)。
+        info_by_model: dict[str, list[float]] = {}
+        for model_key, variants in encodings.items():
+            if not isinstance(variants, dict) or not variants:
+                continue
+            values = set()
+            for info_key in variants:
+                try:
+                    values.add(round(float(info_key), 3))
+                except (TypeError, ValueError):
+                    continue
+            if values:
+                info_by_model[model_key] = sorted(values, reverse=True)
         item_id = raw["id"]
         items.append(
             {
@@ -453,6 +467,7 @@ def list_items() -> list[dict]:
                 "thumbnail": _thumb_url(item_id),
                 "models": models,
                 "information": raw.get("information"),
+                "info_by_model": info_by_model,
                 "strength": raw.get("strength", 0.6),
                 "has_image": has_image(raw),
                 "file": f"{item_id}.naiv4vibe",

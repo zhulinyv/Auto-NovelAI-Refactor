@@ -353,7 +353,8 @@ export async function renderPanel(container, ctx, opts = {}) {
       el("div", { class: "card-title", text: "🎭 " + item.name }),
       el("div", { class: "wc-vibe-detail" }, [
         el("div", { class: "muted", text: "已有编码模型: " + vibeModelLabel(item.models) }),
-        el("div", { class: "muted", text: "信息提取: " + (item.information ?? "—") + " · 参考强度: " + (item.strength ?? "—") }),
+        ...vibeInfoLines(item),
+        el("div", { class: "muted", text: "参考强度: " + (item.strength ?? "—") }),
       ]),
       el("div", { class: "field", style: "margin-top:10px;" }, [
         el("label", { text: "所属分类" }),
@@ -376,6 +377,28 @@ export async function renderPanel(container, ctx, opts = {}) {
 
   function vibeModelLabel(models) {
     return (models || []).join(" / ") || "未编码";
+  }
+
+  /** 每条编码用的信息提取强度, 按模型分组列出。
+   *
+   *  编码是按 (模型, 信息提取强度) 存的: 同一个模型改过强度就会多出一份编码,
+   *  以前这里只显示条目自己的 information 一个数, 多份编码时看不全 —— 现在把每个模型下
+   *  所有已编码的强度都列出来 (后端 list_items 的 info_by_model)。 */
+  function vibeInfoLines(item) {
+    const models = item.models || [];
+    const map = item.info_by_model || {};
+    const fmt = (v) => String(+Number(v).toFixed(3));   // 1.000 -> 1, 0.550 -> 0.55
+    if (!models.length) return [el("div", { class: "muted", text: "信息提取强度: —" })];
+    // 后端没给 info_by_model (旧版本/刚升级还没重启): 退回原来那样只显示条目自己的一个数值
+    if (!Object.keys(map).length) {
+      return [el("div", { class: "muted", text: "信息提取: " + (item.information ?? "—") })];
+    }
+    const lines = [el("div", { class: "muted", text: "信息提取强度 (按模型):" })];
+    for (const m of models) {
+      const vals = (map[m] || []).map(fmt);
+      lines.push(el("div", { class: "muted", text: "· " + m + ": " + (vals.length ? vals.join(" / ") : "—") }));
+    }
+    return lines;
   }
 
   /** 搜索匹配: 只看名称 (不区分大小写)。 */
