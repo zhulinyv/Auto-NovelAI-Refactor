@@ -110,12 +110,15 @@ def save_settings(data: dict) -> dict:
     old_port = str(env.port)
     old_share = bool(env.share)
     old_disable_all_plugins = bool(env.disable_all_plugins)
+    old_use_new_gen_ui = bool(env.use_new_gen_ui)
     env.update(normalized)
 
     # 检测配置变更
     port_changed = str(normalized.get("port")) != old_port
     hide_terminal_changed = bool(normalized.get("hide_terminal")) != bool(old_hide_terminal)
     share_changed = bool(normalized.get("share")) != old_share
+    # 生图界面样式: 只影响前端布局, 保存后刷新页面才生效, 前端据此给出提示
+    gen_ui_changed = bool(normalized.get("use_new_gen_ui")) != old_use_new_gen_ui
     # 插件相关配置变化时, 才需要重载插件 (避免普通设置保存也触发插件重载)
     plugins_changed = (
         bool(normalized.get("share")) != old_share
@@ -180,4 +183,5 @@ def save_settings(data: dict) -> dict:
         "port_changed": port_changed,
         "hide_terminal_changed": hide_terminal_changed,
         "share_changed": share_changed,
+        "gen_ui_changed": gen_ui_changed,
     }

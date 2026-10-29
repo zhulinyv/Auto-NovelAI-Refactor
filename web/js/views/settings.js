@@ -157,6 +157,7 @@ export async function render(container, ctx) {
   cf("🎉 完成提示音", "finish_sound");
   cf("🔄 启动时检查更新", "check_update");
   cf("📝 格式化输入", "format_input", "删除多余空格和逗号或添加缺少的空格和逗号");
+  cf("🖼️ 使用新版生图界面", "use_new_gen_ui", "输出图片占右侧五分之三, 生图模型 / 提示词 / 参数设置占左侧五分之二; 保存后刷新页面生效 (不勾选保持原有界面)");
   cf("⚡ 跳过剩余点数/用量计算", "skip_inquire_anlas");
   sf("🪫 剩余用量提醒%", "anlas_remind_percent", -1, 100, 1, "某 Token 剩余用量小于等于该值时发送一次提醒 (-1 为关闭); 配置了 SMTP 发邮件, 未配置则在右上角弹通知");
   cf("🚭 用量为空时跳过 nai5 任务", "skip_nai5_no_usage", "NAI5 系列模型任务不分配给剩余用量为 0 的 Token (即使空闲); 全部 Token 无用量时跳过任务并提示");
@@ -230,6 +231,9 @@ export async function render(container, ctx) {
       }
       if (res.hide_terminal_changed) {
         toast("隐藏/显示终端启动需关闭程序后重新启动", "warning", 6000);
+      }
+      if (res.gen_ui_changed) {
+        toast("🖼️ 生图界面样式已切换, 刷新页面 (或重启) 后生效", "warning", 6000);
       }
       // 共享链接切换: 保存成功后切换其它配置的显隐, 并按方向自动跳转对应链接
       // (跳转即整页刷新, 后端已重载插件, 插件商店等变动随之生效)

@@ -622,7 +622,10 @@ a.btn { text-decoration: none; }
   border-color: color-mix(in srgb, var(--primary) 40%, transparent);
   font-weight: 600;
 }
-.tab-content { display: none; padding: 22px 2px 6px; }
+/* 页签内容: 上内边距只留一点 —— 页签条自身还带 14px 的下外边距 (.edge-scroll),
+   两者相加才是"页签 → 下一张卡片"的间距; 原来是 14 + 22 = 36px, 而页签上方只有卡片间的 16px,
+   看起来就"贴近上边、远离下边"(老版界面同样如此)。这里改成 14 + 4 = 18px, 与上方基本对称。 */
+.tab-content { display: none; padding: 4px 2px 6px; }
 .tab-content.active { display: block; animation: pop-in 0.2s ease; }
 
 /* ------- 画廊 (统一字号) ------- */
@@ -1569,6 +1572,136 @@ select.corner-select { min-height: 0; height: 26px; }
   .model-bar select { min-width: 160px; }
   .model-bar .mb-quantity { max-width: 420px; }
   .model-bar .mb-quantity .slider-row { min-width: 90px; }
+}
+
+/* ============================================================
+   新版生图界面 (配置设置 →「使用新版生图界面」, 勾选后刷新页面生效)
+   单行两栏: 左 2/5 = 生图模型 / 提示词 / 参数设置页签,  右 3/5 = 输出图片
+   右栏高度跟着视口走并吸附在顶部 —— 左栏 (提示词 + 参数 + 图生图编辑器) 很长,
+   滚动时成图始终可见, 右栏本身不再产生第二条滚动条。
+   ============================================================ */
+.gen-v2 {
+  display: grid;
+  /* 2 : 3 —— 左五分之二 / 右五分之三, minmax(0, …) 防止内部内容把栅格撑宽 */
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  gap: 16px;
+  align-items: start;
+}
+.gen-v2 > * { min-width: 0; } /* 溢出由各卡片内部自己处理 (与 .gen-layout 同理) */
+
+/* 右栏: 高度 + 吸顶。高度由 generate.js 的 fitWideOutputHeight 按 #main 实测值写进
+   --gen-v2-card-h (顶部工具条 / 可展开的运行日志面板都会改变可用高度), 没跑 JS 时退回 calc 兜底;
+   窄屏与矮窗两个媒体查询里都用 height:auto 把它整个关掉 */
+.gen-v2-right { position: sticky; top: 8px; }
+.gen-v2-right .output-card {
+  height: var(--gen-v2-card-h, calc(100vh - 200px));
+  min-height: 420px;
+  margin-bottom: 0;
+}
+/* 标题在左栏内: 去掉 h2 的默认上外边距, 右栏才能与标题同高起头 */
+.gen-v2-left > h2 { margin-top: 0; }
+/* 输出卡片内部: 图片查看器吃掉卡片剩余高度, 单图不再受原版 420px 上限约束 */
+.gen-v2 .output-card .output-viewer { flex: 1 1 auto; min-height: 0; }
+.gen-v2 .output-card .output-viewer-main { flex: 1 1 auto; min-height: 220px; max-height: none; }
+.gen-v2 .output-card .output-viewer-img { max-height: 100%; }
+/* 生成过程中的每步预览帧同样占满可用高度 (只在生成中显示) */
+.gen-v2 .output-card .gen-preview { flex: 1 1 auto; min-height: 0; justify-content: center; }
+.gen-v2 .output-card .gen-preview img { flex: 1 1 auto; min-height: 0; width: 100%; max-height: 100%; object-fit: contain; }
+/* 还没有图时的空状态: 在整块输出区里居中, 而不是贴在顶上 */
+.gen-v2 .output-card .output-viewer > .gallery-empty { margin: auto; }
+/* 输出信息/报错文字限高: 长串失败信息不该把成图挤成一条缝 */
+.gen-v2 .output-card .info-box { max-height: 20vh; overflow: auto; }
+
+/* 左栏窄 (约 400~600px): 参数页里的多列网格收成单列/双列, 免得滑条与数字框被挤成一条缝 */
+@media (min-width: 1281px) {
+  .gen-v2 .grid-3 { grid-template-columns: 1fr; }
+  .gen-v2 .grid-4 { grid-template-columns: 1fr 1fr; }
+  .gen-v2 .field-row { flex-wrap: wrap; }
+  .gen-v2 .field-row .field { flex: 1 1 150px; }
+}
+/* 图生图编辑器: 默认要 280(画布最小宽) + 14 + 252(工具栏) = 546 才能并排, 左栏只有 480。
+   把画布的最小宽度让到 190 —— 上传区/画布与右侧"重绘模式/画笔"工具栏始终并排 (载入图片后也一样),
+   省掉一整行高度; 画布窄了可以用「全屏编辑」放大细看。
+   (全屏编辑时编辑器被移出 .gen-v2, 不受这条影响) */
+.gen-v2 .img-editor-wrap .editor-canvas-wrap { min-width: 190px; }
+.gen-v2 .img-editor-wrap .editor-placeholder { padding: 20px 10px; }
+/* 新版提示词卡片: 正面 / 负面共用一个输入区, 头部左边是切换开关 (标题由开关承担, 不再渲染 .prompt-title) */
+.prompt-card-v2 .field { margin-bottom: 0; }              /* 只显示一块时不留尾部空档 */
+/* 开关 + 右侧按钮组在这个宽度下放不进一行: 让按钮组整体换到第二行并右对齐,
+   比"预设下拉单独掉到下一行左边"更整齐 */
+.prompt-card-v2 .prompt-head { flex-wrap: wrap; row-gap: 8px; }
+.prompt-card-v2 .prompt-head-right { flex: 1 1 auto; }
+
+/* 正 / 负面切换做成「分段控件」: 一个胶囊里嵌两格, 选中格填主色 ——
+   与右侧「加载上次」「Wildcards」这类动作按钮 (白底细边) 一眼区分开, 不会被当成第三个按钮 */
+.prompt-card-v2 .opt-group {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+.prompt-card-v2 .opt-item {
+  padding: 2px 12px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-2);
+  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+}
+.prompt-card-v2 .opt-item:hover {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  color: var(--text);
+}
+/* 选中格: 主色实心 (与 .btn-primary 同色系), 文字反白 —— 放在 hover 之后, 悬停时也保持选中态 */
+.prompt-card-v2 .opt-item.selected {
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--primary) 35%, transparent);
+}
+
+/* 顶部工具条 (新版): 两行 —— 模型+Mode / 「生成数量 + 开始生成 + 停止」挤在一排
+   按钮用普通尺寸 (不是 .btn-lg): 左栏只有 500 上下宽, 44px 高的通栏大按钮太占地方 */
+.model-bar.model-bar-v2 { flex-direction: column; align-items: stretch; gap: 10px; }
+.model-bar-v2 .mb-line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.model-bar-v2 .mb-line > .field { flex: 1 1 auto; min-width: 0; }
+.model-bar-v2 select { min-width: 0; }
+.model-bar-v2 .fs-wrap { width: 100%; min-width: 0; max-width: none; }
+.model-bar-v2 .mb-quantity { max-width: none; }
+.model-bar-v2 .mb-quantity .slider-row { max-width: none; min-width: 90px; }
+/* 数量框收窄: 这一行还要塞下两个按钮, 数字输入框(原来 78px)占得太宽 */
+.model-bar-v2 .mb-quantity .slider-num { width: 56px; padding: 2px 4px; }
+/* 底行: 数量吃满剩余宽度, 按钮按内容宽靠右; 真的挤不下时(极窄)才换行 */
+.model-bar-v2 .mb-bottom { flex-wrap: wrap; }
+.model-bar-v2 .mb-bottom .mb-quantity { flex: 1 1 auto; min-width: 0; }
+.model-bar-v2 .mb-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; margin-left: auto; }
+.model-bar-v2 .mb-actions .btn {
+  flex: 0 0 auto;
+  min-width: 0;
+  min-height: 34px;
+  padding: 6px 14px;
+  font-size: 13.5px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+
+/* 窄屏: 左右并排会把左栏压得太窄, 退回单列 (右栏不再吸顶, 高度交还给内容) */
+@media (max-width: 1280px) {
+  .gen-v2 { grid-template-columns: 1fr; }
+  .gen-v2-right { position: static; }
+  .gen-v2-right .output-card { height: auto; }
+  .gen-v2 .output-card .output-viewer-main { max-height: 420px; }
+}
+
+/* 窗口很矮 (笔记本电脑小窗 / 分屏): 吸顶会把卡片底部顶出可视区, 一并退回流式布局 */
+@media (max-height: 640px) {
+  .gen-v2-right { position: static; }
+  .gen-v2-right .output-card { height: auto; }
 }
 
 /* ------- 自绘下拉 (替换原生弹层) ------- */

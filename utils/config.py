@@ -70,6 +70,9 @@ DEFAULTS: dict[str, Any] = {
     "anlas_remind_percent": 1,
     "skip_nai5_no_usage": False,
     "format_input": True,
+    # 界面: 是否使用新版生图界面 (左侧 2/5 放生图模型 / 提示词 / 参数设置, 右侧 3/5 放输出图片)。
+    # 默认关闭, 即保持原有的上下 + 左右两栏界面; 切换后刷新页面生效。
+    "use_new_gen_ui": False,
     "remove_nsfw": True,
     "smtp_num": 0,
     "smtp_mail": None,
@@ -89,6 +92,7 @@ _BOOL_KEYS = {
     "skip_inquire_anlas",
     "skip_nai5_no_usage",
     "format_input",
+    "use_new_gen_ui",
     "remove_nsfw",
 }
 _INT_KEYS = {"cool_time", "port", "smtp_num", "anlas_remind_percent"}

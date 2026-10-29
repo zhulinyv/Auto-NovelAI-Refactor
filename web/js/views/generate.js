@@ -3,6 +3,11 @@
 //   Row1: 提示词(左) + 模型/预设/生成按钮(右)
 //   Row2: 左侧页签(参数设置/角色分区/角色参考/风格迁移) + 右侧输出画廊
 //   Wildcards 功能入口在每个提示词输入框右上角 (点击弹出全屏编辑窗口)
+//
+// 另有一种「新版生图界面」(配置设置 → 使用新版生图界面, 见 useNewGenUI):
+//   单行两栏 —— 左 2/5: 标题 / 生图模型 / 提示词(正负共用一块, 开关切换) / 参数设置页签;
+//                右 3/5: 输出图片 (整块固定在可视区内)
+// 两种界面共用同一批控件与事件绑定, 只是摆放顺序不同 (buildClassicLayout / buildWideLayout)。
 // ============================================================
 import { $, $$, el, clear, toast, bus, sliderRow, edgeScroll, imageDropZone, fileDropZone, wireAutocomplete, wildcardsButton, confirmDialog } from "../ui.js";
 import { get, post, imageUrl, fetchLast, openDir } from "../api.js";
@@ -39,6 +44,7 @@ let vibeLibDisabled = new Set();   // 取消勾选 = 停用: 卡片保留, 但�
 let vibeStaged = new Map();
 let vibePendingIds = new Set();    // 当前模型 + 信息提取强度下缺编码的 id (由 estimate 回填)
 let vibeUnencodableIds = new Set(); // 其中"当前模型根本编不了码"的那部分 (V5 等)
+let vibeCheckEncoded = false;      // 刚生成完: 下次预估回来时对比前后"需编码"集合, 提示编码已入库
 let vibeLibItems = [];
 let vibeCardsEl = null;            // 已选 Vibe 的卡片区 (图 + 两个滑条)
 const VIBE_DEFAULT_CATEGORY = "默认";   // 上传的 Vibe 统一落到这个分类
@@ -110,25 +116,30 @@ function field(label, type = "text", opts = {}) {
 
 // ---------------- 主渲染 ----------------
 
+/** 是否使用新版生图界面: 取「配置设置 → 使用新版生图界面」(启动/刷新页面时定一次)。
+ *  后端是不可用/旧版本时该字段为 undefined, 一律走原版界面。 */
+function useNewGenUI() {
+  return !!(S && S.app && S.app.settings && S.app.settings.use_new_gen_ui);
+}
+
+/** 页面标题 (两种界面共用) */
+function pageTitle() {
+  return el("h2", {}, ["🖼️ 图片生成", el("span", { class: "sub", text: "NovelAI 批量生图" })]);
+}
+
 export async function render(container, ctx) {
   S = ctx;
   clear(container);
   const saved = buildSavedState();
 
-  container.append(el("h2", {}, ["🖼️ 图片生成", el("span", { class: "sub", text: "NovelAI 批量生图" })]));
+  // 两种界面只是摆放不同: 控件、id、事件都在同一批构建函数里, 渲染后的收尾逻辑完全共用
+  if (useNewGenUI()) {
+    buildWideLayout(container, saved);   // 标题由左栏自己渲染 (见 buildWideLayout)
+  } else {
+    container.append(pageTitle());
+    buildClassicLayout(container, saved);
+  }
 
-  // 标题下方 / 提示词上方: 单条工具条 (左: 模型+Mode, 右: 数量+生成按钮)
-  const modelBar = el("div", { class: "model-bar" });
-  buildModelBar(modelBar, saved);
-  container.append(modelBar);
-
-  container.append(buildPromptCard(saved));
-
-  // Row2: 左侧页签 + 右侧输出
-  const row2 = el("div", { class: "grid gen-layout", style: "align-items:start;" });
-  row2.append(buildLeftTabs(saved), buildRightPanel());
-
-  container.append(row2);
   charRegion?.refresh?.();
 
   await applyModelChange(true);
@@ -142,6 +153,65 @@ export async function render(container, ctx) {
   bindEvents();
   wireOutputActions();
   updateAnlasBadge();
+}
+
+/** 原版界面: 单条工具条 (模型+Mode / 数量+生成) + 提示词卡片, 下方左右两栏 (页签 / 输出) */
+function buildClassicLayout(container, saved) {
+  const modelBar = el("div", { class: "model-bar" });
+  buildModelBar(modelBar, saved);
+  container.append(modelBar);
+
+  container.append(buildPromptCard(saved));
+
+  const row2 = el("div", { class: "grid gen-layout", style: "align-items:start;" });
+  row2.append(buildLeftTabs(saved), buildRightPanel());
+  container.append(row2);
+}
+
+/** 新版界面: 左 2/5 (标题 / 模型 / 提示词 / 参数页签) + 右 3/5 (输出图片)。
+ *  右栏随视口高度固定并吸附在顶部, 左栏滚动时成图始终可见 (样式见 app.css 的 .gen-v2)。 */
+function buildWideLayout(container, saved) {
+  const left = el("div", { class: "gen-v2-left" });
+  const modelBar = el("div", { class: "model-bar model-bar-v2" });
+  buildModelBar(modelBar, saved, { compact: true });
+  // 页面标题放在左栏里: 右栏才能从内容区最顶端开始铺到底, 整块输出区不会被窗口底边截掉一截
+  left.append(pageTitle(), modelBar, buildPromptCardV2(saved), buildLeftTabs(saved));
+
+  const outCard = buildRightPanel();
+  container.append(el("div", { class: "gen-v2" }, [left, el("div", { class: "gen-v2-right" }, [outCard])]));
+  fitWideOutputHeight(outCard);
+}
+
+/** 右栏输出卡片的高度 = 内容区实测可视高度 - 卡片上方偏移 - 底部余量, 保证整块输出区始终完整可见。
+ *
+ *  为什么不用 CSS 的 100vh: 卡片上下还有顶栏、运行日志面板 (可展开/收起) 与各处内边距,
+ *  它们的高度不是常量 —— 拿 vh 减一个固定值, 日志一展开就会把卡片底部 (操作行/信息区) 顶出可视区。
+ *  这里直接量 #main 的 clientHeight 与卡片当前偏移, 并用 ResizeObserver 跟着窗口缩放 / 日志面板开合重算。
+ *  结果写进 CSS 变量而不是 inline height: 窄屏/矮窗的媒体查询里 height:auto 才能把它整个关掉。 */
+let v2FitObserver = null;
+function fitWideOutputHeight(card) {
+  const scroller = document.getElementById("main");
+  if (!card || !scroller) return;
+  const fit = () => {
+    if (!card.isConnected) {   // 视图被重建: 停掉观察, 别让旧卡片牵着全局 observer
+      v2FitObserver?.disconnect();
+      v2FitObserver = null;
+      return;
+    }
+    // 卡片在内容区里的偏移 (页面上方内容占掉的高度): 减掉它, 卡片底边才不会落到可视区之外;
+    // 吸顶之后偏移会稳定在一个很小值, 所以下限取 8px (等价于"吸顶时留 8px 空隙")
+    const offset = card.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+    const h = scroller.clientHeight - Math.max(8, Math.round(offset)) - 16 /* 底部余量 */;
+    card.style.setProperty("--gen-v2-card-h", Math.max(320, Math.round(h)) + "px");
+  };
+  v2FitObserver?.disconnect();
+  fit();
+  try {
+    v2FitObserver = new ResizeObserver(fit);
+    v2FitObserver.observe(scroller);
+  } catch {
+    /* 没有 ResizeObserver 时保留 CSS 里的 calc(100vh - …) 兜底 */
+  }
 }
 
 // ---------------- 启动加载: 从 last.json 恢复上次参数 ----------------
@@ -408,16 +478,22 @@ function autosizeRows(ta, { minRows = 6, maxRows = 15 } = {}) {
   return fit;
 }
 
-/** 提示词输入块: 节标题(左) + 右侧按钮组(Wildcards/预设等) + 多行输入框 (高度 6~15 行自适应) */
+/** 提示词输入块: 节标题(左) + 右侧按钮组(Wildcards/预设等) + 多行输入框 (高度按行数自适应)
+ *  opts.headExtra: 标题左侧的额外控件 (新版界面的「正面 / 负面」切换开关)
+ *  opts.minRows / opts.maxRows: 自适应行数范围 (新版界面只显示一块输入区, 可以开得更高)
+ *  title 为空串时不渲染标题 (标题由 headExtra 的开关承担) */
 function promptField(title, presetCtl, opts) {
   const wrap = el("div", { class: "field prompt-field" });
-  const ta = el("textarea", { rows: 6, placeholder: opts.placeholder || "", value: opts.value ?? "" });
-  const fit = autosizeRows(ta);
+  const minRows = opts.minRows ?? 6;
+  const maxRows = opts.maxRows ?? 15;
+  const ta = el("textarea", { rows: minRows, placeholder: opts.placeholder || "", value: opts.value ?? "" });
+  const fit = autosizeRows(ta, { minRows, maxRows });
   const head = el("div", { class: "prompt-head" }, [
-    el("span", { class: "prompt-title", text: title }),
+    opts.headExtra || null,
+    title ? el("span", { class: "prompt-title", text: title }) : null,
     el("div", { class: "prompt-head-right" }, [
       opts.loadBtn || null,
-      wildcardsButton(ta, { title, text: "🃏 Wildcards" }),
+      wildcardsButton(ta, { title: title || "提示词", text: "🃏 Wildcards" }),
       opts.tbBtn || null,
       presetCtl.node,
     ]),
@@ -428,11 +504,8 @@ function promptField(title, presetCtl, opts) {
   return { node: wrap, input: ta, get: () => ta.value, set: (v) => { ta.value = v; fit(); }, refit: fit };
 }
 
-function buildPromptCard(saved) {
-  const card = el("div", { class: "card" }, [
-    el("div", { class: "card-title" }, ["📝 提示词", el("span", { class: "badge", text: "支持 wildcards" })]),
-  ]);
-
+/** 正面提示词字段: 质量预设 + 加载上次 + Transparent BG (仅 v5)。返回字段节点。 */
+function buildPositiveField(saved, opts = {}) {
   C.quality = cornerSelect("⭐ 正面预设", S.app.qp_presets || []);
   C.quality.set(saved.quality ?? "Standard");
   const loadPosBtn = el("button", { class: "mini-btn", type: "button", text: "🔁 加载上次", title: "载入上次生成的正面提示词" });
@@ -456,9 +529,20 @@ function buildPromptCard(saved) {
   tbBtn = el("button", { class: "mini-btn tb-btn", type: "button", text: "🪟 Transparent BG", title: "仅 v5 模型可用: 开启后生成时在提示词末尾追加 transparent background (质量预设与 teXt 段之前)" });
   tbBtn.addEventListener("click", () => { transparentBg = !transparentBg; updateTbBtn(); });
   updateTbBtn();
-  C.positive = promptField("✨ 正面提示词", C.quality, { value: saved.positive_prompt ?? "", placeholder: "在此输入正面提示词...", rows: 6, loadBtn: loadPosBtn, tbBtn });
-  card.append(C.positive.node);
+  C.positive = promptField(opts.title ?? "✨ 正面提示词", C.quality, {
+    value: saved.positive_prompt ?? "",
+    placeholder: "在此输入正面提示词...",
+    loadBtn: loadPosBtn,
+    tbBtn,
+    headExtra: opts.headExtra,
+    minRows: opts.minRows,
+    maxRows: opts.maxRows,
+  });
+  return C.positive.node;
+}
 
+/** 负面提示词字段: UC 预设 + 加载上次。返回字段节点。 */
+function buildNegativeField(saved, opts = {}) {
   C.uc = cornerSelect("🚫 负面预设", S.app.uc_presets || []);
   C.uc.set(saved.uc ?? "Heavy");
   const loadNegBtn = el("button", { class: "mini-btn", type: "button", text: "🔁 加载上次", title: "载入上次生成的负面提示词" });
@@ -477,8 +561,60 @@ function buildPromptCard(saved) {
       else toast("没有找到上次的负面提示词", "warning");
     } catch (e) { toast(e.message, "error"); }
   });
-  C.negative = promptField("🌙 负面提示词", C.uc, { value: saved.negative_prompt ?? "", placeholder: "在此输入负面提示词...", rows: 6, loadBtn: loadNegBtn });
-  card.append(C.negative.node);
+  C.negative = promptField(opts.title ?? "🌙 负面提示词", C.uc, {
+    value: saved.negative_prompt ?? "",
+    placeholder: "在此输入负面提示词...",
+    loadBtn: loadNegBtn,
+    headExtra: opts.headExtra,
+    minRows: opts.minRows,
+    maxRows: opts.maxRows,
+  });
+  return C.negative.node;
+}
+
+/** 原版界面: 正面 + 负面两块输入框上下排列 */
+function buildPromptCard(saved) {
+  showPromptTab = null;   // 原版界面两块都可见, 不需要切换
+  const card = el("div", { class: "card" }, [
+    el("div", { class: "card-title" }, ["📝 提示词", el("span", { class: "badge", text: "支持 wildcards" })]),
+  ]);
+  card.append(buildPositiveField(saved), buildNegativeField(saved));
+  return card;
+}
+
+/** 新版界面: 正面 / 负面共用一个输入区, 头部开关切换 —— 少占一块输入框的高度,
+ *  剩下这块又能开到 8~22 行, 单次能看的提示词更多。两块字段都在 DOM 里 (取值/回写不受切换影响)。 */
+let showPromptTab = null;   // 切到 正面/负面 输入区; 原版界面为 null
+function buildPromptCardV2(saved) {
+  const card = el("div", { class: "card prompt-card-v2" });
+  const POS = "✨ 正面";
+  const NEG = "🌙 负面";
+  const toggles = [];
+  let posNode = null;
+  let negNode = null;
+
+  function show(which) {
+    const pos = which === "positive";
+    toggles.forEach((t) => t.set(pos ? POS : NEG));
+    posNode?.classList.toggle("hidden", !pos);
+    negNode?.classList.toggle("hidden", pos);
+    // 隐藏着的输入框量不到内容高度 (scrollHeight 恒为 0), 切回来后按当前内容重新贴合一次
+    (pos ? C.positive : C.negative)?.refit?.();
+  }
+  showPromptTab = show;
+  // 两块字段的标题行各挂一份同样的开关 (只有当前显示的那份可见):
+  // 切换时右侧按钮组 (加载上次 / 预设) 跟着字段一起换, 开关本身位置不动, 看起来只有一个开关
+  function mkToggle() {
+    const t = segChoice([POS, NEG], POS, (v) => show(v === POS ? "positive" : "negative"));
+    toggles.push(t);
+    return t.node;
+  }
+  const fieldOpts = () => ({ title: "", headExtra: mkToggle(), minRows: 8, maxRows: 22 });
+
+  posNode = buildPositiveField(saved, fieldOpts());
+  negNode = buildNegativeField(saved, fieldOpts());
+  negNode.classList.add("hidden");
+  card.append(posNode, negNode);
   return card;
 }
 /** 当前输出查看器的键盘翻页监听器 (每次重建查看器时先摘掉上一个, 避免多代监听器同时触发) */
@@ -810,7 +946,7 @@ function promptWithTextSection() {
   return resolved;
 }
 
-function buildModelBar(bar, saved) {
+function buildModelBar(bar, saved, { compact = false } = {}) {
   C.model = field("🧬 生图模型", "select", { options: S.app.models, value: saved.model ?? S.app.model });
   furryMode = !!saved.furry_mode;
   furryBtn = el("button", { class: "btn btn-sm mode-btn", text: "🌸 Mode: Anime" });
@@ -821,7 +957,7 @@ function buildModelBar(bar, saved) {
   });
   updateFurryBtn();
 
-  C.quantity = field("🔢 生成数量", "slider", { min: 1, max: 999, step: 1, value: saved.quantity ?? 1 });
+  C.quantity = field(compact ? "🔢 数量" : "🔢 生成数量", "slider", { min: 1, max: 999, step: 1, value: saved.quantity ?? 1 });
   C.quantity.node.classList.add("mb-quantity");
 
   C.generateBtn = el("button", { class: "btn btn-primary btn-lg", text: "🚀 开始生成" });
@@ -829,6 +965,18 @@ function buildModelBar(bar, saved) {
   C.generateBtn.title = "预估花费会显示在按钮上 (与官网计费公式一致, 官方为准)";
   C.stopBtn = el("button", { class: "btn btn-danger btn-lg", text: "⏹ 停止" });
   C.stopBtn.title = "停止生成";
+
+  // 新版界面: 工具条在左侧窄栏里 —— 第一行模型+Mode, 第二行"生成数量 + 开始/停止"挤在一排
+  if (compact) {
+    bar.append(
+      el("div", { class: "mb-line" }, [C.model.node, furryBtn]),
+      el("div", { class: "mb-line mb-bottom" }, [
+        C.quantity.node,
+        el("div", { class: "mb-actions" }, [C.generateBtn, C.stopBtn]),
+      ]),
+    );
+    return;
+  }
 
   bar.append(
     C.model.node,
@@ -893,8 +1041,25 @@ bus.on("job:event", (ev) => {
   if (ev.name !== "preview") return;
   showPreviewFrame(ev);
 });
-bus.on("job:done", () => { hidePreview(); resolveStagedVibes(); });
-bus.on("job:failed", () => hidePreview());
+bus.on("job:done", async () => {
+  hidePreview();
+  const swapped = await resolveStagedVibes();
+  // 已有条目在本次生成里被现场编码时 (改了信息提取强度 / 换了模型), 后端已经把编码写回素材库
+  // (vibes.touch_model_encoding), 但卡片上的「需编码」是生成前那次预估算出来的 —— 不重新预估就一直挂着。
+  // 暂存图片那条路径在 resolveStagedVibes 内部已经重估过, 这里只补库里条目这一种。
+  if (!swapped && vibeLibSelected.size) {
+    vibeCheckEncoded = true;   // 重估回来后对比前后, 提示"已编码入库"
+    scheduleEstimate();
+  }
+});
+bus.on("job:failed", () => {
+  hidePreview();
+  // 生成失败但编码可能已经花掉并入库: 同样重估一次, 别让「需编码」一直留着
+  if (vibeLibSelected.size) {
+    vibeCheckEncoded = true;
+    scheduleEstimate();
+  }
+});
 
 // ---------------- 费用预估 (按钮上的 “🚀 开始生成: 20🔋”) ----------------
 
@@ -933,8 +1098,16 @@ function applyEstimate(est) {
   const btn = C.generateBtn;
   if (!btn) return;
   // 当前模型 + 当前"信息提取强度"下缺编码的条目 -> 卡片上打"需编码"
+  const wasPending = vibePendingIds;
   vibePendingIds = new Set(est.pending_ids || []);
   vibeUnencodableIds = new Set(est.unencodable_ids || []);
+  // 刚生成完的这一次: 之前"需编码"、现在不需要了 = 后端这次现场编码并写进了素材库。
+  // 给一句提示, 否则用户只看到徽标消失, 会以为"没存进库" (编码是挂在同一条目下按模型/强度存的, 不会多出卡片)。
+  if (vibeCheckEncoded) {
+    vibeCheckEncoded = false;
+    const done = [...wasPending].filter((id) => !vibePendingIds.has(id));
+    if (done.length) toast(`✅ ${done.length} 条 Vibe 已编码完成并存进素材库`, "success");
+  }
   syncVibeBadges();
   if (est.is_relay) {
     // 中转站按它自己的价格计费, Anlas 预估没有意义: 只提示张数
@@ -1251,9 +1424,10 @@ async function stageImage(file) {
   toast("这张图片不含编码, 已暂存; 生成时会编码 (2 Anlas) 并自动入库", "info", 12000);
 }
 
-/** 生成结束后: 暂存图片已被后端编码入库, 把卡片换成库里的条目 (之后就能免费用)。 */
+/** 生成结束后: 暂存图片已被后端编码入库, 把卡片换成库里的条目 (之后就能免费用)。
+ *  返回换掉的条数 (0 表示没有需要归位的暂存图片), 调用方据此决定是否还要重估。 */
 async function resolveStagedVibes() {
-  if (!vibeStaged.size) return;
+  if (!vibeStaged.size) return 0;
   let swapped = 0;
   for (const [id, one] of [...vibeStaged]) {
     try {
@@ -1276,11 +1450,12 @@ async function resolveStagedVibes() {
       swapped++;
     } catch { /* 归位失败不影响生成结果 */ }
   }
-  if (!swapped) return;
+  if (!swapped) return 0;
   await loadVibeLib(true);
   renderVibeCards();
   scheduleEstimate();
   toast("已把 " + swapped + " 张暂存图片的编码存入素材库", "success");
+  return swapped;
 }
 
 /** 已选的库条目 -> collectRequest 用的 vibe 字段。 */
@@ -1705,7 +1880,7 @@ function buildRightPanel() {
     title: "立即重新查询剩余点数 / 用量 (会真实请求 NovelAI)",
   });
   anlasRefreshBtn.addEventListener("click", refreshAnlasNow);
-  const card = el("div", { class: "card", style: "min-height:400px;display:flex;flex-direction:column;" }, [
+  const card = el("div", { class: "card output-card", style: "min-height:400px;display:flex;flex-direction:column;" }, [
     el("div", { class: "card-title" }, [
       "🖼️ 输出图片",
       anlasWrapEl,
@@ -1727,6 +1902,9 @@ function buildRightPanel() {
   ]);
   infoEl = el("div", { class: "info-box", style: "margin-top:10px;" });
   card.append(previewBox, genGalleryEl, btnRow, infoEl);
+  // 首次渲染时还没有图: 直接摆出查看器自带的空状态 ("还没有图片"), 否则输出区是一片空白,
+  // 新版界面右栏更高时尤其像没加载出来
+  buildOutputViewer(genGalleryEl, []);
   return card;
 }
 
@@ -2460,6 +2638,8 @@ export function setGenerateState(state, opts = {}) {
     }
     // 预设剥离后再处理 transparent background (生成时顺序: 用户输入+TB+teXt+预设, 剥离顺序相反); 同步开关为图片真实状态
     C.positive.set(syncTransparentBg(posText));
+    // 新版界面只显示一块输入区: 外部送进来的是正面提示词, 切到正面那一侧, 否则改了也看不见
+    showPromptTab?.("positive");
   }
   if (state.negative_prompt != null) {
     const hit = extractPresetTags(state.negative_prompt, model, "uc_preset_tags", "head"); // UC 预设前置在开头, 只从开头剥离一次
