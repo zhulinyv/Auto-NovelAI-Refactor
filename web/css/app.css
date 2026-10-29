@@ -1668,17 +1668,18 @@ select.corner-select { min-height: 0; height: 26px; }
 /* 顶部工具条 (新版): 两行 —— 模型+Mode / 「生成数量 + 开始生成 + 停止」挤在一排
    按钮用普通尺寸 (不是 .btn-lg): 左栏只有 500 上下宽, 44px 高的通栏大按钮太占地方 */
 .model-bar.model-bar-v2 { flex-direction: column; align-items: stretch; gap: 10px; }
-.model-bar-v2 .mb-line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.model-bar-v2 .mb-line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
 .model-bar-v2 .mb-line > .field { flex: 1 1 auto; min-width: 0; }
 .model-bar-v2 select { min-width: 0; }
 .model-bar-v2 .fs-wrap { width: 100%; min-width: 0; max-width: none; }
 .model-bar-v2 .mb-quantity { max-width: none; }
-.model-bar-v2 .mb-quantity .slider-row { max-width: none; min-width: 90px; }
+.model-bar-v2 .mb-quantity .slider-row { max-width: none; min-width: 60px; }
 /* 数量框收窄: 这一行还要塞下两个按钮, 数字输入框(原来 78px)占得太宽 */
 .model-bar-v2 .mb-quantity .slider-num { width: 56px; padding: 2px 4px; }
-/* 底行: 数量吃满剩余宽度, 按钮按内容宽靠右; 真的挤不下时(极窄)才换行 */
-.model-bar-v2 .mb-bottom { flex-wrap: wrap; }
-.model-bar-v2 .mb-bottom .mb-quantity { flex: 1 1 auto; min-width: 0; }
+/* 底行强制一行 (屏幕小 / 左栏窄时也不许按钮掉到第二行):
+   数量区用 flex-basis:0 参与分配, 按钮保持自身宽度 —— 空间不够时只压滑条, 不换行 */
+.model-bar-v2 .mb-bottom { flex-wrap: nowrap; }
+.model-bar-v2 .mb-bottom .mb-quantity { flex: 1 1 0; min-width: 0; }
 .model-bar-v2 .mb-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; margin-left: auto; }
 .model-bar-v2 .mb-actions .btn {
   flex: 0 0 auto;
@@ -1688,6 +1689,10 @@ select.corner-select { min-height: 0; height: 26px; }
   font-size: 13.5px;
   border-radius: 10px;
   white-space: nowrap;
+}
+/* 窄屏 (两栏模式下左栏会被压到 400 上下): 按钮内边距与字号收一档, 把宽度让给滑条 */
+@media (max-width: 1600px) {
+  .model-bar-v2 .mb-actions .btn { padding: 6px 10px; font-size: 12.5px; }
 }
 
 /* 窄屏: 左右并排会把左栏压得太窄, 退回单列 (右栏不再吸顶, 高度交还给内容) */
