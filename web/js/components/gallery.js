@@ -1,7 +1,7 @@
 // ============================================================
 // 图片网格画廊: 选中 / 双击放大
 // ============================================================
-import { el, clear } from "../ui.js";
+import { el, clear, $$ } from "../ui.js";
 import { imageUrl } from "../api.js";
 import { openLightbox } from "./lightbox.js";
 

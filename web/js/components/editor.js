@@ -8,6 +8,7 @@ import {
     toast,
     sliderRow,
     enableDrop,
+    $$,
 } from "../ui.js";
 import { imageUrl, uploadFiles, get } from "../api.js";
 import {
@@ -1719,7 +1720,8 @@ export function imageEditor(container, { onChange, onImageLoad } = {}) {
       toast("已加载到图生图编辑器 🎨", "success");
     };
     img.onerror = () => toast("图片加载失败", "error");
-    const { imageUrl } = await import("./api.js");
+    // imageUrl 已在文件顶部从 ../api.js 导入 (拆分 components.js 为 components/ 目录后,
+    // 这里原先还留着一句 await import("./api.js") —— 同级目录下并没有 api.js, 会直接抛错)
     img.src = imageUrl(path);
   }
 
