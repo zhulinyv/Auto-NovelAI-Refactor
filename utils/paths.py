@@ -61,6 +61,8 @@ DATA_DIR = BASE_DIR / "data"
 STATE_DIR = DATA_DIR / "state"
 CACHE_DIR = DATA_DIR / "caches"
 TEMP_DIR = DATA_DIR / "temp"
+# 通配符 (卡片库) 目录: 和示例 Vibe 一样收在 data/state 下, 不再占仓库根目录
+WILDCARDS_DIR = STATE_DIR / "wildcards"
 
 # 缩略图 / 回收站 / 在线壁纸这些"再生的缓存", 放在 caches 下
 THUMB_CACHE_DIR = CACHE_DIR / "thumb_cache"
@@ -69,7 +71,7 @@ BG_API_DIR = CACHE_DIR / "backgrounds"
 
 # 建目录失败的场景 (只读介质 / 权限) 不该让整个模块导入失败:
 # 调用方真正落盘时自然会报错, 这里只做"尽力而为"的预创建。
-_ALL_DIRS = (DATA_DIR, STATE_DIR, CACHE_DIR, TEMP_DIR, THUMB_CACHE_DIR, SELECTOR_TRASH_DIR, BG_API_DIR)
+_ALL_DIRS = (DATA_DIR, STATE_DIR, CACHE_DIR, TEMP_DIR, THUMB_CACHE_DIR, SELECTOR_TRASH_DIR, BG_API_DIR, WILDCARDS_DIR)
 
 
 def ensure_dirs() -> None:

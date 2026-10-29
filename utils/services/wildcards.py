@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import os
+import shutil
+import threading
+import time
 from pathlib import Path
 
 import send2trash
@@ -10,14 +13,42 @@ import send2trash
 from utils import jsonstore
 from utils.helpers import format_str, read_txt
 from utils.logger import logger
-from utils.paths import STATE_DIR
-
-WILDCARDS_DIR = Path("./wildcards")
+from utils.paths import STATE_DIR, TEMP_DIR, WILDCARDS_DIR
 
 _COVER_EXTS = (".png", ".jpg", ".jpeg", ".webp", ".gif")
 
 
 _TYPES_ORDER_FILE = STATE_DIR / "wildcards_order.json"
+
+
+def migrate_legacy_root() -> None:
+    """老版本把 wildcards/ 放在仓库根目录; 现在统一收进 data/state/wildcards/。
+
+    幂等: 根目录没有旧目录时什么都不做; 同名分类保留目标目录里的那份 (不覆盖用户数据)。
+    """
+    legacy = Path("./wildcards")
+    try:
+        if not legacy.is_dir() or legacy.resolve() == WILDCARDS_DIR.resolve():
+            return
+    except OSError:
+        return
+    WILDCARDS_DIR.mkdir(parents=True, exist_ok=True)
+    moved = 0
+    for entry in list(legacy.iterdir()):
+        target = WILDCARDS_DIR / entry.name
+        if target.exists():
+            continue
+        try:
+            shutil.move(str(entry), str(target))
+            moved += 1
+        except OSError as e:
+            logger.warning(f"迁移通配符分类失败 ({entry.name}): {e}")
+    try:
+        legacy.rmdir()
+    except OSError:
+        pass
+    if moved:
+        logger.success(f"已把 {moved} 个通配符分类迁移到 {WILDCARDS_DIR}")
 
 
 def list_types() -> list[str]:
@@ -39,6 +70,19 @@ def save_types_order(types: list[str]) -> None:
     ordered = [t for t in types if t in actual]
     rest = sorted(t for t in actual if t not in ordered)
     jsonstore.write(_TYPES_ORDER_FILE, ordered + rest)
+
+
+def create_type(wildcard_type: str) -> bool:
+    """新建一个空分类 (就是建同名目录)。已存在时返回 False。"""
+    name = (wildcard_type or "").strip()
+    if not name or "/" in name or "\\" in name or name in (".", ".."):
+        raise ValueError("分类名不合法")
+    _dir = WILDCARDS_DIR / name
+    if _dir.is_dir():
+        return False
+    _dir.mkdir(parents=True, exist_ok=True)
+    logger.success(f"已新建卡片库分类: {name}")
+    return True
 
 
 def list_names(wildcard_type: str) -> list[str]:
@@ -182,16 +226,65 @@ def delete(wildcard_type: str, wildcard_name: str) -> None:
         logger.error(f"wildcard 不存在: <{wildcard_type}:{wildcard_name}>")
 
 
-def delete_type(wildcard_type: str) -> None:
-    """删除整个分类文件夹 (卡片与封面一并移到回收站)。"""
-    path = WILDCARDS_DIR / wildcard_type
-    if path.exists():
+# 待回收站的暂存目录: 同盘 rename 是毫秒级, 而 send2trash 在本机实测稳定要 ~3 秒
+# (Windows Shell 的回收站操作, 与文件数量无关 —— 空目录也要 3 秒)。
+# 所以删除分两步: 先改名移出 wildcards/ (立刻从列表消失), 再交给后台线程慢慢丢回收站。
+STAGED_TRASH_DIR = TEMP_DIR / "wildcards_trash"
+
+
+def _trash_staged(path: Path, label: str) -> None:
+    """后台线程: 把暂存目录真正丢进系统回收站。"""
+    try:
         send2trash.send2trash(str(path))
-        logger.info(f"已将分类 <{wildcard_type}> 移动到回收站")
-    else:
+        logger.info(f"已将分类 <{label}> 移动到回收站")
+    except Exception as e:
+        logger.error(f"分类 <{label}> 移入回收站失败 (文件已从分类列表移除, 仍在 {path}): {e}")
+        logger.opt(exception=True).debug("移入回收站失败堆栈:")
+
+
+def _sweep_staged() -> None:
+    """清理上次没来得及丢进回收站的暂存目录 (进程被关掉时会留下)。"""
+    try:
+        for old in STAGED_TRASH_DIR.iterdir():
+            if old.is_dir() and time.time() - old.stat().st_mtime > 60:
+                _trash_staged(old, old.name)
+    except OSError:
+        pass
+
+
+def delete_type(wildcard_type: str) -> None:
+    """删除整个分类 (卡片与封面一并进回收站)。
+
+    对调用方是**立即返回**: 只做一次同盘重命名, 真正进回收站由后台线程完成。
+    """
+    path = WILDCARDS_DIR / wildcard_type
+    if not path.is_dir():
         logger.error(f"wildcard 分类不存在: <{wildcard_type}>")
         raise FileNotFoundError(f"分类不存在: <{wildcard_type}>")
 
+    STAGED_TRASH_DIR.mkdir(parents=True, exist_ok=True)
+    staged = STAGED_TRASH_DIR / f"{int(time.time() * 1000)}_{wildcard_type}"
+    os.rename(path, staged)  # 同盘: 毫秒级; 失败会抛 OSError
+    logger.info(f"分类 <{wildcard_type}> 已移出列表, 正在后台移入回收站")
+    threading.Thread(
+        target=lambda: (_sweep_staged(), _trash_staged(staged, wildcard_type)),
+        daemon=True,
+        name="wildcards-trash",
+    ).start()
+
 
 def add_wildcard_to_prompt(prompt: str, wildcard_type: str, wildcard_name: str) -> str:
-    return format_str(f"{prompt}, <{wildcard_type}:{wildcard_name}>")
+    """把 <分类:卡片> 拼到提示词后面。
+
+    拼接规则 (前端"添加选中"也走这里):
+      - 前面没有任何内容 -> 直接给卡片, **不加逗号** (否则提示词以 ", " 开头)
+      - 前面已有内容   -> 用一个逗号连接
+      - 前面已经以逗号结尾 -> 不重复加
+    """
+    token = f"<{wildcard_type}:{wildcard_name}>"
+    base = (prompt or "").rstrip()
+    if not base.strip():
+        return format_str(token)
+    if base.endswith(",") or base.endswith("，"):
+        return format_str(f"{base} {token}")
+    return format_str(f"{base}, {token}")

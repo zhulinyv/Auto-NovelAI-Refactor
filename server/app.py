@@ -85,6 +85,15 @@ def create_app() -> FastAPI:
         for t in threads:
             t.join()
 
+    # 旧版把通配符放在仓库根目录, 现在统一收进 data/state/wildcards/ (幂等, 只在有旧目录时动)
+    try:
+        from utils.services import wildcards as wildcards_service
+
+        wildcards_service.migrate_legacy_root()
+    except Exception as e:
+        logger.warning(f"通配符目录迁移失败: {e}")
+        logger.opt(exception=True).debug("通配符目录迁移失败堆栈:")
+
     threading.Thread(target=_warm_caches, daemon=True, name="warmup").start()
 
     # 停止信号文件 (data/temp/temp_break_<任务id>.json) 的清理机制:

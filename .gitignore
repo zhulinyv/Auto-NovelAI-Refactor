@@ -27,6 +27,24 @@ last.json
 # data/: 其余"非源码"的运行时数据 —— 状态 / 缓存 / 临时文件 / 托管窗口的浏览器 profile。
 # 历史上这些散落在 outputs/ 下, 与用户的生成图片混在一起; 现在统一收进一个目录, 整目录忽略。
 data/
+# 例外: 仓库自带的示例 Vibe (克隆后自动入库, 无需手动导入)。
+# 注意 git 不会进入被忽略的目录, 所以必须逐层放行再逐层重新忽略, 只留这两个文件。
+!data/
+data/*
+!data/state/
+data/state/*
+!data/state/vibes/
+data/state/vibes/*
+# 自建 Vibe 条目: <id>.json + 同名缩略图 (jpg/png) 成对放行, 原图另在 img/ 下逐层放行。
+# 新增条目时要在这里补对应的 id, 否则会被上面的 data/state/vibes/* 忽略掉。
+!data/state/vibes/b60f7a2710a5.json
+!data/state/vibes/b60f7a2710a5.jpg
+!data/state/vibes/cfcf0b91eee4.json
+!data/state/vibes/cfcf0b91eee4.jpg
+!data/state/vibes/img/
+data/state/vibes/img/*
+!data/state/vibes/img/b60f7a2710a5.png
+!data/state/vibes/img/cfcf0b91eee4.png
 
 # 旧位置 (迁移后不再产生, 保留以免历史工作副本里的文件被误提交)
 .webui-browser/
@@ -40,35 +58,47 @@ assets/waifu2x-caffe
 assets/rife-ncnn-vulkan
 .wildcards_tmp/
 
-# 通配符默认全部忽略, 仅保留仓库自带的默认词条 (与 ANR 原项目一致)
-/wildcards/**
-!/wildcards/**/
-!/wildcards/动作/后视鸭子坐.txt
-!/wildcards/动作/坐着抬胳膊.txt
-!/wildcards/动作/正常位.txt
-!/wildcards/动作/看猫猫.txt
-!/wildcards/动作/触手.txt
-!/wildcards/场景/床上.txt
-!/wildcards/场景/温泉.txt
-!/wildcards/场景/草原.txt
-!/wildcards/表情/咬紧牙关.txt
-!/wildcards/表情/嘟嘴.txt
-!/wildcards/表情/爱心眼.txt
-!/wildcards/角色/GawrGura.txt
-!/wildcards/角色/GawrGura.png
-!/wildcards/角色/可莉.txt
-!/wildcards/角色/可莉.png
-!/wildcards/角色/拉菲.txt
-!/wildcards/角色/独角兽.txt
-!/wildcards/角色/纳西妲.txt
-!/wildcards/角色/铃兰.txt
-!/wildcards/角色/阿罗娜.txt
-!/wildcards/角色/雏鹤爱.txt
-!/wildcards/负面/去除小人.txt
-!/wildcards/负面/长负面提示词.txt
-!/wildcards/质量/常用质量词.txt
-!/wildcards/质量/空前缀.txt
-!/wildcards/质量/简单质量词.txt
+# 通配符: 与示例 Vibe 一样收进 data/state/; 只放行仓库自带的默认词条
+!data/state/wildcards/
+data/state/wildcards/*
+!data/state/wildcards/动作/
+data/state/wildcards/动作/*
+!data/state/wildcards/场景/
+data/state/wildcards/场景/*
+!data/state/wildcards/表情/
+data/state/wildcards/表情/*
+!data/state/wildcards/角色/
+data/state/wildcards/角色/*
+!data/state/wildcards/负面/
+data/state/wildcards/负面/*
+!data/state/wildcards/质量/
+data/state/wildcards/质量/*
+!data/state/wildcards/动作/后视鸭子坐.txt
+!data/state/wildcards/动作/坐着抬胳膊.txt
+!data/state/wildcards/动作/正常位.txt
+!data/state/wildcards/动作/看猫猫.txt
+!data/state/wildcards/动作/触手.txt
+!data/state/wildcards/场景/床上.txt
+!data/state/wildcards/场景/温泉.txt
+!data/state/wildcards/场景/草原.txt
+!data/state/wildcards/表情/咬紧牙关.txt
+!data/state/wildcards/表情/嘟嘴.txt
+!data/state/wildcards/表情/爱心眼.txt
+!data/state/wildcards/角色/GawrGura.txt
+!data/state/wildcards/角色/GawrGura.png
+!data/state/wildcards/角色/可莉.txt
+!data/state/wildcards/角色/可莉.png
+!data/state/wildcards/角色/拉菲.txt
+!data/state/wildcards/角色/独角兽.txt
+!data/state/wildcards/角色/纳西妲.txt
+!data/state/wildcards/角色/铃兰.txt
+!data/state/wildcards/角色/阿罗娜.txt
+!data/state/wildcards/角色/雏鹤爱.txt
+!data/state/wildcards/负面/去除小人.txt
+!data/state/wildcards/负面/长负面提示词.txt
+!data/state/wildcards/质量/常用质量词.txt
+!data/state/wildcards/质量/空前缀.txt
+!data/state/wildcards/质量/简单质量词.txt
 
 # ================= 编辑器 =================
 .idea/

@@ -95,8 +95,23 @@ async def wildcards_reorder_types(payload: dict):
     return {"ok": True}
 
 
+@router.post("/wildcards/create-type")
+def wildcards_create_type(payload: dict):
+    """新建一个空分类 (卡片库的分类就是 wildcards/ 下的目录)。"""
+    wtype = str(payload.get("type") or "").strip()
+    if not wtype or "/" in wtype or "\\" in wtype or wtype in (".", ".."):
+        raise HTTPException(status_code=400, detail="分类名不合法")
+    try:
+        created = wildcards.create_type(wtype)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except OSError as e:
+        raise HTTPException(status_code=400, detail=f"创建分类失败: {e}") from e
+    return {"ok": True, "created": created, "types": wildcards.list_types()}
+
+
 @router.post("/wildcards/delete-type")
-async def wildcards_delete_type(payload: dict):
+def wildcards_delete_type(payload: dict):
     """删除整个 wildcards 分类 (文件夹连同卡片/封面移到回收站)。"""
     wtype = str(payload.get("type") or "").strip()
     if not wtype or "/" in wtype or "\\" in wtype or wtype in (".", ".."):

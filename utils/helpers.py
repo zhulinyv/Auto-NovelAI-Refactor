@@ -28,7 +28,7 @@ from rich.progress import BarColumn, DownloadColumn, Progress, TextColumn, Trans
 
 from utils.config import env
 from utils.logger import console, logger, loguru_to_rich
-from utils.paths import SELECTOR_TRASH_DIR, TEMP_DIR
+from utils.paths import SELECTOR_TRASH_DIR, TEMP_DIR, WILDCARDS_DIR
 from utils.variable import get_proxies
 
 try:
@@ -191,7 +191,7 @@ def _list_wildcard_txt(category: str) -> list[str]:
     cached = _WC_DIR_CACHE.get(category)
     if cached is not None:
         return cached
-    path = f"./wildcards/{category}"
+    path = str(WILDCARDS_DIR / category)
     if not os.path.isdir(path):
         names: list[str] = []
     else:
@@ -206,7 +206,7 @@ def _read_wildcard_file(category: str, name: str) -> str:
     cached = _WC_FILE_CACHE.get(key)
     if cached is not None:
         return cached
-    content = read_txt(f"./wildcards/{category}/{name}.txt")
+    content = read_txt(str(WILDCARDS_DIR / category / f"{name}.txt"))
     _WC_FILE_CACHE[key] = content
     return content
 

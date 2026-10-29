@@ -33,7 +33,7 @@ if env.hide_terminal:
     apply_console_visibility()
 
 # 确保必要目录存在 (data/ 下的状态与临时目录由 utils.paths 在导入时创建)
-for d in ("./outputs", "./plugins", "./wildcards"):
+for d in ("./outputs", "./plugins"):  # wildcards 已收进 data/state/wildcards
     Path(d).mkdir(parents=True, exist_ok=True)
 
 # 旧版散落文件的迁移报告 (utils.paths.migrate_legacy 在 utils.config 导入时已执行)
