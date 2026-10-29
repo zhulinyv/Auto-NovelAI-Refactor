@@ -1607,8 +1607,8 @@ select.corner-select { min-height: 0; height: 26px; }
 /* 生成过程中的每步预览帧同样占满可用高度 (只在生成中显示) */
 .gen-v2 .output-card .gen-preview { flex: 1 1 auto; min-height: 0; justify-content: center; }
 .gen-v2 .output-card .gen-preview img { flex: 1 1 auto; min-height: 0; width: 100%; max-height: 100%; object-fit: contain; }
-/* 还没有图时的空状态: 在整块输出区里居中, 而不是贴在顶上 */
-.gen-v2 .output-card .output-viewer > .gallery-empty { margin: auto; }
+/* 还没有图时的空状态: 在整块输出区里居中 (新旧两种界面都这样, 输出区是 flex 列, margin:auto 双向居中) */
+.output-viewer > .gallery-empty { margin: auto; }
 /* 输出信息/报错文字限高: 长串失败信息不该把成图挤成一条缝 */
 .gen-v2 .output-card .info-box { max-height: 20vh; overflow: auto; }
 
