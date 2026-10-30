@@ -18,7 +18,7 @@
 - 提交信息用 **gitmoji + 中文描述**,如 `:sparkles:`(功能)、`:bug:`(修复)、`:zap:`(性能)、`:bento:`(预设/资源)、`:memo:`(文档)、`:art:`(格式)、`:recycle:`(重构)、`:truck:`(移动/改名)、`:lipstick:`(UI 样式)
 - 完成用户指定的需求后,自动更新版本号,并询问是否需要提交并推送
 - 功能提交与版本号提交**分开**;代码按照功能分别提交;版本号提交单独为 `:bookmark: 版本号 x.y.z`;插件一并提交,要求相同
-- 版本号三处必须同步:`version.txt`(打包脚本读取)、`pyproject.toml`、`utils/variable.py`
+- 版本号三处必须同步:`VERSION`(打包脚本读取)、`pyproject.toml`、`utils/variable.py`
 - 完成一批改动并自验后提交并推送到 `origin/main`
 - pre-commit 钩子(ruff/black/isort,用 venv 里的 python)随提交自动运行,不要绕过
 
@@ -127,7 +127,7 @@
 
 ### 12.2 准备与七个阶段(每步的硬约束)
 
-0. **同步源码 + 读版本号**:`fetch --prune origin` → 有未提交改动先 `stash -u` → `reset --hard origin/<分支>`;再从 `version.txt` 读版本号,并用 `findstr /x` 校验 `pyproject.toml` 与 `utils/variable.py`。任一步失败都 `exit /b 1`,不会带着旧代码或错版本号继续打包
+0. **同步源码 + 读版本号**:`fetch --prune origin` → 有未提交改动先 `stash -u` → `reset --hard origin/<分支>`;再从 `VERSION` 读版本号,并用 `findstr /x` 校验 `pyproject.toml` 与 `utils/variable.py`。任一步失败都 `exit /b 1`,不会带着旧代码或错版本号继续打包
 1. **清理**:只删 `E:\_build\package` 与 `E:\_build\plugins`,其余缓存(便携 Python / Git / 7z 模块)保留
 2. **更新插件**:读 `assets/plugins.json` 每个条目的 `url`,目录名取仓库名;不存在则 `git clone --depth 1`,已存在则 `git pull --ff-only`(第 1 步已把插件目录整个删掉,所以实际上**每次都是重新浅克隆**,`git pull` 分支基本走不到)。`plugins/` 被 gitignore 整目录忽略,**新增插件不写进 `assets/plugins.json` 就不会进包**
 3. **装依赖**:便携 Python 装 `requirements.txt` + 每个插件 `requirements.txt`,再补 torch(CPU 轮子)、ultralytics、segment-anything、nudenet、scipy、opencv-python
@@ -150,7 +150,7 @@
 
 ### 12.4 版本号与发布命名
 
-- 版本号文件 `version.txt`(仓库根,单行)是**打包读取的唯一来源**;`pyproject.toml` 与 `utils/variable.py` 仍要与它一致(§1),准备阶段会整行校验,不一致直接中止
+- 版本号文件 `VERSION`(仓库根,**无扩展名**,单行)是**打包读取的唯一来源**;`pyproject.toml` 与 `utils/variable.py` 仍要与它一致(§1),准备阶段会整行校验,不一致直接中止
 - 产物名自动带版本号:`E:\Auto-NovelAI-Refactor-<version>.exe`(如 `Auto-NovelAI-Refactor-2.3.0-alpha.3.exe`),**不再手工改名**;SFX 的标题与解压提示也会显示版本号
 - 发版顺序:改三处版本号 → 提交并**推送** → 跑 `pack.bat`(它会自己 fetch + reset 到 origin)→ 产物名即最终发布名
 - 版本号沿用 PEP 440 预发布格式(`2.3.0-alpha.3`);文件名里只用数字、字母、`.`、`-`,不要出现空格或中文
@@ -159,7 +159,7 @@
 
 - [ ] 目标版本已提交并**推送**到 origin:脚本会自动同步,但**没推送的提交永远不会进包**(2026-10-29 的教训:发布副本停在 `2.3.0-alpha.2`,包里就是旧版)
 - [ ] 打包源里若有想保留的本地改动,先自己提交或另存;脚本会把它们 `git stash` 掉再 reset(打包后 `git stash pop` 可取回)
-- [ ] `version.txt`、`pyproject.toml`、`utils/variable.py` 三处版本号一致(§1,脚本也会校验)
+- [ ] `VERSION`、`pyproject.toml`、`utils/variable.py` 三处版本号一致(§1,脚本也会校验)
 - [ ] 打包源里**没有** `settings.json` / `last.json`,也**没有**想私藏的 `data/` 内容(自建 Vibe、提示词库会原样进包);`venv/`、`outputs/`、`test.*` 等本地散件同理会被 xcopy 照拷
 - [ ] 新增/移除插件已同步 `assets/plugins.json`
 - [ ] `D:\Softwares\7-Zip`、`E:\_build\tools\ResHacker`、`E:\_build\make_manifest.py`、图标源文件都在(脚本不校验后三项)
