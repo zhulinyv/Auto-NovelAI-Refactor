@@ -18,7 +18,7 @@
 - 提交信息用 **gitmoji + 中文描述**,如 `:sparkles:`(功能)、`:bug:`(修复)、`:zap:`(性能)、`:bento:`(预设/资源)、`:memo:`(文档)、`:art:`(格式)、`:recycle:`(重构)、`:truck:`(移动/改名)、`:lipstick:`(UI 样式)
 - 完成用户指定的需求后,自动更新版本号,并询问是否需要提交并推送
 - 功能提交与版本号提交**分开**;代码按照功能分别提交;版本号提交单独为 `:bookmark: 版本号 x.y.z`;插件一并提交,要求相同
-- 版本号两处必须同步:`pyproject.toml` 与 `utils/variable.py`
+- 版本号三处必须同步:`version.txt`(打包脚本读取)、`pyproject.toml`、`utils/variable.py`
 - 完成一批改动并自验后提交并推送到 `origin/main`
 - pre-commit 钩子(ruff/black/isort,用 venv 里的 python)随提交自动运行,不要绕过
 
@@ -107,7 +107,73 @@
 - 前端保持零构建原生 JS: **不引入构建工具与 npm 依赖**
 - 改名 `server/routes/` 下模块前注意路由注册顺序的影响(有注释说明依赖关系)
 - 拿不准的内容询问用户,用户享有最高决策权,即使和本文件冲突
+- 未经允许, 禁止修改本文件
 
 ## 12. 项目打包与发布
 
-- 此项暂无要求,等待后续补充
+打包脚本位于仓库外的 `E:\pack.bat`,产物是一个自解压 exe(7z SFX):双击解压出 `Auto-NovelAI-Refactor\` 后自动调用 `run.bat`。仓库里没有打包脚本,也没有打包/发布 CI(`.github/workflows/` 只有格式检查)。
+
+### 12.1 固定路径与前提(换机要逐项改)
+
+- 脚本 `E:\pack.bat`(v5)。文件必须是 **ANSI/GBK + CRLF**:不要转成 UTF-8、不要加 `chcp 65001`,那是 v4 就修掉的"乱码 + 命令不识别"
+- 打包源 `E:\Auto-NovelAI-Refactor`:发布专用的**独立 clone**,不是开发克隆(本机开发克隆为 `D:\GitClone\Auto-NovelAI-Refactor`)。xcopy 拷的是这份副本的**文件快照**(未跟踪、被忽略但实际存在的文件都会进包),不是 git 归档
+- 构建目录 `E:\_build`,脚本只前置校验前两项:
+  - `portable_python313\python.exe` — 包内 Python 的来源(包内**不含 venv**)
+  - `tools\PortableGit\cmd\git.exe` — 拉取插件用
+  - `tools\ResHacker\ResourceHacker.exe` — 改写 SFX 的清单与图标(**缺失不报错**,见 §12.7)
+  - `make_manifest.py` — 生成 asInvoker 清单
+- 7-Zip 固定在 `D:\Softwares\7-Zip`(`7z.exe` 与 `7z.sfx`);图标源固定在 `D:\Pictures\头像\ttt_fix.png`(个人路径,换机必改)
+- 缓存缺失时脚本 `pause & exit /b 1` 并提示"请先运行一次完整打包";实际处理是手工把便携 Python / Git 放回上述路径
+
+### 12.2 准备与七个阶段(每步的硬约束)
+
+0. **同步源码 + 读版本号**:`fetch --prune origin` → 有未提交改动先 `stash -u` → `reset --hard origin/<分支>`;再从 `version.txt` 读版本号,并用 `findstr /x` 校验 `pyproject.toml` 与 `utils/variable.py`。任一步失败都 `exit /b 1`,不会带着旧代码或错版本号继续打包
+1. **清理**:只删 `E:\_build\package` 与 `E:\_build\plugins`,其余缓存(便携 Python / Git / 7z 模块)保留
+2. **更新插件**:读 `assets/plugins.json` 每个条目的 `url`,目录名取仓库名;不存在则 `git clone --depth 1`,已存在则 `git pull --ff-only`(第 1 步已把插件目录整个删掉,所以实际上**每次都是重新浅克隆**,`git pull` 分支基本走不到)。`plugins/` 被 gitignore 整目录忽略,**新增插件不写进 `assets/plugins.json` 就不会进包**
+3. **装依赖**:便携 Python 装 `requirements.txt` + 每个插件 `requirements.txt`,再补 torch(CPU 轮子)、ultralytics、segment-anything、nudenet、scipy、opencv-python
+4. **组装**(四次 `xcopy /E /I /Y /Q /H /K`):项目本体 → `%DST%`,插件缓存 → `plugins\`,便携 Python → `Python\`,便携 Git → `Git\`
+   - **`/H` 不能删**:Windows 上 git 给 `.git` 打 Hidden 属性,xcopy 默认跳过隐藏项,缺 `/H` 会**静默丢掉整个 `.git`**
+   - **`/K`**:保留只读属性,使 `.git\objects`、`.git\index` 与原仓库一致
+   - 便携 Python **故意不含 `python313._pth`**:保留 user site,因为非 venv 下插件依赖走 `pip install --user`(`utils/helpers.py` 的 `install_requirements`)
+   - 便携 Python 自带 VC++ 运行库(msvcp140.dll 等),随 xcopy 一并进包,保证 torch 在没装 VC++ 的机器上也能加载
+   - **4.5 自检**:`%DST%\.git\HEAD` 与每个 `%DST%\plugins\<name>\.git\HEAD` 必须存在,缺一个就 `pause & exit /b 1`
+5. **图标**:PIL 从源图生成 256/128/64/48/32/16 多尺寸 `sfx.ico`;失败只告警,退回 7-Zip 默认图标
+6. **压缩**:`7z a -t7z ... -mx=9 -m0=LZMA2 -mmt=on` 到 `E:\_build\Auto-NovelAI-Refactor.7z`(极限压缩,几分钟属正常)
+7. **自解压**:`7z.sfx` 经 ResHacker 打上 asInvoker 清单(不加会每次启动弹 UAC)与自定义图标,追加 UTF-8 的 `sfx_cfg.txt`(`Title` / `BeginPrompt` / `RunProgram="Auto-NovelAI-Refactor\run.bat"`)与 7z 数据,`copy /b` 拼成 `E:\Auto-NovelAI-Refactor-<version>.exe`
+
+### 12.3 为什么包内必须带 `.git`(一条完整因果链)
+
+- 启动时 `utils/helpers.py` 的 `check_update` 用 GitPython 比较本地 HEAD 与 `origin/<branch>`,结果经 `/api/state` 的 `update` 字段给设置页展示(`env.check_update`,默认开)
+- WebUI 的更新动作 → `POST /api/settings/update-repo` → `update_repo` 执行 `git pull`(带 300s 超时;Windows 上 GitPython 的 `kill_after_timeout` 不可用,所以改用 subprocess)
+- 插件商店的更新复用同一个 `update_repo`,因此**每个插件目录也必须带 `.git`**
+- 结论:`.git` 缺失不是"少个历史",而是**检查更新报错 + 主程序与插件更新全部失效**;这就是 §12.2 里 `/H` 与 4.5 自检存在的唯一理由
+
+### 12.4 版本号与发布命名
+
+- 版本号文件 `version.txt`(仓库根,单行)是**打包读取的唯一来源**;`pyproject.toml` 与 `utils/variable.py` 仍要与它一致(§1),准备阶段会整行校验,不一致直接中止
+- 产物名自动带版本号:`E:\Auto-NovelAI-Refactor-<version>.exe`(如 `Auto-NovelAI-Refactor-2.3.0-alpha.3.exe`),**不再手工改名**;SFX 的标题与解压提示也会显示版本号
+- 发版顺序:改三处版本号 → 提交并**推送** → 跑 `pack.bat`(它会自己 fetch + reset 到 origin)→ 产物名即最终发布名
+- 版本号沿用 PEP 440 预发布格式(`2.3.0-alpha.3`);文件名里只用数字、字母、`.`、`-`,不要出现空格或中文
+
+### 12.5 打包前检查(缺一项就别按开始)
+
+- [ ] 目标版本已提交并**推送**到 origin:脚本会自动同步,但**没推送的提交永远不会进包**(2026-10-29 的教训:发布副本停在 `2.3.0-alpha.2`,包里就是旧版)
+- [ ] 打包源里若有想保留的本地改动,先自己提交或另存;脚本会把它们 `git stash` 掉再 reset(打包后 `git stash pop` 可取回)
+- [ ] `version.txt`、`pyproject.toml`、`utils/variable.py` 三处版本号一致(§1,脚本也会校验)
+- [ ] 打包源里**没有** `settings.json` / `last.json`,也**没有**想私藏的 `data/` 内容(自建 Vibe、提示词库会原样进包);`venv/`、`outputs/`、`test.*` 等本地散件同理会被 xcopy 照拷
+- [ ] 新增/移除插件已同步 `assets/plugins.json`
+- [ ] `D:\Softwares\7-Zip`、`E:\_build\tools\ResHacker`、`E:\_build\make_manifest.py`、图标源文件都在(脚本不校验后三项)
+
+### 12.6 打包后验证
+
+- 提醒作者(用户)手动去虚拟机验证
+
+### 12.7 已知缺口与纪律
+
+- **ResHacker 失败是静默降级**:该步没有 errorlevel 检查,缺文件时产物没有 asInvoker 清单与自定义图标,表现为"图标是 7-Zip 的 / 双击弹 UAC"。只能靠 §12.6 事后看住
+- **脚本头部的 `[pack.bat v5 OK]` 是诊断用的**:同一 cmd 窗口跑过旧版后才冒出来的"不是内部或外部命令"乱码来自旧跑的残留,关窗重开即可
+- **改脚本**:保持 GBK/CRLF 与 `setlocal enabledelayedexpansion`(循环内用 `!VAR!`);路径一律加引号(便携目录可能含空格);新增外部工具必须补 `if not exist ... pause & exit /b 1`,别再制造一个静默降级
+- **改脚本后必须真跑一次全流程**并做 §12.6 检查:没打过包的脚本改动等于没改
+- **脚本不在仓库里**:改动只活在这台机器的 `E:\pack.bat`;要迁移或多人使用需另行备份/入库(入库前先与用户确认,见 §11 末条)
+- **插件克隆失败不会立即中断**:`git clone` 的输出被重定向到 nul,失败由 4.5 自检兜住。看到"以下插件仓库缺少 .git"时,先查网络/代理,再确认该插件在 `assets/plugins.json` 里的 `url`
+- 仓库**没有**打包/发布 CI;整合包的分发渠道见 README「整合包下载」
