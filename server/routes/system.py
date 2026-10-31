@@ -898,14 +898,20 @@ _GPU_CACHE["ttl"] = _GPU_TTL_FAIL
 _GPU_LOGGED: set[str] = set()
 
 
-def _gpu_note(key: str, msg: str, stack: bool = False) -> None:
+def _gpu_note(key: str, msg: str, stack: bool = False, level: str = "debug") -> None:
     """同一类采样失败只在首次上报, 避免周期性轮询反复刷同一条日志。"""
     if key in _GPU_LOGGED:
         return
     _GPU_LOGGED.add(key)
-    logger.debug(msg)
-    if stack:
-        logger.opt(exception=True).debug("nvidia-smi 采样失败堆栈:")
+    log = logger.opt(exception=True) if stack else logger
+    getattr(log, level)(msg)
+
+
+class _GpuUnavailable(RuntimeError):
+    """nvidia-smi 能跑起来但读不到 GPU: 独显被断电/停用 (设备管理器里的 Code 45)、驱动没加载、权限不足。
+
+    这类情况 nvidia-smi 会把一句人话打到 stdout 并以非 0 退出, stdout 里没有 CSV。
+    """
 
 
 def _gpu_stats():
@@ -913,13 +919,13 @@ def _gpu_stats():
     now = time.time()
     if now - _GPU_CACHE["t"] < _GPU_CACHE["ttl"]:
         return _GPU_CACHE["data"]
+    if shutil.which("nvidia-smi") is None:
+        # 没有 NVIDIA 独显或没装驱动: 起子进程必然 FileNotFoundError, 直接预检跳过
+        _gpu_note("no-smi", "未检测到 nvidia-smi (无 NVIDIA 显卡或未装驱动), 已跳过 GPU 采样")
+        _GPU_CACHE.update(t=now, ttl=_GPU_TTL_NO_SMI)
+        return _GPU_CACHE["data"]
     try:
-        if shutil.which("nvidia-smi") is None:
-            # 没有 NVIDIA 独显或没装驱动: 起子进程必然 FileNotFoundError, 直接预检跳过
-            _gpu_note("no-smi", "未检测到 nvidia-smi (无 NVIDIA 显卡或未装驱动), 已跳过 GPU 采样")
-            _GPU_CACHE.update(t=now, ttl=_GPU_TTL_NO_SMI)
-            return _GPU_CACHE["data"]
-        out = subprocess.run(
+        proc = subprocess.run(
             [
                 "nvidia-smi",
                 "--query-gpu=name,utilization.gpu,memory.used,memory.total",
@@ -930,22 +936,41 @@ def _gpu_stats():
             timeout=1.5,
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
         )
-        line = out.stdout.strip().splitlines()[0]
-        name, util, mem_used, mem_total = [x.strip() for x in line.split(",")]
-        _GPU_CACHE.update(
-            data={
-                "name": name,
-                "util": float(util),
-                "mem_used": float(mem_used),
-                "mem_total": float(mem_total),
-            },
-            t=now,
-            ttl=_GPU_TTL_OK,
+        # 先看退出码和列数再解包: 独显被断电/驱动没加载时 nvidia-smi 返回非 0, stdout 是一句
+        # "NVIDIA-SMI has failed because ..." (不是 CSV, 也不在 stderr 里), 硬解包就是
+        # "not enough values to unpack (expected 4, got 1)"。
+        out = (proc.stdout or "").strip()
+        head = out.splitlines()[0].strip() if out else ""
+        if proc.returncode != 0 or not head:
+            raise _GpuUnavailable(head or f"退出码 {proc.returncode}, 无输出")
+        parts = [x.strip() for x in head.split(",")]
+        if len(parts) != 4:
+            raise ValueError(f"nvidia-smi 输出格式异常: {head!r}")
+        name, util, mem_used, mem_total = parts
+        _GPU_CACHE["data"] = {
+            "name": name,
+            "util": float(util),
+            "mem_used": float(mem_used),
+            "mem_total": float(mem_total),
+        }
+        # 采样恢复正常: 清掉"只报一次"的记录, 以后再出问题还能再提示一次
+        _GPU_LOGGED.clear()
+    except _GpuUnavailable as e:
+        # 环境状态而不是程序错误 (华硕 Armoury Crate 的集显/Eco 模式会把独显整个断电,
+        # 设备管理器里显示为 Code 45 未连接): 一句提示, 不打堆栈。
+        _gpu_note(
+            "smi-unavailable",
+            f"nvidia-smi 读不到 GPU: {e} —— 多为独显被断电/停用 (集显/Eco 模式、设备管理器禁用) "
+            "或驱动未加载; 恢复前状态栏不显示 GPU 占用",
+            level="warning",
         )
+    except subprocess.TimeoutExpired:
+        _gpu_note("smi-timeout", "nvidia-smi 采样超时 (1.5 秒), 本次跳过")
     except Exception as e:
-        # 采样超时 / 输出解析异常: 保留上一次的有效值, 首次就失败则维持 None
         _gpu_note("smi-error", f"nvidia-smi 采样失败: {e}", stack=True)
-        _GPU_CACHE.update(t=now, ttl=_GPU_TTL_OK if _GPU_CACHE["data"] is not None else _GPU_TTL_FAIL)
+    # 统一收尾: 已经拿到过有效值就 8 秒后再采 (多标签页/并发请求共用一次采样, 也保证独显
+    # 恢复后能很快显示出来); 从头到尾都没取到则退避 60 秒, 免得每轮都白起一次子进程。
+    _GPU_CACHE.update(t=now, ttl=_GPU_TTL_OK if _GPU_CACHE["data"] is not None else _GPU_TTL_FAIL)
     return _GPU_CACHE["data"]
 
 
