@@ -960,20 +960,26 @@ async def serve_image(path: str):
     return FileResponse(target)
 
 
+_HITOKOTO_CACHE = {"text": "", "from": "", "from_who": ""}
+_HITOKOTO_LAST_WARN = 0.0
+_HITOKOTO_WARN_INTERVAL = 600.0  # 失败日志最多 10 分钟一条
+_HITOKOTO_LOCK = threading.Lock()
+
+
 @router.get("/hitokoto")
 def hitokoto():
-    """一言 (随机句子, 来源 hitokoto.cn): 标题栏展示, 前端每 30 分钟刷新一次。
+    """一言 (随机句子, 来源 hitokoto.cn): 标题栏展示, 前端定时刷新。
 
-    服务端转发避免浏览器跨域; 主源失败时尝试国际镜像, 全部失败返回空文本 (前端静默)。
-    同步 def: FastAPI 会在线程池执行, 不再阻塞事件循环 (修复启动时 /api/state 排队等待)。
+    固定使用 v1.hitokoto.cn: 先直连, 失败后再走代理; 全部失败时返回上一次成功句子
+    并限制告警频率。服务端转发避免浏览器跨域; 同步 def 在线程池执行。
     """
-    import concurrent.futures
+    global _HITOKOTO_LAST_WARN
 
+    url = "https://v1.hitokoto.cn/"
     errors = []
 
-    def _fetch(url: str) -> dict:
-        """直连优先 (与在线壁纸一致), 失败自动改走系统代理重试: 见 utils.http_client。"""
-        resp = http_util.get(url, timeout=8)
+    def _fetch(trust_env: bool, timeout: float) -> dict:
+        resp = http_util.request("GET", url, trust_env=trust_env, timeout=timeout)
         data = resp.json()
         text = (data.get("hitokoto") or "").strip()
         if not text:
@@ -984,17 +990,35 @@ def hitokoto():
             "from_who": (data.get("from_who") or "").strip(),
         }
 
-    # 两个源并行请求, 取先成功的一个 (v1.hitokoto.cn 在国内有时很慢, 国际镜像兜底)
-    urls = ("https://v1.hitokoto.cn/", "https://international.v1.hitokoto.cn/")
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
-        futures = [ex.submit(_fetch, url) for url in urls]
-        for fut in concurrent.futures.as_completed(futures):
-            try:
-                return fut.result()
-            except Exception as e:
-                errors.append(f"{e}")
-    logger.warning(f"一言获取失败: {'; '.join(errors)}")
-    return {"text": "", "from": "", "from_who": ""}
+    # 总预算 15s: 直连最多 6s, 失败后剩余时间给代理; 避免 15+15 等到 30s
+    deadline = time.monotonic() + 15.0
+    for trust_env, label, cap in ((False, "直连", 6.0), (True, "代理", None)):
+        if trust_env and not env.proxy:
+            continue
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            errors.append(f"{label}: 总超时")
+            break
+        timeout = min(remaining, cap) if cap else remaining
+        try:
+            result = _fetch(trust_env, timeout)
+            with _HITOKOTO_LOCK:
+                _HITOKOTO_CACHE.update(result)
+            return result
+        except Exception as e:
+            errors.append(f"{label}: {e}")
+
+    with _HITOKOTO_LOCK:
+        cached = dict(_HITOKOTO_CACHE) if _HITOKOTO_CACHE["text"] else None
+        now = time.time()
+        should_warn = now - _HITOKOTO_LAST_WARN >= _HITOKOTO_WARN_INTERVAL
+        if should_warn:
+            _HITOKOTO_LAST_WARN = now
+
+    if should_warn:
+        suffix = " (返回上一次成功句子)" if cached else ""
+        logger.warning(f"一言获取失败: {'; '.join(errors)}{suffix}")
+    return cached or {"text": "", "from": "", "from_who": ""}
 
 
 # ---------------- 系统资源占用 (运行日志栏展示) ----------------
