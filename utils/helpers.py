@@ -217,52 +217,67 @@ def _read_wildcard_file(category: str, name: str) -> str:
 _WILDCARD_MAX_ROUNDS = 50
 
 
+# wildcard 标记: 只认 <分类:卡片> 形式。
+# 分类与卡片名都不允许出现 < > 和换行 —— 旧正则 <([^:]+):([^>]+)> 的 [^:]+ 允许 ">",
+# 于是 v5 的结构化提示词 (<artist>… artist:xxx …</artist> 这种跨行、正文里又带冒号的段落)
+# 会被整段当成一个 wildcard: 既会误替换用户自己写的内容, 又因为解析失败在循环里反复重试,
+# 表现成"没写 <分类:卡片> 也在替换, 而且一直递归下去"。
+# 冒号两边的空白容错只吃空格/制表符 ([ \t]), 不吃换行, 免得又跨行。
+_WILDCARD_TOKEN = re.compile(r"<[ \t]*([^:<>\r\n]+?)[ \t]*:[ \t]*([^<>\r\n]+?)[ \t]*>")
+
+
 def replace_wildcards(text: str) -> str:
-    pattern = r"<([^:]+):([^>]+)>"
-    matchers = re.findall(pattern, text)
     matchers_number = 0
     rounds = 0
     unresolved: set[str] = set()
-    while matchers:
+    while True:
         rounds += 1
         if rounds > _WILDCARD_MAX_ROUNDS:
             logger.warning(
                 f"wildcard 替换超过 {_WILDCARD_MAX_ROUNDS} 轮仍未收敛, 已停止; 未替换的标记: {sorted(unresolved)[:5]}"
             )
             break
-        for wild_card in matchers:
-            token = f"<{wild_card[0]}:{wild_card[1]}>"
+        matches = list(_WILDCARD_TOKEN.finditer(text))
+        if not matches:
+            break
+        replaced = 0
+        for match in matches:
+            token, category, name = match.group(0), match.group(1), match.group(2)
+            if token not in text:
+                continue  # 同一轮里已被上一次替换吃掉 (卡片内容套卡片时会出现)
             if token in unresolved:
                 continue  # 已知解析不了: 不再重复尝试 (否则会无限循环)
             try:
-                if wild_card[1] == "随机":
-                    names = _list_wildcard_txt(wild_card[0])
+                if name == "随机":
+                    names = _list_wildcard_txt(category)
                     if not names:
-                        raise FileNotFoundError(f"分类为空或不存在: {wild_card[0]}")
-                    name = random.choice(names).replace(".txt", "")
-                    tag = _read_wildcard_file(wild_card[0], name)
-                elif wild_card[1] == "顺序":
-                    name, tag = _sequential_wildcard(wild_card[0])
-                    if not name:
-                        raise FileNotFoundError(f"分类为空或不存在: {wild_card[0]}")
+                        raise FileNotFoundError(f"分类为空或不存在: {category}")
+                    card = random.choice(names).replace(".txt", "")
+                    tag = _read_wildcard_file(category, card)
+                elif name == "顺序":
+                    card, tag = _sequential_wildcard(category)
+                    if not card:
+                        raise FileNotFoundError(f"分类为空或不存在: {category}")
                 else:
-                    name = wild_card[1]
-                    tag = _read_wildcard_file(wild_card[0], name)
+                    card = name
+                    tag = _read_wildcard_file(category, card)
             except Exception as e:
                 # 卡片缺失/分类为空: 保留原标记并跳过 (原来是直接抛错中断整次生成)
                 logger.warning(f"wildcard 解析失败, 已保留原样: {token} ({e})")
                 unresolved.add(token)
                 continue
             matchers_number += 1
+            replaced += 1
             text = text.replace(token, tag)
             logger.debug(
                 loguru_to_rich(
                     r'已将 <c><{}:{}></c> 替换为 <c>{}</c>: "<c>{}</c>"'.format(
-                        wild_card[0], wild_card[1], name, tag.replace("<", r"\<")
+                        category, name, card, tag.replace("<", r"\<")
                     )
                 )
             )
-        matchers = re.findall(pattern, text)
+        if not replaced:
+            break  # 这一轮一个都没替换成功: 剩下的标记都解析不了, 再扫还是同一批, 直接收工
     if matchers_number:
         logger.info(f"共发现 {matchers_number} 个 wildcard, 已完成替换!")
     return format_str(text)
