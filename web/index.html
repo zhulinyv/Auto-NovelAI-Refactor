@@ -1,9 +1,22 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Auto-NovelAI-Refactor 💗</title>
+  <!-- 深色为默认主题: 在样式表生效前恢复已保存的选择, 避免首屏闪烁 -->
+  <script>
+    (() => {
+      let theme = "dark";
+      try {
+        theme = new URLSearchParams(location.search).get("__theme")
+          || localStorage.getItem("anr-theme")
+          || "dark";
+      } catch { /* localStorage 不可用时仍用默认深色 */ }
+      if (theme !== "light" && theme !== "dark") theme = "dark";
+      document.documentElement.dataset.theme = theme;
+    })();
+  </script>
   <link rel="icon" href="/favicon.ico" />
   <link rel="stylesheet" href="/css/base.css" />
   <link rel="stylesheet" href="/css/app.css" />
@@ -27,7 +40,7 @@
         <span id="conn-status" class="conn-dot" title="连接状态"></span>
         <button id="bg-toggle" class="icon-btn" title="自定义背景" aria-label="自定义背景">🖼️</button>
         <button id="appearance-toggle" class="icon-btn" title="外观设置 (颜色/模糊)" aria-label="外观设置">🎨</button>
-        <button id="theme-toggle" class="icon-btn" title="切换深浅色主题" aria-label="切换主题">🌙</button>
+        <button id="theme-toggle" class="icon-btn" title="切换深浅色主题" aria-label="切换主题">☀️</button>
         <!-- 晴天娃娃开关: 图标由 app.js 按状态换成"带斜杠"版本 (与全屏按钮同一套换图标做法),
              不用 emoji —— 本地 emoji 资源里没有玩偶码位, 缺字形会显示成方框 -->
         <button id="charm-toggle" class="icon-btn" title="隐藏晴天娃娃" aria-label="隐藏晴天娃娃"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v2.6"/><circle cx="12" cy="9.2" r="4.6"/><path d="M9.1 13 7.4 21.5h9.2L14.9 13"/></svg></button>

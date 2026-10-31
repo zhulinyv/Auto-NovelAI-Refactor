@@ -14,9 +14,10 @@ let rotationIdx = 0;
 let rotationTimer = null;
 let popoverEl = null;
 let pidBadge = null;
-let bgState = { single: null, folder: null, interval: 120, api: false, apiSource: "bing", art: null };
+/** 背景自动切换默认间隔: 5 分钟 (秒) */
+export const DEFAULT_INTERVAL_SEC = 300;
 
-export const DEFAULT_INTERVAL_SEC = 120;
+let bgState = { single: null, folder: null, interval: DEFAULT_INTERVAL_SEC, api: false, apiSource: "bing", art: null };
 
 function savedInterval() {
   return Number.isFinite(bgState.interval) && bgState.interval >= 10 ? bgState.interval : DEFAULT_INTERVAL_SEC;
@@ -93,9 +94,9 @@ async function loadState() {
     if (res.art && res.art.pid) bgState.art = res.art;
     if (res && Array.isArray(res.folder) && res.folder.length) bgState.folder = res.folder;
     if (res && Number.isFinite(res.interval) && res.interval >= 3) bgState.interval = res.interval;
-    // 旧默认 90 秒迁移到新默认 120 秒
-    if (bgState.interval === 90) {
-      bgState.interval = 120;
+    // 历史默认 90 / 120 秒迁移到新默认 300 秒 (5 分钟)
+    if (bgState.interval === 90 || bgState.interval === 120) {
+      bgState.interval = DEFAULT_INTERVAL_SEC;
       saveState();
     }
 

@@ -9,10 +9,11 @@
   --surface-3: rgba(0, 0, 0, 0.08);
   --text: #1d2029;
   --text-2: #4b5563;  /* 浅色模式次级文字加深: 标题小字/提示/插件名等更清晰 (对比度 ~7:1) */
-  --primary: #8b5cf6;
-  --primary-2: #a78bfa;
-  --secondary: #6366f1;
-  --accent: #ec4899;
+  /* 默认主题色: 玫瑰粉 (与外观预设「玫瑰粉」一致) */
+  --primary: #ec4899;
+  --primary-2: #f17bb6;
+  --secondary: #f472b6;
+  --accent: #8b5cf6;
   --success: #22c55e;
   --warning: #f59e0b;
   --danger: #ef4444;
@@ -23,7 +24,7 @@
   --shadow-lg: 0 10px 40px rgba(0, 0, 0, 0.12);
   --radius: 14px;
   --radius-sm: 9px;
-  --bg-blur: 4px;
+  --bg-blur: 10px;
   --font: system-ui, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   --mono: "Cascadia Code", Consolas, "Courier New", monospace;
   /* Danbooru 标签分类配色 (提示词补全): general / artist / copyright / character / meta */
@@ -43,10 +44,10 @@
   --surface-3: rgba(255, 255, 255, 0.12);
   --text: #e7e9ee;
   --text-2: #9aa0ae;
-  --primary: #a78bfa;
-  --primary-2: #c4b5fd;
-  --secondary: #818cf8;
-  --accent: #f472b6;
+  --primary: #ec4899;
+  --primary-2: #f17bb6;
+  --secondary: #f472b6;
+  --accent: #8b5cf6;
   --success: #4ade80;
   --warning: #fbbf24;
   --danger: #f87171;

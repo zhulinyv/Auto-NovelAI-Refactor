@@ -669,6 +669,7 @@ _BG_API_DIR = BG_API_DIR  # data/caches/backgrounds (原 outputs/backgrounds)
 # 自定义背景/外观状态 (跨端口与浏览器保留); 历史位置由 utils.paths.migrate_legacy 搬迁
 _BG_STATE_FILE = STATE_DIR / "bg_state.json"
 _BG_API_KEEP = 20  # 本地最多保留的 API 壁纸张数
+_DEFAULT_BG_INTERVAL = 300  # 背景/一言自动切换默认间隔 (秒), 5 分钟
 
 
 def _save_api_wallpaper(content: bytes, min_w: int = 1024) -> str:
@@ -790,7 +791,7 @@ def bg_random_wallpaper(payload: dict = None):
 @router.get("/bg/state")
 async def bg_state_get():
     """读取状态 (背景 + 自定义颜色/模糊), 跨端口与浏览器保留。"""
-    data = {"single": None, "folder": None, "interval": 120, "api": False, "charm": True}
+    data = {"single": None, "folder": None, "interval": _DEFAULT_BG_INTERVAL, "api": False, "charm": True}
     data.update(jsonstore.read_dict(_BG_STATE_FILE))
     return data
 
@@ -814,7 +815,7 @@ async def bg_state_save(payload: dict):
         data["api_source"] = src if src in ("bing", "acg") else "bing"
     if "interval" in payload:
         try:
-            interval = int(payload.get("interval") or 90)
+            interval = int(payload.get("interval") or _DEFAULT_BG_INTERVAL)
         except (TypeError, ValueError):
             interval = 10
         if interval < 10:

@@ -12,11 +12,11 @@ const THEMES = ["light", "dark"];
 
 // 主题色预设 (亮/暗模式下通用)
 const PRESETS = [
+  { name: "玫瑰粉", primary: "#ec4899", secondary: "#f472b6", accent: "#8b5cf6" },
   { name: "紫罗兰", primary: "#8b5cf6", secondary: "#6366f1", accent: "#ec4899" },
   { name: "海洋蓝", primary: "#3b82f6", secondary: "#06b6d4", accent: "#22d3ee" },
   { name: "翡翠绿", primary: "#10b981", secondary: "#14b8a6", accent: "#f59e0b" },
   { name: "落日橙", primary: "#f97316", secondary: "#fb923c", accent: "#ec4899" },
-  { name: "玫瑰粉", primary: "#ec4899", secondary: "#f472b6", accent: "#8b5cf6" },
   { name: "青瓷", primary: "#14b8a6", secondary: "#2dd4bf", accent: "#6366f1" },
   { name: "石墨", primary: "#64748b", secondary: "#94a3b8", accent: "#f43f5e" },
 ];
@@ -114,7 +114,7 @@ async function loadSaved() {
       const b = localStorage.getItem(BLUR_KEY);
       if (b) {
         const v = JSON.parse(b);
-        blur = { bg: Number.isFinite(v.bg) ? v.bg : 4, panel: Number.isFinite(v.panel) ? v.panel : 12 };
+        blur = { bg: Number.isFinite(v.bg) ? v.bg : 10, panel: Number.isFinite(v.panel) ? v.panel : 12 };
       }
     } catch { /* ignore */ }
   }
@@ -140,8 +140,8 @@ function apply(theme) {
 export function initTheme() {
   const params = new URLSearchParams(location.search);
   let theme = params.get("__theme");
-  if (!theme) theme = localStorage.getItem(KEY) || "light";
-  if (!THEMES.includes(theme)) theme = "light";
+  if (!theme) theme = localStorage.getItem(KEY) || "dark";
+  if (!THEMES.includes(theme)) theme = "dark";
   apply(theme);
 
   document.getElementById("theme-toggle").addEventListener("click", () => {
@@ -253,11 +253,11 @@ function getPopover() {
   const colorRow = el("div", { class: "color-row" });
   const primaryWrap = el("label", { class: "color-input-wrap" }, [
     document.createTextNode("主题色"),
-    el("input", { type: "color", id: "color-primary", value: "#8b5cf6" }),
+    el("input", { type: "color", id: "color-primary", value: "#ec4899" }),
   ]);
   const accentWrap = el("label", { class: "color-input-wrap" }, [
     document.createTextNode("点缀色"),
-    el("input", { type: "color", id: "color-accent", value: "#ec4899" }),
+    el("input", { type: "color", id: "color-accent", value: "#8b5cf6" }),
   ]);
   colorRow.append(primaryWrap, accentWrap);
   pop.append(el("div", { class: "field" }, [el("label", { text: "自定义颜色" }), colorRow]));
@@ -278,7 +278,7 @@ function getPopover() {
   accentInput.addEventListener("change", () => scheduleSave());
 
   // ---- 模糊度 (组件模糊已随毛玻璃移除, 仅保留背景模糊; --panel-blur 管线已删) ----
-  const blurBgWrap = sliderRow("背景模糊度", "blur-bg", 0, 40, 4);
+  const blurBgWrap = sliderRow("背景模糊度", "blur-bg", 0, 40, 10);
   blurBgWrap.input.addEventListener("input", () => {
     applyBlur(Number(blurBgWrap.input.value));
     syncPopover(pop);
@@ -290,7 +290,7 @@ function getPopover() {
   const resetBtn = el("button", { class: "btn btn-sm btn-danger", text: "♻️ 恢复默认外观" });
   resetBtn.addEventListener("click", () => {
     applyColor(null);
-    applyBlur(4);
+    applyBlur(10);
     syncPopover(pop);
     scheduleSave();
     toast("已恢复默认外观", "info");
@@ -317,16 +317,16 @@ function sliderRow(label, id, min, max, value) {
 
 function syncPopover(pop) {
   const rootStyle = getComputedStyle(document.documentElement);
-  const curPrimary = rootStyle.getPropertyValue("--primary").trim() || "#8b5cf6";
-  const curAccent = rootStyle.getPropertyValue("--accent").trim() || "#ec4899";
+  const curPrimary = rootStyle.getPropertyValue("--primary").trim() || "#ec4899";
+  const curAccent = rootStyle.getPropertyValue("--accent").trim() || "#8b5cf6";
 
   const primaryInput = pop.querySelector("#color-primary");
   const accentInput = pop.querySelector("#color-accent");
-  if (primaryInput) primaryInput.value = toHex(curPrimary) || "#8b5cf6";
-  if (accentInput) accentInput.value = toHex(curAccent) || "#ec4899";
+  if (primaryInput) primaryInput.value = toHex(curPrimary) || "#ec4899";
+  if (accentInput) accentInput.value = toHex(curAccent) || "#8b5cf6";
 
   const bgInput = pop.querySelector("#blur-bg");
-  const bgBlur = parseFloat(rootStyle.getPropertyValue("--bg-blur")) || 4;
+  const bgBlur = parseFloat(rootStyle.getPropertyValue("--bg-blur")) || 10;
   if (bgInput) { bgInput.value = String(bgBlur); const v = bgInput.parentElement.querySelector(".blur-val"); if (v) v.textContent = bgBlur + "px"; }
 
   // 高亮当前预设
@@ -382,5 +382,5 @@ export function setTheme(theme) {
 }
 
 export function currentTheme() {
-  return document.documentElement.dataset.theme || "light";
+  return document.documentElement.dataset.theme || "dark";
 }

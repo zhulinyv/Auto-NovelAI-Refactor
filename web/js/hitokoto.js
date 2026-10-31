@@ -6,7 +6,7 @@
 // ============================================================
 import { get } from "./api.js";
 import { bus } from "./ui.js";
-import { effectiveIntervalSec } from "./background.js";
+import { DEFAULT_INTERVAL_SEC, effectiveIntervalSec } from "./background.js";
 
 let box = null;
 let timer = null;
@@ -30,7 +30,7 @@ async function refresh() {
 /** 按当前生效的图片切换间隔排下一次切换 (自重排 setTimeout, 每次取最新值) */
 function schedule() {
   if (timer) clearTimeout(timer);
-  const sec = Math.max(10, Number(effectiveIntervalSec()) || 120);
+  const sec = Math.max(10, Number(effectiveIntervalSec()) || DEFAULT_INTERVAL_SEC);
   timer = setTimeout(() => { refresh().then(schedule); }, sec * 1000);
 }
 

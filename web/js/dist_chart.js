@@ -18,7 +18,7 @@ function themeColors() {
     bg: v("--panel-solid", dark ? "#161821" : "#ffffff"),
     text: v("--text", dark ? "#e7e9ee" : "#1d2029"),
     text2: v("--text-2", dark ? "#9aa0ae" : "#6b7280"),
-    primary: v("--primary", "#8b5cf6"),
+    primary: v("--primary", "#ec4899"),
     success: v("--success", dark ? "#4ade80" : "#22c55e"),
     warning: v("--warning", "#f59e0b"),
     danger: v("--danger", "#ef4444"),
