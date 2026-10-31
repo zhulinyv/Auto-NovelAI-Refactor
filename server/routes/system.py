@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import os
 import platform
+import random as _random
 import re
 import shutil
 import subprocess
@@ -26,7 +27,7 @@ from fastapi.responses import FileResponse
 
 from utils import http_client as http_util
 from utils import jsonstore
-from utils.config import BASE_DIR, LAST_FILE, resolve_media_path
+from utils.config import BASE_DIR, LAST_FILE, env, resolve_media_path
 from utils.gen_queue import gen_queue
 from utils.helpers import get_update_status, read_json
 from utils.jobs import jobs
@@ -671,9 +672,38 @@ _BG_STATE_FILE = STATE_DIR / "bg_state.json"
 _BG_API_KEEP = 20  # 本地最多保留的 API 壁纸张数
 _DEFAULT_BG_INTERVAL = 300  # 背景/一言自动切换默认间隔 (秒), 5 分钟
 
+# 在线动漫壁纸: Nekos.best -> Nekos API -> Lolicon
+_NEKOS_UA = "Auto-NovelAI-Refactor (https://github.com/zhulinyv/Auto-NovelAI-Refactor)"
+_NEKOS_BEST_CATEGORIES = ("neko", "waifu", "kitsune", "husbando")
+# Nekos API 的 rating=safe 仍可能带这些标签, 下载前再按标签挡一遍
+_NEKOS_API_BLOCK_TAGS = {
+    "nude",
+    "nipples",
+    "exposed_girl_breasts",
+    "large_breasts",
+    "panties",
+    "underwear",
+    "cleavage",
+    "ass",
+    "spread_legs",
+    "pussy",
+    "sex",
+    "cum",
+    "penis",
+    "vagina",
+    "anus",
+    "topless",
+    "bikini",
+}
+_NEKOS_API_WITHOUT_TAGS = ",".join(sorted(_NEKOS_API_BLOCK_TAGS))
 
-def _save_api_wallpaper(content: bytes, min_w: int = 1024) -> str:
-    """校验图片有效性后保存到 data/caches/backgrounds, 返回绝对路径 (只保留最近 N 张)。"""
+
+def _save_api_wallpaper(content: bytes, min_w: int = 1024, landscape: bool = False) -> str:
+    """校验图片有效性后保存到 data/caches/backgrounds, 返回绝对路径 (只保留最近 N 张)。
+
+    landscape=True 时把竖图/近方图裁成 16:9 横图 (顶部留 15% 余量, 避免把角色头部裁掉);
+    已经是横图的原样保存。Nekos.best 的图多是高分辨率竖图, 只裁不改画质参数。
+    """
     import time
     from io import BytesIO
 
@@ -683,12 +713,19 @@ def _save_api_wallpaper(content: bytes, min_w: int = 1024) -> str:
         raise RuntimeError("图片体积过大")
     with Image.open(BytesIO(content)) as im:
         fmt = (im.format or "JPEG").lower()
-        width = im.width
+        width, height = im.size
+        if landscape and height > 0 and width / height < 1.5:
+            target_h = max(1, min(height, int(round(width * 9 / 16))))
+            top = int((height - target_h) * 0.15)
+            out = BytesIO()
+            im.convert("RGB").crop((0, top, width, top + target_h)).save(out, format="JPEG", quality=90, optimize=True)
+            content = out.getvalue()
+            fmt = "jpeg"
     if width < min_w:
         raise RuntimeError("图片分辨率过低")
 
     _BG_API_DIR.mkdir(parents=True, exist_ok=True)
-    ext = ".png" if fmt == "png" else ".jpg"
+    ext = {"png": ".png", "webp": ".webp"}.get(fmt, ".jpg")
     path = _BG_API_DIR / f"bg_api_{int(time.time() * 1000)}{ext}"
     path.write_bytes(content)
     files = sorted(_BG_API_DIR.glob("bg_api_*"))
@@ -700,28 +737,107 @@ def _save_api_wallpaper(content: bytes, min_w: int = 1024) -> str:
     return path.as_posix()
 
 
+def _external_request(method: str, url: str, **kwargs):
+    """在线壁纸 API: 配了代理时先走代理, 失败再直连, 避免每次先等直连超时。"""
+    if env.proxy:
+        try:
+            return http_util.request(method, url, trust_env=True, **kwargs)
+        except Exception:
+            return http_util.request(method, url, trust_env=False, **kwargs)
+    return http_util.request(method, url, **kwargs)
+
+
+def _external_get(url: str, **kwargs):
+    return _external_request("GET", url, **kwargs)
+
+
+def _fetch_nekos_best():
+    """Nekos.best: 全 SFW; 单次只取 1 张, 竖图裁成横图, 不按分辨率筛图。"""
+    headers = {"User-Agent": _NEKOS_UA}
+    category = _random.choice(_NEKOS_BEST_CATEGORIES)
+    res = _external_get(
+        f"https://nekos.best/api/v2/{category}",
+        params={"amount": 1},
+        headers=headers,
+        timeout=(4, 8),
+    )
+    results = res.json().get("results") or []
+    raw = results[0] if results else None
+    if not raw or not raw.get("url"):
+        raise RuntimeError("接口无数据")
+
+    dims = raw.get("dimensions") or {}
+    if int(dims.get("height") or 0) <= 0:
+        raise RuntimeError("接口未返回有效尺寸")
+    img = _external_get(raw["url"], headers=headers, timeout=(5, 25))
+    path = _save_api_wallpaper(img.content, min_w=0, landscape=True)
+    artist = raw.get("artist_name") or ""
+    source_url = raw.get("source_url") or ""
+    result = {
+        "path": path,
+        "source": "Nekos.best · " + (artist or category),
+    }
+    match = re.search(r"/artworks/(\d+)", source_url)
+    if match:
+        result.update({"pid": int(match.group(1)), "title": "", "author": artist})
+    return result
+
+
+def _fetch_nekos_api():
+    """Nekos API: rating=safe + 标签黑名单; 只取少量候选, 不按分辨率筛图。"""
+    headers = {"User-Agent": _NEKOS_UA}
+    res = _external_get(
+        "https://api.nekosapi.com/v4/images/random",
+        params={
+            "rating": "safe",
+            "limit": 5,
+            "without_tags": _NEKOS_API_WITHOUT_TAGS,
+        },
+        headers=headers,
+        timeout=(4, 8),
+    )
+    items = res.json()
+    if not isinstance(items, list):
+        raise RuntimeError("接口返回格式异常")
+
+    for item in items:
+        tags = {str(tag).lower() for tag in (item.get("tags") or [])}
+        if not item.get("url") or tags & _NEKOS_API_BLOCK_TAGS:
+            continue
+        img = _external_get(item["url"], headers=headers, timeout=(5, 25))
+        path = _save_api_wallpaper(img.content, min_w=0, landscape=True)
+        return {
+            "path": path,
+            "source": "Nekos API · " + (item.get("artist_name") or "SFW 动漫"),
+        }
+    raise RuntimeError("接口无数据")
+
+
 @router.post("/bg/random")
 def bg_random_wallpaper(payload: dict = None):
     """从在线壁纸 API 获取一张精美图片并保存, 返回路径与来源。
 
     payload.source = "bing" (默认): Bing 每日精选壁纸 (近 8 天随机一天,
       cn.bing.com / www.bing.com 双通道) -> Picsum 随机精选图 (兜底)。
-    payload.source = "acg": Lolicon API v2 随机动漫壁纸 (Pixiv 收录, 非 R18 横图)。
+    payload.source = "acg": 动漫壁纸: Nekos.best (首选, SFW) -> Nekos API (备选, SFW) -> Lolicon (兜底)。
     图片由后端代理下载, 前端不受跨域限制。
     """
-    import random as _random
-
     source = ((payload or {}).get("source") or "bing").strip().lower()
     errors = []
 
-    # 0) Lolicon 随机动漫壁纸 (API v2: 仅横图 gt1, 非 R18; regular 规格省流量, pid 供前端展示)
+    # 0) 动漫壁纸: Nekos.best (首选) -> Nekos API (备选) -> Lolicon (兜底)
     if source == "acg":
-        # 直连优先 / 失败自动改走系统代理: 统一实现在 utils.http_client (全项目同一套降级逻辑)
-        def _fetch(method, url, **kw):
-            return http_util.request(method, url, **kw)
+        for name, fetcher in (("Nekos.best", _fetch_nekos_best), ("Nekos API", _fetch_nekos_api)):
+            try:
+                return fetcher()
+            except Exception as e:
+                errors.append(f"{name}: {e}")
+                logger.warning(f"在线壁纸 {name} 获取失败: {e}")
+                logger.opt(exception=True).debug(f"在线壁纸 {name} 获取失败堆栈:")
 
+        # 兜底: Lolicon API v2 (Pixiv 收录, 非 R18 横图)
         try:
-            meta = _fetch(
+            meta = _external_request(
                 "POST",
                 "https://api.lolicon.app/setu/v2",
                 json={"r18": 0, "num": 1, "aspectRatio": "gt1", "size": ["regular"]},
@@ -736,9 +852,9 @@ def bg_random_wallpaper(payload: dict = None):
             url = (item.get("urls") or {}).get("regular")
             if not url:
                 raise RuntimeError("接口未返回图片地址")
-            img = _fetch("GET", url, timeout=(8, 30))
+            img = _external_request("GET", url, timeout=(8, 30))
             return {
-                "path": _save_api_wallpaper(img.content, min_w=800),
+                "path": _save_api_wallpaper(img.content, min_w=0),
                 "source": f"Pixiv #{item['pid']}",
                 "pid": item["pid"],
                 "title": item.get("title") or "",

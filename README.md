@@ -135,7 +135,7 @@ def register(plugin: Plugin):
 
 本项目使用 [Semi-Auto-NovelAI-to-Pixiv](https://github.com/zhulinyv/Semi-Auto-NovelAI-to-Pixiv) 的部分源代码
 
-本项目使用 [Lolicon API](https://docs.api.lolicon.app) | [Hitokoto 一言](https://hitokoto.cn) | [Bing 每日壁纸](https://www.bing.com) | [Picsum](https://picsum.photos) 提供背景和一言服务
+本项目使用 [Nekos.best](https://docs.nekos.best) | [Nekos API](https://nekosapi.com/docs) | [Lolicon API](https://docs.api.lolicon.app) | [Hitokoto 一言](https://hitokoto.cn) | [Bing 每日壁纸](https://www.bing.com) | [Picsum](https://picsum.photos) 提供背景和一言服务
 
 
 ## 🔊 声明

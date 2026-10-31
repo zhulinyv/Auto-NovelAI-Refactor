@@ -206,7 +206,7 @@ async function fetchApiWallpaper({ silent = false } = {}) {
 
 // ---------------- 顶部按钮 + 弹层 ----------------
 
-/** 右上角 PID 徽标: 当前背景来自 Lolicon/Pixiv 时展示, 点击打开作品页 */
+/** 右上角 PID 徽标: 当前背景来自 Pixiv (Lolicon/Nekos.best) 时展示, 点击打开作品页 */
 function updatePidBadge() {
   if (!pidBadge) return;
   const art = bgState.art;
@@ -369,11 +369,11 @@ function getPopover() {
     toast("背景已切换为单张图片 🖼️", "success");
   }
 
-  // ---- 在线: 两个来源选项 (Bing 每日精选 / Lolicon 动漫), 后端代理下载 ----
+  // ---- 在线: 两个来源选项 (Bing 每日精选 / 动漫壁纸), 后端代理下载 ----
   const apiBox = el("div", { class: "field" }, [el("label", { text: "🌐 图片来源" })]);
   const srcGroup = el("div", { class: "opt-group bg-api-src" }, [
     el("label", { class: "opt-item" + (bgState.apiSource !== "acg" ? " selected" : ""), text: "Bing 每日精选", "data-src": "bing" }),
-    el("label", { class: "opt-item" + (bgState.apiSource === "acg" ? " selected" : ""), text: "Lolicon 动漫", "data-src": "acg" }),
+    el("label", { class: "opt-item" + (bgState.apiSource === "acg" ? " selected" : ""), text: "动漫壁纸", title: "Nekos.best → Nekos API → Lolicon", "data-src": "acg" }),
   ]);
   srcGroup.addEventListener("click", (e) => {
     const item = e.target instanceof Element ? e.target.closest(".opt-item") : null;
@@ -488,7 +488,7 @@ function refreshPopoverState(pop) {
   const singleName = pop.querySelector(".file-chip");
   const folderInfo = pop.querySelector(".bg-folder-info");
   const apiInfo = pop.querySelector(".bg-api-info");
-  const srcName = bgState.apiSource === "acg" ? "Lolicon 动漫" : "Bing 每日精选";
+  const srcName = bgState.apiSource === "acg" ? "动漫壁纸" : "Bing 每日精选";
   if (singleName) {
     singleName.textContent = bgState.single ? bgState.single.split("/").pop() : "未设置";
     singleName.title = bgState.single || "";
