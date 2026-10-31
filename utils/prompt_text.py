@@ -26,7 +26,7 @@ from __future__ import annotations
 import re
 
 # 仅在 v5 系列生图模型生效 (与 src/generate_images.py 的模型名保持一致)
-V5_MODELS = ("nai-diffusion-5-full", "nai-diffusion-5-curated")
+V5_MODELS = ("nai-diffusion-5-full", "nai-diffusion-5-full-medium", "nai-diffusion-5-curated")
 
 # 段关键字: 行首或逗号后的 "teXt:" (大小写不敏感, 中间的空格可有可无, 也兼容用户写成 text:)
 _KEYWORD_RE = re.compile(r"(?im)(?:^|(?<=,))[ \t]*text[ \t]*:[ \t]*")

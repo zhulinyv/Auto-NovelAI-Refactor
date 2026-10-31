@@ -39,6 +39,12 @@ def text2image(**kwargs):
     if kwargs["sampler"] != "ddim_v3":
         json_data["parameters"]["noise_schedule"] = kwargs["noise_schedule"]
 
+    # 官网 tag_hint_* (元数据回显): 预设数字码始终发送 (透明背景仅 V5 系列支持)
+    if kwargs.get("tag_hint_qt") is not None:
+        json_data["parameters"]["tag_hint_qt"] = kwargs["tag_hint_qt"]
+    if kwargs.get("tag_hint_uc_preset") is not None:
+        json_data["parameters"]["tag_hint_uc_preset"] = kwargs["tag_hint_uc_preset"]
+
     return json_data
 
 

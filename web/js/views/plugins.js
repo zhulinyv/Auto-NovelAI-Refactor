@@ -602,7 +602,7 @@ function renderPanel(plugin, panel, body) {
       applyModelOptions = () => {
         const m = modelCtrl.getValue();
         const nai3 = m === "nai-diffusion-3" || m === "nai-diffusion-furry-3";
-        const nai5 = m === "nai-diffusion-5-full" || m === "nai-diffusion-5-curated";
+        const nai5 = m === "nai-diffusion-5-full" || m === "nai-diffusion-5-full-medium" || m === "nai-diffusion-5-curated";
         setOptions(samplerCtrl, nai3 ? ALL_SAMPLERS : ALL_SAMPLERS.filter((s) => s !== "ddim_v3"));
         if (nai5) noiseCtrl.setValue("karras");
         else setOptions(noiseCtrl, nai3 ? ALL_NOISES : ALL_NOISES.filter((n) => n !== "native"));

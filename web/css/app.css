@@ -1510,6 +1510,7 @@ table.store-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .prompt-corner-label {
   display: flex;
   align-items: center;
+  gap: 5px;
   font-size: 11.5px;
   font-weight: 600;
   color: var(--primary);
@@ -1520,6 +1521,7 @@ table.store-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   padding: 0 9px;
   white-space: nowrap;
 }
+.prompt-corner-label .pc-ico, .prompt-corner-label .pc-txt { flex: 0 0 auto; }
 select.corner-select { min-height: 0; height: 26px; }
 .prompt-corner .fs-wrap { width: auto; max-width: 170px; }
 .prompt-corner .fs-control {
@@ -1625,12 +1627,64 @@ select.corner-select { min-height: 0; height: 26px; }
    (全屏编辑时编辑器被移出 .gen-v2, 不受这条影响) */
 .gen-v2 .img-editor-wrap .editor-canvas-wrap { min-width: 190px; }
 .gen-v2 .img-editor-wrap .editor-placeholder { padding: 20px 10px; }
+/* 提示词头部动作按钮 (新旧界面共用): 「图标 + 文字」两层结构, 用 flex 排版 ——
+   不依赖标签之间的空白, 文字也能单独收起 (窄宽度时只留图标, 见下方 @container) */
+.prompt-head-right .mini-btn { display: inline-flex; align-items: center; gap: 5px; }
+.prompt-head-right .mini-ico { display: inline-flex; align-items: center; flex: 0 0 auto; }
+.prompt-head-right .mini-lbl { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* 新版提示词卡片: 正面 / 负面共用一个输入区, 头部左边是切换开关 (标题由开关承担, 不再渲染 .prompt-title) */
 .prompt-card-v2 .field { margin-bottom: 0; }              /* 只显示一块时不留尾部空档 */
-/* 开关 + 右侧按钮组在这个宽度下放不进一行: 让按钮组整体换到第二行并右对齐,
-   比"预设下拉单独掉到下一行左边"更整齐 */
-.prompt-card-v2 .prompt-head { flex-wrap: wrap; row-gap: 8px; }
-.prompt-card-v2 .prompt-head-right { flex: 1 1 auto; }
+/* 头部 (v5 有 5 个控件) 锁死在一行, 任何宽度都不换行:
+   [正/负面开关] + [加载上次] [🃏 Wildcards] [🪟 Transparent BG] [预设▾]
+   左栏只有 400~650px 宽, 按原尺寸要 726px 才放得下 —— 宽度不够时分三档收敛, 而不是折行:
+     ① 压内边距 / 字号 / 间距, 文字全保留          ② 最长的 Transparent BG 只留图标
+     ③ 三个动作按钮全留图标 (预设仍是 ⭐ + 下拉)     全名都在 title 里, 悬停可见
+   容器查询挂在 .prompt-head 上, 判据是"头部实际可用宽度", 与窗口/左右栏比例无关。
+   z-index + position: relative 是必需的: inline-size 容器会创建层叠上下文,
+   不抬高层级的话预设下拉会被下面的输入框盖住。 */
+.prompt-card-v2 .prompt-head {
+  flex-wrap: nowrap;
+  gap: 8px;
+  position: relative;
+  z-index: 3;
+  container-type: inline-size;
+}
+.prompt-card-v2 .prompt-head-right { flex: 1 1 auto; flex-wrap: nowrap; gap: 8px; justify-content: flex-end; min-width: 0; }
+.prompt-card-v2 .prompt-head > .opt-group { flex: 0 0 auto; }
+/* 一行里 5 个控件都不许被压扁 (文字本身可收, 由 .mini-lbl 的 ellipsis 兜底) */
+.prompt-card-v2 .prompt-head .mini-btn { flex: 0 0 auto; min-width: 26px; }
+
+/* ① 收紧: 约 680px 以下. 文字全保留 (预设的「正面/负面预设」小字去掉 —— 左边开关已经说明了是哪一边),
+   只压内边距 / 字号 / 间距: 5 个控件 726px → 602px */
+@container (max-width: 680px) {
+  .prompt-card-v2 .prompt-head { gap: 6px; }
+  .prompt-card-v2 .prompt-head-right { gap: 6px; }
+  .prompt-card-v2 .prompt-head .mini-btn { padding: 4px 9px; font-size: 12px; gap: 4px; }
+  .prompt-card-v2 .prompt-head .opt-item { padding: 2px 9px; font-size: 12px; }
+  .prompt-card-v2 .prompt-head .prompt-corner { padding: 2px 4px 2px 8px; gap: 5px; }
+  .prompt-card-v2 .prompt-head .prompt-corner .fs-wrap { max-width: 116px; }
+  /* 只剩 ⭐ 时不必再给标签单独做胶囊底 (窄胶囊的方角很别扭), 让图标直接坐在预设胶囊里 */
+  .prompt-card-v2 .prompt-head .prompt-corner .pc-txt { display: none; }
+  .prompt-card-v2 .prompt-head .prompt-corner-label { padding: 0 1px 0 5px; background: transparent; border-color: transparent; }
+}
+
+/* ② 约 600px 以下: 最长的一个 (Transparent BG) 只留 🪟 图标, 加载上次 / Wildcards 仍是全名 —— 约 510px */
+@container (max-width: 600px) {
+  .prompt-card-v2 .prompt-head .tb-btn .mini-lbl { display: none; }
+  .prompt-card-v2 .prompt-head .tb-btn { padding: 4px 8px; }
+  .prompt-card-v2 .prompt-head .prompt-corner .fs-wrap { max-width: 104px; }
+}
+
+/* ③ 约 510px 以下 (左栏最窄时): 三个动作按钮全留图标 🔁 / 🃏 / 🪟 + ⭐Standard▾ —— 约 375px */
+@container (max-width: 510px) {
+  .prompt-card-v2 .prompt-head { gap: 5px; }
+  .prompt-card-v2 .prompt-head-right { gap: 5px; }
+  .prompt-card-v2 .prompt-head .mini-lbl { display: none; }
+  .prompt-card-v2 .prompt-head .mini-btn { padding: 4px 8px; }
+  .prompt-card-v2 .prompt-head .opt-item { padding: 2px 8px; }
+  .prompt-card-v2 .prompt-head .prompt-corner { padding: 2px 3px 2px 6px; }
+}
 
 /* 正 / 负面切换做成「分段控件」: 一个胶囊里嵌两格, 选中格填主色 ——
    与右侧「加载上次」「Wildcards」这类动作按钮 (白底细边) 一眼区分开, 不会被当成第三个按钮 */

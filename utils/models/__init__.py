@@ -50,6 +50,11 @@ from utils.models.nai_diffusion_5_full import image2image as nai5fi2i  # noqa
 from utils.models.nai_diffusion_5_full import inpaint as nai5finfill  # noqa
 from utils.models.nai_diffusion_5_full import text2image as nai5ft2i  # noqa
 from utils.models.nai_diffusion_5_full import vibe_transfer as nai5fvibe  # noqa
+from utils.models.nai_diffusion_5_full_medium import character as nai5mchar  # noqa
+from utils.models.nai_diffusion_5_full_medium import image2image as nai5mi2i  # noqa
+from utils.models.nai_diffusion_5_full_medium import inpaint as nai5minfill  # noqa
+from utils.models.nai_diffusion_5_full_medium import text2image as nai5mt2i  # noqa
+from utils.models.nai_diffusion_5_full_medium import vibe_transfer as nai5mvibe  # noqa
 from utils.models.nai_diffusion_furry_3 import image2image as naif3i2i  # noqa
 from utils.models.nai_diffusion_furry_3 import inpaint as naif3infill  # noqa
 from utils.models.nai_diffusion_furry_3 import text2image as naif3t2i  # noqa

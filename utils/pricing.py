@@ -62,11 +62,21 @@ SMEA_DYN_MULTIPLIER = 1.4
 # V5 系列的基础价倍率
 V5_MULTIPLIER = 1.5
 
+# 官方 client (checkStableDiffusionPrice) 对 "Effort: Medium" 的**步数项**单独乘的系数:
+#   case naiDiffusionV5FullMedium: return 1 / 1.06521739
+# 即 V5 Full Medium 在同样步数下比 V5 Full 略便宜, 且 1.5 的 V5 倍率照常生效。
+V5_MEDIUM_MODEL = "nai-diffusion-5-full-medium"
+V5_MEDIUM_STEPS_FACTOR = 1 / 1.06521739
 
-def _base_price(width: int, height: int, steps: int) -> int:
+# 官方把出图面积夹到下限 65536 (64×1024), 极小图不按面积线性归零
+MIN_PRICED_AREA = 65536
+
+
+def _base_price(width: int, height: int, steps: int, model: str = "") -> int:
     """未计任何倍率的基础价 (官方 client 的 checkStableDiffusionPrice)。"""
-    area = max(1, int(width)) * max(1, int(height))
-    raw = 2.951823174884865e-6 * area + 5.753298233447344e-7 * area * max(1, int(steps))
+    area = max(MIN_PRICED_AREA, max(1, int(width)) * max(1, int(height)))
+    steps_factor = V5_MEDIUM_STEPS_FACTOR if str(model) == V5_MEDIUM_MODEL else 1.0
+    raw = 2.951823174884865e-6 * area + 5.753298233447344e-7 * area * max(1, int(steps)) * steps_factor
     return max(2, math.ceil(raw))
 
 
@@ -125,7 +135,7 @@ def _image_price(
     if not reason:
         return 0, ""
 
-    price = _base_price(width, height, steps)
+    price = _base_price(width, height, steps, model=model)
     multiplier = 1.0
     if sm and sm_dyn:
         multiplier *= SMEA_DYN_MULTIPLIER

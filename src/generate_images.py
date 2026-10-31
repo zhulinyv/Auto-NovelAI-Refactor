@@ -9,6 +9,7 @@ from __future__ import annotations
 import math
 import os
 import random
+import re
 from copy import deepcopy
 from io import BytesIO
 from pathlib import Path
@@ -52,9 +53,11 @@ from utils.models import *  # noqa: F401,F403
 from utils.paths import SHARED_LAST_ORIGIN, job_temp_path, shared_temp_path
 from utils.prompt_text import apply_text_section  # noqa: E402 (teXt 段: 仅 v5 系列)
 from utils.variable import (
+    model_supports_transparency,
     return_quality_preset_id,
     return_quality_tags,
     return_skip_cfg_above_sigma,
+    return_tag_hint_code,
     return_uc_preset_id,
     return_undesired_contentc_preset,
 )
@@ -95,6 +98,13 @@ def _resize_editor_image(image, size):
     return image if image.size == size else image.resize(size, Image.Resampling.LANCZOS)
 
 
+# V5 系列 (含 "Effort: Medium" 变体): 决定 Max 放大 / 噪声调度 / Vibe 开关等行为
+_V5_MODELS = ("nai-diffusion-5-full", "nai-diffusion-5-full-medium", "nai-diffusion-5-curated")
+
+# "Effort: Medium" 与 V5 Full 字段集合完全一致, 只换 model 字符串
+_MEDIUM_MODEL = "nai-diffusion-5-full-medium"
+
+
 def _enhance_target_size(model: str, amount, width: int, height: int) -> tuple[int, int]:
     """Enhance 的目标分辨率。
 
@@ -104,7 +114,7 @@ def _enhance_target_size(model: str, amount, width: int, height: int) -> tuple[i
     """
     amount = str(amount).strip()
     if amount.lower() == "max":
-        if model in ("nai-diffusion-5-full", "nai-diffusion-5-curated"):
+        if model in _V5_MODELS:
             new_width, new_height = return_max_size(width, height, *ENHANCE_MAX_SIZE)
             logger.info(f"Enhance Max: {return_x64(width)}×{return_x64(height)} → {new_width}×{new_height}")
             return new_width, new_height
@@ -670,6 +680,7 @@ def _model_function_map(model: str, kind: str):
     maps = {
         "t2i": {
             "nai-diffusion-5-full": nai5ft2i,  # noqa: F405
+            "nai-diffusion-5-full-medium": nai5mt2i,  # noqa: F405
             "nai-diffusion-5-curated": nai5ct2i,  # noqa: F405
             "nai-diffusion-4-5-full": nai45ft2i,  # noqa: F405
             "nai-diffusion-4-5-curated": nai45ct2i,  # noqa: F405
@@ -680,6 +691,7 @@ def _model_function_map(model: str, kind: str):
         },
         "vibe": {
             "nai-diffusion-5-full": nai5fvibe,  # noqa: F405
+            "nai-diffusion-5-full-medium": nai5mvibe,  # noqa: F405
             "nai-diffusion-5-curated": nai5cvibe,  # noqa: F405
             "nai-diffusion-4-5-full": nai45fvibe,  # noqa: F405
             "nai-diffusion-4-5-curated": nai45cvibe,  # noqa: F405
@@ -690,12 +702,14 @@ def _model_function_map(model: str, kind: str):
         },
         "char": {
             "nai-diffusion-5-full": nai5fchar,  # noqa: F405
+            "nai-diffusion-5-full-medium": nai5mchar,  # noqa: F405
             "nai-diffusion-5-curated": nai5cchar,  # noqa: F405
             "nai-diffusion-4-5-full": nai45fchar,  # noqa: F405
             "nai-diffusion-4-5-curated": nai45cchar,  # noqa: F405
         },
         "i2i": {
             "nai-diffusion-5-full": nai5fi2i,  # noqa: F405
+            "nai-diffusion-5-full-medium": nai5mi2i,  # noqa: F405
             "nai-diffusion-5-curated": nai5ci2i,  # noqa: F405
             "nai-diffusion-4-5-full": nai45fi2i,  # noqa: F405
             "nai-diffusion-4-5-curated": nai45ci2i,  # noqa: F405
@@ -706,6 +720,7 @@ def _model_function_map(model: str, kind: str):
         },
         "infill": {
             "nai-diffusion-5-full": nai5finfill,  # noqa: F405
+            "nai-diffusion-5-full-medium": nai5minfill,  # noqa: F405
             "nai-diffusion-5-curated": nai5cinfill,  # noqa: F405
             "nai-diffusion-4-5-full": nai45finfill,  # noqa: F405
             "nai-diffusion-4-5-curated": nai45cinfill,  # noqa: F405
@@ -748,6 +763,18 @@ def generate(request: dict, preview: bool = True) -> tuple[list[str], str]:
     sm = bool(request.get("sm", False))
     sm_dyn = bool(request.get("sm_dyn", False))
     legacy_uc = bool(request.get("legacy_uc", False))
+    # 透明背景开关: 前端已把 "transparent background" 追加进正面提示词 (与官网一致),
+    # 后端只负责把开关写进 tag_hint_transparent_background 并裁剪老模型的 straight_alpha。
+    transparent_bg = bool(request.get("transparent_bg", False))
+
+    # 官网 getModelSupportInfo("nai-diffusion-5-full-medium").fixedSettings:
+    #   steps=14 / sampler=k_euler_ancestral / ucPresetId=heavy, 且 cfgRescale 关闭。
+    # 官网直接隐藏这三项并用固定值发请求, 这里在入口处统一覆盖, 费用预估也走同一份值。
+    if model == _MEDIUM_MODEL:
+        steps = 14
+        sampler = "k_euler_ancestral"
+        undesired_contentc_preset = "Heavy"
+        prompt_guidance_rescale = 0
     ai_choice = bool(request.get("ai_choice", True))
     enhance = request.get("enhance", {}) or {}
     vibe = request.get("vibe") or {}
@@ -789,7 +816,7 @@ def generate(request: dict, preview: bool = True) -> tuple[list[str], str]:
         _seed = random.randint(1000000000, 9999999999) if seed == "-1" else int(seed)
 
         # 1. 选择模型函数
-        if use_vibe and model not in ["nai-diffusion-5-full", "nai-diffusion-5-curated"]:
+        if use_vibe and model not in _V5_MODELS:
             func = _model_function_map(model, "vibe")
         elif use_reference:
             func = _model_function_map(model, "char")
@@ -806,8 +833,26 @@ def generate(request: dict, preview: bool = True) -> tuple[list[str], str]:
             else positive_input
         )
 
+        # 透明背景: 官网是**前端**把 ", transparent background" 追加在用户提示词末尾
+        # (随后才拼质量预设), 这里给 API / 插件等不经前端的调用方补上同样的一步;
+        # 前端已经追加过时结尾能匹配到, 不会重复加。
+        if transparent_bg and model_supports_transparency(model):
+            if not re.search(r"(?:transparency|transparent background)\s*$", _positive_input, re.IGNORECASE):
+                _positive_input = (
+                    f"{_positive_input}, transparent background"
+                    if _positive_input.strip()
+                    else "transparent background"
+                )
+
         # 3. 角色与参考数据
         v4_pos, v4_neg, char_prompts = _build_character_data(characters)
+
+        # 官网 Medium 的固定参数下, 负面提示词只取固定的 "heavy" UC 预设:
+        # 用户负面提示词与角色负面都不发送 (实测官网请求体 negative_prompt 恰为 heavy 原文)。
+        if model == _MEDIUM_MODEL:
+            negative_input = ""
+            v4_neg = [{"char_caption": "", "centers": c.get("centers", [{"x": 0.5, "y": 0.5}])} for c in v4_neg]
+            char_prompts = [{**c, "uc": ""} for c in char_prompts]
         ref_data = _build_reference_data(references) if use_reference else None
         ref_imgs, ref_infos, ref_strengths = _build_vibe_data(vibe, model, encode=preview)
 
@@ -820,6 +865,17 @@ def generate(request: dict, preview: bool = True) -> tuple[list[str], str]:
             if add_quality_tags != "None"
             else _positive_input
         )
+        # 负面提示词 = UC 预设 + 用户负面; 两者拼接时不能留下空的 ", " (Medium 会清空用户负面)
+        _uc_text = return_undesired_contentc_preset(model, undesired_contentc_preset)
+        if undesired_contentc_preset != "None":
+            _negative_prompt = f"{_uc_text}, {negative_input}" if negative_input else _uc_text
+        else:
+            _negative_prompt = negative_input
+
+        # 预先算好预设 id: 请求体与 tag_hint_* 两处都要用, 避免各算一遍导致不一致
+        _uc_preset_id = return_uc_preset_id(model)[undesired_contentc_preset]
+        _qp_preset_id = return_quality_preset_id(model)[add_quality_tags]
+
         json_data = func(
             _input=apply_text_section(_prompt_body, model),
             params_version=4,
@@ -829,15 +885,19 @@ def generate(request: dict, preview: bool = True) -> tuple[list[str], str]:
             sampler=sampler,
             steps=steps,
             n_samples=1,
-            ucPresetId=return_uc_preset_id(model)[undesired_contentc_preset],
-            qualityPresetId=return_quality_preset_id(model)[add_quality_tags],
+            ucPresetId=_uc_preset_id,
+            qualityPresetId=_qp_preset_id,
+            # 官网 tag_hint_* (元数据回显): 数字码始终发; 透明背景仅 transparency 模型且开启时发
+            tag_hint_qt=return_tag_hint_code(_qp_preset_id),
+            tag_hint_uc_preset=return_tag_hint_code(_uc_preset_id),
+            tag_hint_transparent_background=bool(transparent_bg and model_supports_transparency(model)),
             autoSmea=False,
             dynamic_thresholding=decrisp if model in ["nai-diffusion-3", "nai-diffusion-furry-3"] else False,
             controlnet_strength=1,
             legacy=False,
             add_original_image=True,
             cfg_rescale=prompt_guidance_rescale,
-            noise_schedule="karras" if model in ["nai-diffusion-5-full", "nai-diffusion-5-curated"] else noise_schedule,
+            noise_schedule="karras" if model in _V5_MODELS else noise_schedule,
             legacy_v3_extend=False,
             # Variety+: 官网会把基准 sigma 乘上分辨率系数后再发 (详见 return_skip_cfg_above_sigma)。
             # 这里先按面板分辨率算; 后面裁剪重绘 / Enhance 会改写 width/height, 那两处再重算一次。
@@ -850,11 +910,7 @@ def generate(request: dict, preview: bool = True) -> tuple[list[str], str]:
             use_order=True,
             legacy_uc=legacy_uc if model in ["nai-diffusion-4-full", "nai-diffusion-4-curated-preview"] else False,
             seed=_seed,
-            negative_prompt=format_str(
-                return_undesired_contentc_preset(model, undesired_contentc_preset) + f", {negative_input}"
-                if undesired_contentc_preset != "None"
-                else negative_input
-            ),
+            negative_prompt=format_str(_negative_prompt),
             deliberate_euler_ancestral_bug=False,
             prefer_brownian=True,
             use_new_shared_trial=True,

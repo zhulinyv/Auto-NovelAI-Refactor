@@ -10,6 +10,7 @@ import ujson
 from utils.helpers import float_to_position
 from utils.image_tools import get_image_information
 from utils.prompt_text import strip_text_section
+from utils.variable import TAG_HINT_PRESET_IDS, return_model_from_source
 
 
 def get_pnginfo(image_path: str | None):
@@ -39,10 +40,29 @@ def _parse_comment(pnginfo: dict) -> dict:
     return {}
 
 
+def _tag_hint_preset_id(value):
+    """官网 tag_hint 数字码 -> 预设 id; None / 非法值返回 None (调用方回落文本识别)。"""
+    # bool 是 int 的子类, 这里必须排掉, 否则 True 会被当成 1 (standard)
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return TAG_HINT_PRESET_IDS.get(value)
+
+
 def pnginfo_to_generate(image_path: str) -> dict:
-    """把图片元数据转换为生成参数 (供前端填入表单)。"""
+    """把图片元数据转换为生成参数 (供前端填入表单)。
+
+    预设与透明背景优先按官网写入的 tag_hint_* 三字段判定 (见 2026-10-30 抓包结论);
+    这三个字段缺失或为 null 时返回 None, 前端保留原有的"从提示词文本里剥离预设"逻辑。
+    """
     pnginfo = get_image_information(image_path)
     comment = _parse_comment(pnginfo)
+
+    # tag_hint_qt / tag_hint_uc_preset: 预设 id 的数字码 (0-8), 官网所有模型都会写
+    quality_preset_id = _tag_hint_preset_id(comment.get("tag_hint_qt"))
+    uc_preset_id = _tag_hint_preset_id(comment.get("tag_hint_uc_preset"))
+    # tag_hint_transparent_background: 只在开启时写入 true; 缺省 (老图) 时回落文本识别
+    tb_raw = comment.get("tag_hint_transparent_background")
+    transparent_bg = True if tb_raw is True else (False if tb_raw is False else None)
 
     characters = []
     char_captions = comment.get("v4_prompt", {}).get("caption", {}).get("char_captions", [])
@@ -85,4 +105,9 @@ def pnginfo_to_generate(image_path: str) -> dict:
         "legacy_uc": comment.get("v4_prompt", {}).get("legacy_uc", False),
         "ai_choice": not comment.get("v4_prompt", {}).get("use_coords", False),
         "characters": characters,
+        # 以下四项供前端优先判定, None 表示元数据未记录/无法识别 -> 回落到原有逻辑
+        "model": return_model_from_source(pnginfo.get("Source")),
+        "quality_preset_id": quality_preset_id,
+        "uc_preset_id": uc_preset_id,
+        "transparent_bg": transparent_bg,
     }

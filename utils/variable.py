@@ -6,10 +6,11 @@ import os
 
 from utils.config import BASE_DIR, env
 
-VERSION = "2.3.0-alpha.2"
+VERSION = "2.3.0-alpha.3"
 
 MODELS = [
     "nai-diffusion-5-full",
+    "nai-diffusion-5-full-medium",
     "nai-diffusion-5-curated",
     "nai-diffusion-4-5-full",
     "nai-diffusion-4-5-curated",
@@ -76,6 +77,9 @@ QUALITY_TAGS = {
     "nai-diffusion-furry-3": {"Standard": "{best quality}, {amazing quality}", "None": ""},
 }
 
+# "Effort: Medium" 属于 V5 Full 同一个模型族 (字段集合完全一致), 质量预设相同
+QUALITY_TAGS["nai-diffusion-5-full-medium"] = QUALITY_TAGS["nai-diffusion-5-full"]
+
 
 def _list_wildcard_types() -> list[str]:
     """wildcard 分类列表 (导入时求值)。
@@ -103,6 +107,7 @@ BASE_PATH = str(BASE_DIR)
 # 注意: 这不是最终发出的值 —— 官网会按分辨率把它乘上一个系数, 见 return_skip_cfg_above_sigma。
 _SKIP_CFG_ABOVE_SIGMA_BASE = {
     "nai-diffusion-5-full": None,
+    "nai-diffusion-5-full-medium": None,
     "nai-diffusion-5-curated": None,
     "nai-diffusion-4-5-full": 58,
     "nai-diffusion-4-5-curated": 58,
@@ -164,7 +169,12 @@ def return_skip_cfg_above_sigma(model, width=None, height=None):
 
 
 def return_uc_preset_id(model):
-    if model in ["nai-diffusion-5-full", "nai-diffusion-5-curated", "nai-diffusion-4-5-full"]:
+    if model in [
+        "nai-diffusion-5-full",
+        "nai-diffusion-5-full-medium",
+        "nai-diffusion-5-curated",
+        "nai-diffusion-4-5-full",
+    ]:
         return {
             "Heavy": "heavy",
             "Light": "light",
@@ -231,6 +241,105 @@ UC_PRESET_TAGS = {
     },
 }
 
+# V5 Full Medium 与 V5 Full 的 UC 预设完全一致
+UC_PRESET_TAGS["nai-diffusion-5-full-medium"] = UC_PRESET_TAGS["nai-diffusion-5-full"]
+
+# ---------------------------------------------------------------------------
+# 官网 tag_hint_* 三参数 (2026-10-30 抓包 + 打包代码核对)
+# ---------------------------------------------------------------------------
+# 这三个字段都不是新的生成参数, 而是把 UI 里已选好的「质量预设 / UC 预设 / 透明背景」
+# 按官网内部数字码回显进请求体, 供服务端写进图片元数据、也供官网再次导入时还原面板。
+TAG_HINT_CODES = {
+    "none": 0,
+    "standard": 1,
+    "heavy": 2,
+    "light": 3,
+    "humanFocus": 4,
+    "furryFocus": 5,
+    "lowQualityPlusBadAnatomy": 6,
+    "lowQuality": 7,
+    "badAnatomy": 8,
+}
+
+# 反查表 (法术解析读元数据时用): 数字码 -> 预设 id
+TAG_HINT_PRESET_IDS = {code: preset for preset, code in TAG_HINT_CODES.items()}
+
+# 官网 getModelSupportInfo().transparency 为 true 的模型。只有它们会发
+# tag_hint_transparent_background 与 straight_alpha; 其余模型官网会把这两个字段直接删掉。
+TRANSPARENCY_MODELS = {
+    "nai-diffusion-5-full",
+    "nai-diffusion-5-full-inpainting",
+    "nai-diffusion-5-full-medium",
+    "nai-diffusion-5-full-medium-inpainting",
+    "nai-diffusion-5-curated",
+    "nai-diffusion-5-curated-inpainting",
+    "custom",
+}
+
+
+def return_tag_hint_code(preset_id):
+    """预设 id -> 官网 tag_hint 数字码; 未知 id 返回 None (调用方不应写该字段)。"""
+    return TAG_HINT_CODES.get(preset_id)
+
+
+def model_supports_transparency(model):
+    """该模型是否支持透明背景 (官网 transparency 能力位)。"""
+    return model in TRANSPARENCY_MODELS
+
+
+# ---------------------------------------------------------------------------
+# Source -> 模型 (官网 functionGetModelFromSourceString 的哈希表, 2026-10 打包代码)
+# ---------------------------------------------------------------------------
+# 同一个版本会因训练快照不同写出**多个** Source 哈希 (V5 Full 有 2 个、V4.5 Full 有 5 个),
+# 所以只能逐字精确匹配。未收录 / 没有 Source 的老图一律返回 None: 项目不猜, 保持当前模型。
+SOURCE_MODEL_MAP = {
+    # V5
+    "NovelAI Diffusion V5 657484A5": "nai-diffusion-5-full",
+    "NovelAI Diffusion V5 0ADF9AB7": "nai-diffusion-5-full",
+    "NovelAI Diffusion V5 93F4BD30": "nai-diffusion-5-full-medium",
+    "NovelAI Diffusion V5 70AB5786": "nai-diffusion-5-full-medium",
+    "NovelAI Diffusion V5 DB276663": "nai-diffusion-5-curated",
+    # V4.5
+    "DiffusionModelMetaName.NAIv4next 4BDE2A90": "nai-diffusion-4-5-full",
+    "NovelAI Diffusion V4.5 4BDE2A90": "nai-diffusion-4-5-full",
+    "NovelAI Diffusion V4.5 1229B44F": "nai-diffusion-4-5-full",
+    "NovelAI Diffusion V4.5 B9F340FD": "nai-diffusion-4-5-full",
+    "NovelAI Diffusion V4.5 F3D95188": "nai-diffusion-4-5-full",
+    "DiffusionModelMetaName.NAIv4next C02D4F98": "nai-diffusion-4-5-curated",
+    "NovelAI Diffusion V4.5 C02D4F98": "nai-diffusion-4-5-curated",
+    "NovelAI Diffusion V4.5 5AB81C7C": "nai-diffusion-4-5-curated",
+    "NovelAI Diffusion V4.5 B5A2A797": "nai-diffusion-4-5-curated",
+    "NovelAI Diffusion V4 5AB81C7C": "nai-diffusion-4-5-curated",
+    "NovelAI Diffusion V4 B5A2A797": "nai-diffusion-4-5-curated",
+    # V4
+    "NovelAI Diffusion V4 37442FCA": "nai-diffusion-4-full",
+    "NovelAI Diffusion V4 4F49EC75": "nai-diffusion-4-full",
+    "NovelAI Diffusion V4 CA4B7203": "nai-diffusion-4-full",
+    "NovelAI Diffusion V4 79F47848": "nai-diffusion-4-full",
+    "NovelAI Diffusion V4 F6302A9D": "nai-diffusion-4-full",
+    "NovelAI Diffusion V4 7ABFFA2A": "nai-diffusion-4-curated-preview",
+    "NovelAI Diffusion V4 C1CCBA86": "nai-diffusion-4-curated-preview",
+    "NovelAI Diffusion V4 770A9E12": "nai-diffusion-4-curated-preview",
+    # V3 (SDXL 系)
+    "Stable Diffusion XL B0BDF6C1": "nai-diffusion-3",
+    "Stable Diffusion XL C1E1DE52": "nai-diffusion-3",
+    "Stable Diffusion XL 7BCCAA2C": "nai-diffusion-3",
+    "Stable Diffusion XL 1120E6A9": "nai-diffusion-3",
+    "Stable Diffusion XL 8BA2AF87": "nai-diffusion-3",
+    "Stable Diffusion XL 4BE8C60C": "nai-diffusion-furry-3",
+    "Stable Diffusion XL C8704949": "nai-diffusion-furry-3",
+    "Stable Diffusion XL 37C2B166": "nai-diffusion-furry-3",
+    "Stable Diffusion XL F306816B": "nai-diffusion-furry-3",
+    "Stable Diffusion XL 9CC2F394": "nai-diffusion-furry-3",
+}
+
+
+def return_model_from_source(source) -> str | None:
+    """按官网 Source 哈希表识别模型; 未收录 / 无 Source 返回 None。"""
+    if not source:
+        return None
+    return SOURCE_MODEL_MAP.get(str(source).strip())
+
 
 def return_undesired_contentc_preset(model, undesired_contentc_preset):
     negative_prompts = UC_PRESET_TAGS.get(model, {}).get(undesired_contentc_preset, "")
@@ -240,7 +349,7 @@ def return_undesired_contentc_preset(model, undesired_contentc_preset):
 
 
 def return_quality_preset_id(model):
-    if model in ["nai-diffusion-5-full", "nai-diffusion-5-curated"]:
+    if model in ["nai-diffusion-5-full", "nai-diffusion-5-full-medium", "nai-diffusion-5-curated"]:
         return {"Standard": "standard", "Light": "light", "None": "none"}
     return {"Standard": "standard", "None": "none"}
 

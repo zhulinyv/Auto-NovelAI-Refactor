@@ -47,15 +47,22 @@ export function clear(node) {
  * 创建 "Wildcards" 打开按钮 (点击弹出几乎全屏的 Wildcards 编辑窗口)。
  * 点击行为由 wildcardsModal.js 的全局事件委托统一处理, 此处只携带目标信息。
  * @param {HTMLElement} target 关联的提示词输入框 (textarea/input)
- * @param {object} opts { title: 弹窗中显示的输入框名称, text: 按钮文字 (默认只显示 🃏 图标, 适合小输入框) }
+ * @param {object} opts { title: 弹窗中显示的输入框名称, text: 按钮文字 (默认只显示 🃏 图标, 适合小输入框),
+ *                        icon: 带文字时的图标 (与文字分两层, 头部太窄时由 CSS 只收起文字) }
  */
-export function wildcardsButton(target, { title = "提示词", text = "" } = {}) {
-  const btn = el("button", {
-    class: text ? "wc-open-btn wc-text-btn mini-btn" : "wc-open-btn wc-icon-btn",
-    type: "button",
-    title: "Wildcards: 打开全屏编辑窗口",
-    text: text || "🃏",
-  });
+export function wildcardsButton(target, { title = "提示词", text = "", icon = "🃏" } = {}) {
+  const btn = text
+    ? el(
+        "button",
+        { class: "wc-open-btn wc-text-btn mini-btn", type: "button", title: "Wildcards: 打开全屏编辑窗口" },
+        [el("span", { class: "mini-ico", text: icon }), el("span", { class: "mini-lbl", text: text })],
+      )
+    : el("button", {
+        class: "wc-open-btn wc-icon-btn",
+        type: "button",
+        title: "Wildcards: 打开全屏编辑窗口",
+        text: "🃏",
+      });
   btn._wcTarget = target;
   btn._wcTitle = title;
   return btn;

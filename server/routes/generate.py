@@ -53,6 +53,9 @@ def estimate_generate(request: dict):
     from utils.pricing import estimate
 
     model = str(request.get("model") or "")
+    # "Effort: Medium" 的步数在官网是固定 14, 构建器里也写死; 预估同样按 14 算
+    if model == "nai-diffusion-5-full-medium":
+        request = {**request, "steps": 14}
     try:
         width = int(request.get("width") or 832)
         height = int(request.get("height") or 1216)

@@ -62,6 +62,14 @@ def text2image(**kwargs):
         json_data["parameters"]["deliberate_euler_ancestral_bug"] = kwargs["deliberate_euler_ancestral_bug"]
         json_data["parameters"]["prefer_brownian"] = kwargs["prefer_brownian"]
 
+    # 官网 tag_hint_* (元数据回显): 预设数字码始终发送; 透明背景仅 true 时出现
+    if kwargs.get("tag_hint_qt") is not None:
+        json_data["parameters"]["tag_hint_qt"] = kwargs["tag_hint_qt"]
+    if kwargs.get("tag_hint_uc_preset") is not None:
+        json_data["parameters"]["tag_hint_uc_preset"] = kwargs["tag_hint_uc_preset"]
+    if kwargs.get("tag_hint_transparent_background"):
+        json_data["parameters"]["tag_hint_transparent_background"] = True
+
     return json_data
 
 

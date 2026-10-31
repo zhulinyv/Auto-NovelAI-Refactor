@@ -227,6 +227,7 @@ function qpIdToName(model, id) {
 function ucIdToName(model, id) {
   const maps = {
     "nai-diffusion-5-full": { heavy: "Heavy", light: "Light", furryFocus: "Furry Focus", humanFocus: "Human Focus", none: "None" },
+    "nai-diffusion-5-full-medium": { heavy: "Heavy", light: "Light", furryFocus: "Furry Focus", humanFocus: "Human Focus", none: "None" },
     "nai-diffusion-5-curated": { heavy: "Heavy", light: "Light", furryFocus: "Furry Focus", humanFocus: "Human Focus", none: "None" },
     "nai-diffusion-4-5-full": { heavy: "Heavy", light: "Light", furryFocus: "Furry Focus", humanFocus: "Human Focus", none: "None" },
     "nai-diffusion-4-5-curated": { heavy: "Heavy", light: "Light", humanFocus: "Human Focus", none: "None" },
@@ -296,10 +297,13 @@ function stripUCPresetFromStart(text, model) {
  * 其余文字保持读取时的原样 —— 换行、空格、权重符号等一概不重排、不重组。
  * 命中返回 { text: 剥离后原文, preset: 预设名 }; 未命中返回 { text: 原文.trim(), preset: null }。
  */
-function extractPresetTags(text, model, tableKey, position) {
+function extractPresetTags(text, model, tableKey, position, onlyPreset) {
   const map = (S && S.app && S.app[tableKey]) ? (S.app[tableKey][model] || {}) : {};
   const entries = Object.entries(map).filter(([, tags]) => tags);
   entries.sort((a, b) => b[1].length - a[1].length); // 长标签优先
+  // onlyPreset: 元数据带了 tag_hint_* 时只认这个预设 (同文本可能被别的预设误判);
+  // 此时匹配不到就原样返回, 不再退回全表 —— 否则 "预设=None" 的图仍会被剥掉用户自己的文本
+  const candidates = onlyPreset ? entries.filter(([preset]) => preset === onlyPreset) : entries;
   const norm = (s) => String(s).trim().toLowerCase().replace(/\s+/g, " ");
   const src = String(text ?? "");
   // 逗号切段并记录每段在原文中的字符区间; n 归一化用于匹配, 空段剔除但不影响锚定判断
@@ -309,7 +313,7 @@ function extractPresetTags(text, model, tableKey, position) {
   const items = [];
   for (const p of parts) { const n = norm(src.slice(p.s, p.e)); if (n) items.push({ s: p.s, e: p.e, n }); }
   const isSep = (ch) => ch === "," || ch === " " || ch === "\t" || ch === "\n" || ch === "\r";
-  for (const [preset, tagsStr] of entries) {
+  for (const [preset, tagsStr] of candidates) {
     const want = tagsStr.split(",").map(norm).filter(Boolean);
     if (!want.length) continue;
     const variants = [want];
@@ -414,11 +418,15 @@ function buildSavedState() {
 
 // ---------------- Row1: 提示词 ----------------
 
-/** 标题行右侧的小号预设下拉 */
-function cornerSelect(labelText, options) {
+/** 标题行右侧的小号预设下拉。
+ *  icon / labelText 分成两层: 头部太窄时 CSS 只收起 labelText (留下图标), 预设仍能一眼看出是哪一个 */
+function cornerSelect(labelText, options, icon = "") {
   const select = el("select", { class: "corner-select" }, options.map((o) => el("option", { value: o, text: o })));
   const node = el("div", { class: "prompt-corner" }, [
-    el("span", { class: "prompt-corner-label", text: labelText }),
+    el("span", { class: "prompt-corner-label" }, [
+      icon ? el("span", { class: "pc-ico", text: icon }) : null,
+      el("span", { class: "pc-txt", text: labelText }),
+    ]),
     select,
   ]);
   return {
@@ -478,6 +486,16 @@ function autosizeRows(ta, { minRows = 6, maxRows = 15 } = {}) {
   return fit;
 }
 
+/** 提示词头部的小动作按钮 (加载上次 / Transparent BG): 图标与文字各占一层。
+ *  头部宽度不够时 CSS 只把文字 (.mini-lbl) 收起来留图标, 按钮不会掉到第二行;
+ *  全名仍在 title 与 aria-label 里, 悬停可见。 */
+function headActionBtn({ icon, label, cls = "", title = "" }) {
+  return el("button", { class: `mini-btn${cls ? ` ${cls}` : ""}`, type: "button", title, "aria-label": label }, [
+    el("span", { class: "mini-ico", text: icon }),
+    el("span", { class: "mini-lbl", text: label }),
+  ]);
+}
+
 /** 提示词输入块: 节标题(左) + 右侧按钮组(Wildcards/预设等) + 多行输入框 (高度按行数自适应)
  *  opts.headExtra: 标题左侧的额外控件 (新版界面的「正面 / 负面」切换开关)
  *  opts.minRows / opts.maxRows: 自适应行数范围 (新版界面只显示一块输入区, 可以开得更高)
@@ -493,7 +511,7 @@ function promptField(title, presetCtl, opts) {
     title ? el("span", { class: "prompt-title", text: title }) : null,
     el("div", { class: "prompt-head-right" }, [
       opts.loadBtn || null,
-      wildcardsButton(ta, { title: title || "提示词", text: "🃏 Wildcards" }),
+      wildcardsButton(ta, { title: title || "提示词", text: "Wildcards" }),
       opts.tbBtn || null,
       presetCtl.node,
     ]),
@@ -506,9 +524,9 @@ function promptField(title, presetCtl, opts) {
 
 /** 正面提示词字段: 质量预设 + 加载上次 + Transparent BG (仅 v5)。返回字段节点。 */
 function buildPositiveField(saved, opts = {}) {
-  C.quality = cornerSelect("⭐ 正面预设", S.app.qp_presets || []);
+  C.quality = cornerSelect("正面预设", S.app.qp_presets || [], "⭐");
   C.quality.set(saved.quality ?? "Standard");
-  const loadPosBtn = el("button", { class: "mini-btn", type: "button", text: "🔁 加载上次", title: "载入上次生成的正面提示词" });
+  const loadPosBtn = headActionBtn({ icon: "🔁", label: "加载上次", title: "载入上次生成的正面提示词" });
   loadPosBtn.addEventListener("click", async () => {
     try {
       const last = await fetchLast();
@@ -526,7 +544,7 @@ function buildPositiveField(saved, opts = {}) {
     } catch (e) { toast(e.message, "error"); }
   });
   transparentBg = !!saved.transparent_bg;
-  tbBtn = el("button", { class: "mini-btn tb-btn", type: "button", text: "🪟 Transparent BG", title: "仅 v5 模型可用: 开启后生成时在提示词末尾追加 transparent background (质量预设与 teXt 段之前)" });
+  tbBtn = headActionBtn({ icon: "🪟", label: "Transparent BG", cls: "tb-btn", title: "仅 v5 模型可用: 开启后生成时在提示词末尾追加 transparent background (质量预设与 teXt 段之前)" });
   tbBtn.addEventListener("click", () => { transparentBg = !transparentBg; updateTbBtn(); });
   updateTbBtn();
   C.positive = promptField(opts.title ?? "✨ 正面提示词", C.quality, {
@@ -543,9 +561,9 @@ function buildPositiveField(saved, opts = {}) {
 
 /** 负面提示词字段: UC 预设 + 加载上次。返回字段节点。 */
 function buildNegativeField(saved, opts = {}) {
-  C.uc = cornerSelect("🚫 负面预设", S.app.uc_presets || []);
+  C.uc = cornerSelect("负面预设", S.app.uc_presets || [], "🚫");
   C.uc.set(saved.uc ?? "Heavy");
-  const loadNegBtn = el("button", { class: "mini-btn", type: "button", text: "🔁 加载上次", title: "载入上次生成的负面提示词" });
+  const loadNegBtn = headActionBtn({ icon: "🔁", label: "加载上次", title: "载入上次生成的负面提示词" });
   loadNegBtn.addEventListener("click", async () => {
     try {
       const last = await fetchLast();
@@ -821,7 +839,7 @@ function promptWithTransparent() {
 /** 导入正面提示词时反向同步: 含有 transparent background 标签 (生成时由 Transparent BG 开关写入)
  *  → 从文本剥离并开启开关; 不含 → 关闭开关。整段精确匹配 (大小写/首尾空格不敏感),
  *  其余分段逐字保留 (含换行), 重组时只吸掉被删段自己的逗号 */
-function syncTransparentBg(text) {
+function stripTransparentTag(text) {
   const parts = String(text ?? "").split(",");
   const keep = [];
   let found = false;
@@ -829,9 +847,15 @@ function syncTransparentBg(text) {
     if (p.trim().toLowerCase() === "transparent background") found = true;
     else keep.push(p);
   }
-  transparentBg = found;
+  return { text: found ? keep.join(",").trim() : String(text ?? "").trim(), found };
+}
+
+/** 同 syncTransparentBg, 但开关状态由调用方决定 (元数据 tag_hint_transparent_background 明确为 true 时用) */
+function syncTransparentBg(text) {
+  const res = stripTransparentTag(text);
+  transparentBg = res.found;
   updateTbBtn();
-  return found ? keep.join(",").trim() : String(text ?? "").trim();
+  return res.text;
 }
 
 /** 生成请求专用: 整理 v5 的 teXt 自然语言段 (规则与后端 utils/prompt_text.py 完全一致, 仅 v5 系列生效)。
@@ -2074,7 +2098,9 @@ function wireOutputActions() {
 // ---------------- 模型联动 (参考 ANR 原版处理) ----------------
 
 function isNai3(model) { return model === "nai-diffusion-3" || model === "nai-diffusion-furry-3"; }
-function isNai5(model) { return model === "nai-diffusion-5-full" || model === "nai-diffusion-5-curated"; }
+function isNai5(model) {
+  return model === "nai-diffusion-5-full" || model === "nai-diffusion-5-full-medium" || model === "nai-diffusion-5-curated";
+}
 function isNai45(model) { return model === "nai-diffusion-4-5-full" || model === "nai-diffusion-4-5-curated"; }
 
 /** Enhance 放大倍数选项: 1x / 1.5x; Max 仅 v5 系列 (保持纵横比放大到 1536×2048 面积上限) */
@@ -2181,6 +2207,32 @@ async function applyModelChange(initial = false) {
   });
   C.uc.setOptions?.(uc);
   if (!uc.includes(C.uc.get())) C.uc.set("Heavy");
+
+  // "Effort: Medium" 在官网是固定参数模型 (getModelSupportInfo.fixedSettings):
+  // steps=14 / sampler=k_euler_ancestral / ucPresetId=heavy, cfgRescale 关闭。
+  // 面板同步成固定值并禁用这三项, 避免"显示的步数"与"实际发出的步数"不一致。
+  const fixedMedium = model === "nai-diffusion-5-full-medium";
+  if (fixedMedium) {
+    C.steps.set(14);
+    C.sampler.set("k_euler_ancestral");
+    C.uc.set("Heavy");
+  }
+  // 官网对 fixedSettings 模型直接隐藏这些项 (见打包代码: steps/sampler 的 visible 取反 fixedSettings,
+  // cfg-rescale 还要 cfgRescale 为真); Medium 的 cfgRescale=false, 所以三项全部不显示。
+  setVisible(C.steps, !fixedMedium);
+  setVisible(C.sampler, !fixedMedium);
+  setVisible(C.cfgRescale, !fixedMedium);
+  // 官网 Medium 没有"Undesired Content"整块 (负面提示词 + UC 预设), 负面只取固定的 heavy 预设
+  setVisible(C.negative, !fixedMedium);
+  if (fixedMedium && showPromptTab) showPromptTab("positive");
+  // 新版界面正/负面共用一个输入框, 切换按钮挂在正面字段标题行: Medium 时隐藏"负面"那一项
+  C.positive?.node?.querySelectorAll(".opt-item").forEach((el) => {
+    if ((el.textContent || "").includes("负面")) el.style.display = fixedMedium ? "none" : "";
+  });
+  if (C.steps.input) C.steps.input.disabled = fixedMedium;
+  if (C.steps.num) C.steps.num.disabled = fixedMedium;
+  if (C.sampler.input) C.sampler.input.disabled = fixedMedium;
+  if (C.uc.input) C.uc.input.disabled = fixedMedium;
 
   // 开关: 按模型显示/隐藏 (与 ANR 原版一致)
   setVisible(C.variety, !nai5);            // v5 的 skip_cfg 为 None 无效果, 其余模型支持
@@ -2426,17 +2478,20 @@ async function collectRequest({ forEstimate = false } = {}) {
         ...(libVibe || {}),
       };
 
+  // Medium 的固定参数在 UI 已禁用, 这里再兜一层: 费用预估与真实请求必须用同一组值
+  const fixedMedium = C.model.get() === "nai-diffusion-5-full-medium";
+
   return {
     model: C.model.get(),
     positive_prompt: promptWithTextSection(),
     negative_prompt: C.negative.get(),
     furry_mode: furryMode,
     quality_preset: C.quality.get(),
-    uc_preset: C.uc.get(),
+    uc_preset: fixedMedium ? "Heavy" : C.uc.get(),
     quantity: Number(C.quantity.get()) || 1,
     width: Number(C.width.get()) || 832,
     height: Number(C.height.get()) || 1216,
-    steps: C.steps.get(),
+    steps: fixedMedium ? 14 : C.steps.get(),
     scale: C.scale.get(),
     cfg_rescale: C.cfgRescale.get(),
     variety: C.variety.get(),
@@ -2445,7 +2500,7 @@ async function collectRequest({ forEstimate = false } = {}) {
     sm_dyn: C.smDyn.get(),
     legacy_uc: C.legacyUc.get(),
     seed: C.seed.get(),
-    sampler: C.sampler.get(),
+    sampler: fixedMedium ? "k_euler_ancestral" : C.sampler.get(),
     noise_schedule: C.noise.get(),
     ai_choice: C.aiChoice.get() === "AI's Choice",
     enhance: {
@@ -2623,36 +2678,81 @@ export function getC() { return C; }
 export { stripTextSection };
 export function setGenerateState(state, opts = {}) {
   // 法术解析/画廊"发送到图片生成": 元数据里的正/负面提示词带有预设标签
-  // (生成时后端会追加质量预设、前置 UC 预设), 这里检测并剥离这些标签, 自动切换到对应预设
+  // (生成时后端会追加质量预设、前置 UC 预设), 这里检测并剥离这些标签, 自动切换到对应预设。
+  // 一条预设标签都检测不到时一律落到 None —— 元数据里的提示词已经是最终文本, 说明出图时没启用预设;
+  // 若沿用表单上一次的选择, 下次生成会凭空多出一串质量标签 / 一长段 UC, 与官网 import metadata 的判断相反
+  // (官网对"无预设"的图就是切到 None, 见 PNG Comment 里的 tag_hint_qt / tag_hint_uc_preset = 0)。
   const switched = [];
+  const stripped = [];
+  // 官网元数据里的 Source -> 模型: 后端按官网哈希表精确识别, 未收录 / 无 Source 时给 null。
+  // 识别到且与当前不同才切换 (不猜), 切完必须重算模型能力 (预设选项 / 采样器 / 增强倍数 / 透明背景按钮)。
+  if (state.model && state.model !== C.model.get() && (S.app.models || []).includes(state.model)) {
+    C.model.set(state.model);
+    applyModelChange();
+    switched.push(`模型 → ${state.model}`);
+  }
   const model = C.model.get();
+  // 剥离标签时要用**出图时**的模型 (元数据里识别的那个), 否则跨模型切换后预设文本对不上
+  const textModel = state.model || model;
+  // 官网 2026-10 起在元数据里写 tag_hint_qt / tag_hint_uc_preset (数字码) 与
+  // tag_hint_transparent_background; 有值时直接按它判定, null/缺省时保留下面的文本识别逻辑。
+  const hintQp = state.quality_preset_id ? qpIdToName(textModel, state.quality_preset_id) : null;
+  const hintUc = state.uc_preset_id ? ucIdToName(textModel, state.uc_preset_id) : null;
   if (state.positive_prompt != null) {
     // 先删掉 teXt 段及其后面的内容 (生成时会按当前输入重新拼装, 带入只会重复堆叠);
     // 必须排在预设剥离之前 —— 质量预设是追加在 teXt 段**之后**的, 段一删它自然也不在末尾了
     const withoutText = stripTextSection(state.positive_prompt);
-    const hit = extractPresetTags(withoutText, model, "quality_preset_tags", "tail"); // 质量预设追加在末尾, 只从末尾剥离一次
+    const hit = extractPresetTags(withoutText, textModel, "quality_preset_tags", "tail", hintQp); // 质量预设追加在末尾, 只从末尾剥离一次
     let posText = withoutText;
-    if (hit.preset && applyPresetOption(C.quality, hit.preset)) {
+    if (hintQp && applyPresetOption(C.quality, hintQp)) {
+      // tag_hint 指明预设: 只按它剥离 (没命中说明提示词被改过, 原样保留)
+      posText = hit.preset ? hit.text : withoutText;
+      switched.push(`正面预设 → ${hintQp}`);
+      if (posText !== withoutText) stripped.push("正面");
+    } else if (hit.preset && applyPresetOption(C.quality, hit.preset)) {
       posText = hit.text;
       switched.push(`正面预设 → ${hit.preset}`);
+      if (posText !== withoutText) stripped.push("正面");
+    } else if (posText.trim() && applyPresetOption(C.quality, "None")) {
+      switched.push("正面预设 → None");
     }
-    // 预设剥离后再处理 transparent background (生成时顺序: 用户输入+TB+teXt+预设, 剥离顺序相反); 同步开关为图片真实状态
-    C.positive.set(syncTransparentBg(posText));
+    // 预设剥离后再处理 transparent background (生成时顺序: 用户输入+TB+teXt+预设, 剥离顺序相反);
+    // tag_hint 明确 true/false 时以它为准, 只有 null/缺省才看文本
+    if (state.transparent_bg === true) {
+      transparentBg = true;
+      updateTbBtn();
+      C.positive.set(stripTransparentTag(posText).text);
+    } else if (state.transparent_bg === false) {
+      transparentBg = false;
+      updateTbBtn();
+      C.positive.set(posText);
+    } else {
+      C.positive.set(syncTransparentBg(posText));
+    }
     // 新版界面只显示一块输入区: 外部送进来的是正面提示词, 切到正面那一侧, 否则改了也看不见
     showPromptTab?.("positive");
   }
   if (state.negative_prompt != null) {
-    const hit = extractPresetTags(state.negative_prompt, model, "uc_preset_tags", "head"); // UC 预设前置在开头, 只从开头剥离一次
-    if (hit.preset && applyPresetOption(C.uc, hit.preset)) {
+    const hit = extractPresetTags(state.negative_prompt, textModel, "uc_preset_tags", "head", hintUc); // UC 预设前置在开头, 只从开头剥离一次
+    if (hintUc && applyPresetOption(C.uc, hintUc)) {
+      C.negative.set(hit.preset ? hit.text : state.negative_prompt);
+      switched.push(`负面预设 → ${hintUc}`);
+      if ((hit.preset ? hit.text : state.negative_prompt) !== state.negative_prompt) stripped.push("负面");
+    } else if (hit.preset && applyPresetOption(C.uc, hit.preset)) {
       C.negative.set(hit.text);
       switched.push(`负面预设 → ${hit.preset}`);
+      if (hit.text !== state.negative_prompt) stripped.push("负面");
     } else {
       C.negative.set(state.negative_prompt);
+      if (String(state.negative_prompt).trim() && applyPresetOption(C.uc, "None")) switched.push("负面预设 → None");
     }
   }
   // opts.silent: 后台同步路径 (画廊"发送到法术解析"顺带更新图片生成表单) 不弹提示;
   // 预设剥离与切换照常执行, 保证后续生成不会把元数据里的预设原文再重复拼一遍
-  if (switched.length && !opts.silent) toast(`已剥离预设标签并自动切换: ${switched.join("，")} ⭐`, "info");
+  if (switched.length && !opts.silent) {
+    const head = stripped.length ? "已剥离预设标签并自动切换" : "已按元数据同步预设";
+    toast(`${head}: ${switched.join("，")} ⭐`, "info");
+  }
   if (state.width != null) C.width.set(state.width);
   if (state.height != null) C.height.set(state.height);
   // 外部送入的尺寸可能超限 (如从大图反推后发送), 立刻刷新像素提示, 别让告警信息停在旧值
@@ -2663,6 +2763,12 @@ export function setGenerateState(state, opts = {}) {
   if (state.seed != null) C.seed.set(state.seed);
   if (state.sampler != null) C.sampler.set(state.sampler);
   if (state.noise_schedule != null) C.noise.set(state.noise_schedule);
+  // Medium 的固定参数: 元数据里带来的步数 / 采样器 / UC 一律以官网 fixedSettings 为准
+  if (model === "nai-diffusion-5-full-medium") {
+    C.steps.set(14);
+    C.sampler.set("k_euler_ancestral");
+    C.uc.set("Heavy");
+  }
   if (state.characters?.length) {
     charList.setItems(state.characters.map((c) => ({
       prompt: c.prompt ?? "",
