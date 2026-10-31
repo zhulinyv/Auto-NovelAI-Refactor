@@ -2339,7 +2339,131 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
 }
 .spell-label { color: var(--text-2); font-weight: 600; white-space: nowrap; }
 .spell-val { color: var(--text); text-align: right; word-break: break-all; }
+/* Description 是整段文本, 保留自带换行: 标签置顶, 值左对齐 (其它元数据仍右对齐单行) */
+.spell-item-desc { align-items: flex-start; }
+.spell-val-desc { white-space: pre-wrap; text-align: left; word-break: normal; overflow-wrap: anywhere; }
 .spell-sec.collapsed .mono-ta { display: none; }
+
+/* ------- 法术解析 JSON 树形展示 (spell.novelai.dev 风格) ------- */
+.json-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+.json-toolbar .mini-btn { padding: 3px 10px; font-size: 12px; }
+.json-toolbar .mini-btn[disabled] { opacity: 0.5; cursor: not-allowed; }
+.json-view-wrap { min-width: 0; }
+/* 全部信息: 展开后按钮集中在标题下方一行, 收起时只留标题 + 展开 */
+.all-info-actions {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+  margin: 0 0 6px;
+}
+.spell-sec:not(.collapsed) > .all-info-actions { display: flex; }
+.all-info-actions .json-toolbar { flex: 0 1 auto; min-width: 0; margin-left: 0; justify-content: flex-start; }
+.all-info-actions > .mini-btn { margin-left: auto; flex: 0 0 auto; }
+.spell-sec:not(.collapsed) .all-info-toggle { display: none; }
+.spell-sec.collapsed .json-view-wrap { display: none; }
+
+.json-tree {
+  --json-key: var(--text);
+  --json-string: #2f9e6e;
+  --json-number: #d6336c;
+  --json-boolean: #d6336c;
+  --json-null: #b45309;
+  min-width: 0;
+  padding: 8px 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  overflow-x: auto;
+}
+.json-row {
+  display: flex;
+  align-items: flex-start;
+  min-width: 0;
+  padding-left: calc(var(--depth, 0) * 15px);
+}
+.json-toggle {
+  flex: 0 0 14px;
+  width: 14px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.json-toggle::before {
+  content: "";
+  width: 0;
+  height: 0;
+  border-left: 4.5px solid currentColor;
+  border-top: 3.5px solid transparent;
+  border-bottom: 3.5px solid transparent;
+  transition: transform 0.12s ease;
+}
+.json-toggle.open::before { transform: rotate(90deg); }
+.json-toggle:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; border-radius: 3px; }
+.json-toggle-empty { visibility: hidden; cursor: default; }
+.json-key { color: var(--json-key); font-weight: 500; flex: 0 0 auto; white-space: nowrap; }
+.json-punct { color: var(--text-2); }
+.json-colon { margin-right: 4px; }
+.json-val { flex: 1 1 auto; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.json-string { color: var(--json-string); }
+.json-number { color: var(--json-number); }
+.json-boolean { color: var(--json-boolean); }
+.json-null { color: var(--json-null); }
+.json-array, .json-object { color: var(--text); }
+.json-ellipsis { color: var(--text-2); }
+.json-block.open > .json-branch .json-ellipsis { display: none; }
+.json-block.open > .json-branch .json-badge { display: none; }
+.json-children { display: none; }
+.json-block.open > .json-children { display: block; }
+.json-close { display: none; }
+.json-block.open > .json-close { display: flex; }
+.json-badge {
+  margin-left: 6px;
+  padding: 0 5px;
+  border: 1px solid color-mix(in srgb, var(--primary) 45%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  color: var(--primary);
+  font-family: var(--font);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.6;
+}
+.json-raw {
+  margin: 0;
+  padding: 8px 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.json-empty { padding: 2px 0; color: var(--text-2); font-size: 12.5px; }
+[data-theme="dark"] .json-string { color: #6ee7b7; }
+[data-theme="dark"] .json-number, [data-theme="dark"] .json-boolean { color: #f9a8d4; }
+[data-theme="dark"] .json-null { color: #fbbf24; }
 
 /* ------- 输出操作行 (发送 / 打开目录) ------- */
 .output-actions {

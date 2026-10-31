@@ -1,7 +1,7 @@
 // ============================================================
 // 法术解析视图: 读取信息 / 图片反推 / 抹除数据 (已迁移到「图片工具」插件)
 // ============================================================
-import { el, clear, toast, imageDropZone } from "../ui.js";
+import { el, clear, toast, imageDropZone, copyText } from "../ui.js";
 import { post } from "../api.js";
 import { renderTabs } from "../components.js";
 import { setGenerateState, getC, stripTextSection } from "./generate.js";
@@ -50,8 +50,7 @@ function clearPngInfoFields() {
   if (!f) return;
   f.prompt.value = "";
   f.negative.value = "";
-  f.comment.value = "";
-  f.all.value = "";
+  f.allViewer.clear();
   Object.values(f.params).forEach((cell) => { cell.item.style.display = "none"; cell.val.textContent = ""; });
   Object.values(f.meta).forEach((cell) => { cell.item.style.display = "none"; cell.val.textContent = ""; });
   f.box.style.display = "none";
@@ -116,24 +115,231 @@ async function loadPngInfo(path) {
   setMeta("software", info.software);
   setMeta("description", info.description);
 
-  // Comment (格式化 JSON, 与 Auto-NovelAI-Refactor 解析一致)
-  let commentText = "";
-  if (info.comment != null) {
-    if (typeof info.comment === "string") {
-      try { commentText = JSON.stringify(JSON.parse(info.comment), null, 2); }
-      catch { commentText = info.comment; }
-    } else {
-      try { commentText = JSON.stringify(info.comment, null, 2); }
-      catch { commentText = String(info.comment); }
-    }
-  }
-  f.comment.value = commentText;
-
-  // 全部信息
-  f.all.value = JSON.stringify(info.all, null, 2);
+  // 全部信息 (树形展示; 值里是 JSON 字符串的字段, 如 Comment, 会继续解析展开)
+  const allValue = info.all && Object.keys(info.all).length ? info.all : null;
+  f.allViewer.set(allValue, { raw: info.all ? JSON.stringify(info.all, null, 2) : "" });
 
   f.box.style.display = "";
   toast("信息读取成功 📖", "success");
+}
+
+// ---------------- JSON 树形展示 (参考 spell.novelai.dev) ----------------
+
+/** JSON 值的 2 空格缩进原文; 极端情况下退回 String() */
+function jsonToText(value) {
+  try { return JSON.stringify(value, null, 2); }
+  catch { return String(value); }
+}
+
+function jsonKind(value) {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "array";
+  return typeof value;
+}
+
+function isJsonContainer(value) {
+  return value !== null && typeof value === "object";
+}
+
+/** 元数据里的 Comment 是"字符串形式的 JSON": 能解析成对象/数组时继续按树展开 */
+function parseEmbeddedJson(text) {
+  if (typeof text !== "string") return null;
+  const trimmed = text.trim();
+  if (!trimmed || (trimmed[0] !== "{" && trimmed[0] !== "[")) return null;
+  try {
+    const parsed = JSON.parse(trimmed);
+    return isJsonContainer(parsed) ? parsed : null;
+  } catch { return null; }
+}
+
+/** 展开/收起一个对象或数组节点; 三角与 aria 状态同步 */
+function setJsonBlockOpen(block, open) {
+  // 折叠的节点不提前构建子级 DOM: 大 JSON (如 ComfyUI workflow) 只在用户点开时才渲染,
+  // 避免"读取成功但页面卡住"
+  if (open && block._jsonEnsureChildren) {
+    block._jsonEnsureChildren();
+    block._jsonEnsureChildren = null;
+  }
+  block.classList.toggle("open", open);
+  const toggle = block.firstElementChild && block.firstElementChild.querySelector(".json-toggle");
+  if (toggle) {
+    toggle.classList.toggle("open", open);
+    toggle.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+}
+
+/** 展示字符串时保留真实换行: JSON.stringify 会把换行显示成反斜杠 + n,
+ *  这里只转义反斜杠和双引号, 换行/回车原样交给 pre-wrap 渲染 */
+function jsonStringText(value) {
+  return '"' + String(value).replace(/\r\n?/g, "\n").replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
+}
+
+function jsonScalar(value) {
+  const kind = jsonKind(value);
+  let text;
+  if (kind === "string") text = jsonStringText(value);
+  else if (kind === "number") text = Number.isFinite(value) ? String(value) : "null";
+  else text = String(value);
+  return el("span", { class: "json-val json-" + kind, text });
+}
+
+function jsonRowShell(depth) {
+  const row = el("div", { class: "json-row" });
+  row.style.setProperty("--depth", depth);
+  return row;
+}
+
+/** 叶子节点: 字符串 / 数字 / 布尔 / null */
+function jsonLeafRow(key, value, depth) {
+  const row = jsonRowShell(depth);
+  row.append(el("span", { class: "json-toggle json-toggle-empty" }));
+  if (key != null) {
+    row.append(el("span", { class: "json-key", text: key }), el("span", { class: "json-punct json-colon", text: ":" }));
+  }
+  row.append(jsonScalar(value));
+  return row;
+}
+
+/** 空对象/空数组不显示三角, 直接给 {} / [] */
+function jsonEmptyContainerRow(key, value, depth) {
+  const row = jsonRowShell(depth);
+  row.append(el("span", { class: "json-toggle json-toggle-empty" }));
+  if (key != null) {
+    row.append(el("span", { class: "json-key", text: key }), el("span", { class: "json-punct json-colon", text: ":" }));
+  }
+  row.append(el("span", { class: "json-val json-object", text: Array.isArray(value) ? "[]" : "{}" }));
+  return row;
+}
+
+function jsonBlock(value, key, depth, opts, extra = {}) {
+  const isArray = Array.isArray(value);
+  const entries = isArray ? value.map((item, i) => [String(i), item]) : Object.entries(value);
+  if (!entries.length) return jsonEmptyContainerRow(key, value, depth);
+
+  const block = el("div", { class: "json-block" });
+  if (extra.root) block.dataset.root = "1";
+  const branch = jsonRowShell(depth);
+  branch.classList.add("json-branch");
+  const toggle = el("button", { class: "json-toggle", type: "button", "aria-label": "展开或收起" });
+  branch.append(toggle);
+  if (key != null) {
+    branch.append(el("span", { class: "json-key", text: key }), el("span", { class: "json-punct json-colon", text: ":" }));
+  }
+  branch.append(el("span", { class: "json-punct", text: isArray ? "[" : "{" }));
+  branch.append(el("span", { class: "json-ellipsis", text: "…" }));
+  if (extra.badge) {
+    branch.append(el("span", { class: "json-badge", text: extra.badge, title: extra.badgeTitle || "" }));
+  }
+
+  const children = el("div", { class: "json-children" });
+  let childrenBuilt = false;
+  block._jsonEnsureChildren = () => {
+    if (childrenBuilt) return;
+    childrenBuilt = true;
+    entries.forEach(([childKey, childValue]) => children.append(jsonNode(childValue, childKey, depth + 1, opts)));
+  };
+
+  const closeRow = jsonRowShell(depth);
+  closeRow.classList.add("json-close");
+  closeRow.append(el("span", { class: "json-toggle json-toggle-empty" }), el("span", { class: "json-punct", text: isArray ? "]" : "}" }));
+
+  block.append(branch, children, closeRow);
+  setJsonBlockOpen(block, extra.open !== undefined ? extra.open : depth < opts.expandDepth);
+  toggle.addEventListener("click", (e) => {
+    e.stopPropagation();
+    setJsonBlockOpen(block, !block.classList.contains("open"));
+  });
+  return block;
+}
+
+function jsonNode(value, key, depth, opts, isRoot = false) {
+  // 字符串里藏着的对象/数组 (元数据 Comment): 显示成可展开的树, 并标注 JSON
+  if (opts.parseEmbedded && typeof value === "string") {
+    const parsed = parseEmbeddedJson(value);
+    if (parsed) {
+      return jsonBlock(parsed, key, depth, opts, {
+        root: isRoot,
+        // 「全部信息」展开后 Comment 的顶层字段直接可见; 其它字段里藏的 JSON 保持折叠
+        open: key === "Comment" && depth < opts.expandDepth,
+        badge: "JSON",
+        badgeTitle: "该字段的值是 JSON 字符串，已解析为树形显示",
+      });
+    }
+  }
+  if (isJsonContainer(value)) return jsonBlock(value, key, depth, opts, { root: isRoot });
+  return jsonLeafRow(key, value, depth);
+}
+
+/** 展开整棵子树: 先展开当前节点 (懒构建直接子级), 再递归展开新建出来的子节点 */
+function setJsonSubtreeOpen(block, open) {
+  setJsonBlockOpen(block, open);
+  if (!open) return;
+  block.querySelectorAll(":scope > .json-children > .json-block").forEach((child) => setJsonSubtreeOpen(child, true));
+}
+
+function buildJsonTree(value, opts) {
+  const tree = el("div", { class: "json-tree" });
+  tree.append(jsonNode(value, null, 0, opts, true));
+  return tree;
+}
+
+/** 可折叠 JSON 树 + 原文切换 + 展开/收起/复制 (只做展示, 不改动数据) */
+function createJsonViewer({ expandDepth = 2, parseEmbedded = false, emptyText = "无数据" } = {}) {
+  const treeHost = el("div");
+  const rawHost = el("pre", { class: "json-raw", style: "display:none;" });
+  const body = el("div", { class: "json-viewer" }, [treeHost, rawHost]);
+
+  const expandBtn = el("button", { class: "mini-btn", type: "button", text: "展开全部", title: "展开所有嵌套层级" });
+  const collapseBtn = el("button", { class: "mini-btn", type: "button", text: "收起全部", title: "收起所有嵌套层级, 只保留顶层字段" });
+  const copyBtn = el("button", { class: "mini-btn", type: "button", text: "复制", title: "复制完整 JSON 原文" });
+  const rawBtn = el("button", { class: "mini-btn", type: "button", text: "原文", title: "在树形与原文之间切换" });
+  const toolbar = el("div", { class: "json-toolbar" }, [expandBtn, collapseBtn, copyBtn, rawBtn]);
+
+  let value = null;
+  let raw = "";
+  let available = false;
+  let mode = "tree";
+
+  function setMode(next) {
+    mode = next;
+    treeHost.style.display = mode === "tree" ? "" : "none";
+    rawHost.style.display = mode === "raw" ? "" : "none";
+    rawBtn.textContent = mode === "tree" ? "原文" : "树形";
+  }
+
+  function set(nextValue, options = {}) {
+    available = nextValue !== undefined && nextValue !== null && nextValue !== "";
+    value = nextValue;
+    raw = options.raw != null ? String(options.raw) : (available ? jsonToText(nextValue) : "");
+    rawHost.textContent = raw;
+    treeHost.replaceChildren();
+    if (available) treeHost.append(buildJsonTree(value, { expandDepth, parseEmbedded }));
+    else treeHost.append(el("div", { class: "json-empty", text: emptyText }));
+    [expandBtn, collapseBtn, copyBtn, rawBtn].forEach((btn) => { btn.disabled = !available; });
+    setMode("tree");
+  }
+
+  function clear() { set(null); }
+
+  expandBtn.addEventListener("click", () => {
+    const rootBlock = treeHost.querySelector(".json-block");
+    if (rootBlock) setJsonSubtreeOpen(rootBlock, true);
+  });
+  collapseBtn.addEventListener("click", () => {
+    // 只收起嵌套层级; 顶层节点保持用户当前状态 (手动收起根节点后不会被这个按钮重新打开)
+    treeHost.querySelectorAll(".json-block").forEach((block) => {
+      if (block.dataset.root !== "1") setJsonBlockOpen(block, false);
+    });
+  });
+  copyBtn.addEventListener("click", async () => {
+    if (!available) return;
+    const ok = await copyText(raw);
+    toast(ok ? "JSON 已复制" : "复制失败", ok ? "success" : "error");
+  });
+  rawBtn.addEventListener("click", () => setMode(mode === "tree" ? "raw" : "tree"));
+
+  set(null);
+  return { node: body, toolbar, set, clear };
 }
 
 function renderRead(body) {
@@ -182,28 +388,34 @@ function renderRead(body) {
   [["source", "Source"], ["generation_time", "Generation time"], ["software", "Software"], ["description", "Description"]].forEach(([key, label]) => {
     const val = el("span", { class: "spell-val", text: "" });
     const item = el("div", { class: "spell-item", style: "display:none;" }, [el("span", { class: "spell-label", text: label }), val]);
+    // Description 是整段文本, 可能自带换行: 单独标记, 由 CSS 保留换行并左对齐
+    if (key === "description") {
+      item.classList.add("spell-item-desc");
+      val.classList.add("spell-val-desc");
+    }
     fields.meta[key] = { item, val };
     metaBox.append(item);
   });
   box.append(el("div", { class: "spell-sec" }, [el("div", { class: "spell-sec-title", text: "📄 元数据" }), metaBox]));
 
-  // Comment (位于元数据与全部信息之间)
-  const commentTA = el("textarea", { rows: 8, readonly: true, class: "mono-ta", placeholder: "读取后显示" });
-  fields.comment = commentTA;
-  box.append(el("div", { class: "spell-sec" }, [el("div", { class: "spell-sec-title", text: "💬 Comment" }), commentTA]));
-
-  const allTA = el("textarea", { rows: 8, readonly: true, class: "mono-ta", placeholder: "读取后显示" });
-  // 全部信息默认隐藏, 单击标题/按钮展开, 再次单击收起
+  const allViewer = createJsonViewer({ expandDepth: 2, parseEmbedded: true, emptyText: "无元数据" });
+  fields.allViewer = allViewer;
+  // 全部信息默认隐藏; 展开后按钮集中在标题下方的一行, 收起后只保留标题 + 展开
   const allWrap = el("div", { class: "spell-sec collapsed" });
-  const allToggle = el("button", { class: "mini-btn", type: "button", text: "展开" });
-  function syncAllToggle() {
-    allToggle.textContent = allWrap.classList.contains("collapsed") ? "展开" : "收起";
+  const allExpandBtn = el("button", { class: "mini-btn all-info-toggle", type: "button", text: "展开" });
+  const allCollapseBtn = el("button", { class: "mini-btn", type: "button", text: "收起" });
+  function setAllCollapsed(collapsed) {
+    allWrap.classList.toggle("collapsed", collapsed);
   }
-  allToggle.addEventListener("click", (e) => { e.stopPropagation(); allWrap.classList.toggle("collapsed"); syncAllToggle(); });
-  const allHead = el("div", { class: "spell-sec-title", style: "cursor:pointer;" }, [el("span", { text: "🗂 全部信息 (JSON)" }), allToggle]);
-  allHead.addEventListener("click", () => { allWrap.classList.toggle("collapsed"); syncAllToggle(); });
-  allWrap.append(allHead, allTA);
-  fields.all = allTA;
+  allExpandBtn.addEventListener("click", (e) => { e.stopPropagation(); setAllCollapsed(false); });
+  allCollapseBtn.addEventListener("click", () => setAllCollapsed(true));
+  const allHead = el("div", { class: "spell-sec-title all-info-head", style: "cursor:pointer;" }, [
+    el("span", { text: "🗂 全部信息 (JSON)" }),
+    allExpandBtn,
+  ]);
+  allHead.addEventListener("click", () => setAllCollapsed(!allWrap.classList.contains("collapsed")));
+  const allActions = el("div", { class: "all-info-actions" }, [allViewer.toolbar, allCollapseBtn]);
+  allWrap.append(allHead, allActions, el("div", { class: "json-view-wrap" }, [allViewer.node]));
   box.append(allWrap);
 
   pnginfoReadFields = fields;
@@ -222,8 +434,8 @@ function renderRead(body) {
 
   // 图片选择/拖入/外部设置经 onChange 触发读取; 关闭图片 (✖) 清空并隐藏全部信息
 
-  // 图片与右侧信息 1:1 平分区域, 两侧等高
-  const rdLayout = el("div", { class: "grid", style: "grid-template-columns:1fr 1fr;" });
+  // 图片与右侧信息 1:1 平分宽度; 右侧 JSON 树可能很长, 左侧不强制等高
+  const rdLayout = el("div", { class: "grid", style: "grid-template-columns:1fr 1fr;align-items:start;" });
   rdLayout.append(el("div", { class: "card", style: "margin:0;display:flex;flex-direction:column;" }, [picker.node, el("div", { style: "margin-top:10px;" }, [sendBtn])]), box);
   body.append(rdLayout);
 }
