@@ -25,7 +25,7 @@
 - 🔮 **法术解析** — 读取 PNG / WebP / JPG 中的 NovelAI 隐写与 EXIF 元数据, 一键把种子步数提示词等参数送回生成页; 内置 wd-tagger 图片反推 (12 个模型, 云端推理不占本地显存)
 - 📚 **图片浏览与筛选** — 输出目录树 + WebP 缩略图滚动加载 + 多种排序 + 收藏夹 + 回收站删除; 图片筛选支持批量移动 / 复制 / 删除, 并可无限撤销
 - 🃏 **卡片库与通配符** — `<分类:名称>` 语法递归展开, 内置 随机 / 顺序 两种特殊卡; 卡片支持封面、搜索、多选、Shift 范围选择、拖拽插入提示词; 自带 8 个中文词条包
-- 🏷️ **中英提示词助手** — 13 MB Danbooru 中文标签库自动补全 (类别着色 / 别名 / 热度), 21 个免 Key 在线翻译源自动容错切换; 内置 8 组常用标签与提示词库收藏; 提示词标签块可拖拽排序、逐条加减权重
+- 🏷️ **中英提示词助手** — 13 MB Danbooru 中文标签库自动补全 (类别着色 / 别名 / 热度), 21 个免 Key 在线翻译源自动容错切换; 内置 9 组 1900+ 条常用标签 (画质画风 / 镜头光影 / 场景氛围 / 人物特征 / 表情动作 / 服装配饰 / 道具 / 负面 / 文本) 与提示词库收藏; 提示词标签块可拖拽排序、逐条加减权重
 - 🧩 **插件系统** — 声明式面板清单, 前端自动渲染表单: 17 种字段类型、条件显示、并排分栏、图表联动; 动作可直连生图队列或本地多线程; 内置 7 个插件 (图片工具 / 自动打码 / 图片混淆 / 压缩整理 / 随机画风 / 推文生图 / 视频处理), 商店一键安装卸载启停更新
 - 📜 **实时日志** — 底部日志面板经 SSE 与后端同步 (共享链接下自动降级为轮询), 级别着色、异常堆栈可展开、支持导出; CPU / 内存 / GPU / Python 版本实时显示
 - ⚙️ **即时配置** — 配置保存在 settings.json, 除端口外修改后立即生效; 首次启动自动从旧版 .env 迁移; 自定义输出路径模板、代理、共享链接 (cloudflared 内网穿透) 一应俱全
@@ -134,6 +134,8 @@ def register(plugin: Plugin):
 本项目使用 [realcugan-ncnn-vulkan](https://github.com/nihui/realcugan-ncnn-vulkan) | [Anime4KCPP](https://github.com/TianZerL/Anime4KCPP) | [waifu2x-caffe](https://github.com/lltcggie/waifu2x-caffe) 超分降噪图片
 
 本项目使用 [Semi-Auto-NovelAI-to-Pixiv](https://github.com/zhulinyv/Semi-Auto-NovelAI-to-Pixiv) 的部分源代码
+
+内置提示词库的分类标签整理自 [Prompt Forge 动漫提示词生成器](https://www.bilibili.com/video/BV1dZ4g6tET6)
 
 本项目使用 [Nekos.best](https://docs.nekos.best) | [Nekos API](https://nekosapi.com/docs) | [Lolicon API](https://docs.api.lolicon.app) | [Hitokoto 一言](https://hitokoto.cn) | [Bing 每日壁纸](https://www.bing.com) | [Picsum](https://picsum.photos) 提供背景和一言服务
 

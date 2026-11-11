@@ -1,7 +1,8 @@
 // ============================================================
 // Wildcards 全屏编辑弹窗:
 //   顶部: 提示词标签块编辑器 (参考 sd-webui-prompt-all-in-one)
-//     - 提示词按逗号拆分为可点击的标签块, 悬停可 删除/编辑/增减权重
+//     - 提示词按英文逗号 / 换行 / "句点+空格" 拆分为可点击的标签块 (换行本身也占一个"⏎ 换行"块,
+//       拼回文本时还原成真正的换行), 悬停可 删除/编辑/增减权重
 //     - 双击空白处或点 ✏️ 切回文本输入 (手动输入保留, 自动补全可用)
 //     - 卡片库中多选的卡片可拖拽进编辑器, 或点 "➕ 添加选中" 批量加入
 //     - NAI 新版权重块 1.5::内容:: 整体算一个标签 (块内逗号不拆分)
@@ -14,6 +15,7 @@
 import { $, $$, el, clear, toast, bus, wireAutocomplete } from "./ui.js";
 import { post } from "./api.js";
 import { renderPanel, cardSelection, cardDrag, promptSelection, vibeSelection, activeLib } from "./views/wildcards.js";
+import { builtinPromptGroups } from "./data/builtinPrompts.js";
 import { appState } from "./app.js";
 
 let modalOpen = false;
@@ -30,13 +32,22 @@ function syncToSource(source, value) {
 
 // ---------------- 提示词 ⇄ 标签块 解析 ----------------
 
-/** 按逗号拆分为标签 (括号/方括号/花括号/尖括号内的逗号不拆分; NAI 权重块 数字::内容:: 内的逗号不拆分, 支持嵌套) */
+/** 换行在标签数组里单独占一项 (渲染成 "⏎ 换行" 块), 这样切块再拼回文本时不会丢行 */
+const BREAK = "\n";
+const isBreak = (t) => t === BREAK;
+
+/**
+ * 按英文逗号 / 换行 / "句点+空格"(. ) 拆分为标签 (括号/方括号/花括号/尖括号内的分隔符不拆分;
+ * NAI 权重块 数字::内容:: 内的分隔符不拆分, 支持嵌套)。
+ * 句点必须紧跟一个半角空格才算分隔符, 单个 "1.5" 这类小数点原样保留。
+ * 换行本身会作为一项 BREAK 保留在结果里 (连续 N 个换行 = N 项), 首尾换行丢弃。
+ */
 function splitTags(value) {
   const out = [];
   let buf = "";
   let depth = 0;    // () [] {} <> 括号深度
   let wDepth = 0;   // NAI 权重块 数字:: ... :: 嵌套深度
-  const s = String(value ?? "");
+  const s = String(value ?? "").replace(/\r\n?/g, "\n");
   const openRe = /^\d*\.?\d+::/;   // "数字::" 视为权重块开始
   for (let i = 0; i < s.length; i++) {
     const ch = s[i];
@@ -49,11 +60,37 @@ function splitTags(value) {
     if (wDepth > 0 && ch === ":" && s[i + 1] === ":") { wDepth--; buf += "::"; i++; continue; }
     if (ch === "(" || ch === "[" || ch === "{" || ch === "<") depth++;
     else if (ch === ")" || ch === "]" || ch === "}" || ch === ">") depth = Math.max(0, depth - 1);
-    if (ch === "," && depth === 0 && wDepth === 0) { out.push(buf); buf = ""; }
-    else buf += ch;
+    // 句点+空格 也算分隔 (只认 ". " 这一对, 单独一个 "." 留在标签里)
+    const dotSep = ch === "." && s[i + 1] === " ";
+    if ((ch === "," || ch === "\n" || dotSep) && depth === 0 && wDepth === 0) {
+      out.push(buf);
+      if (ch === "\n") out.push(BREAK);
+      if (dotSep) i++;   // 连空格一起吃掉, 下一块不以空格开头
+      buf = "";
+    } else buf += ch;
   }
   out.push(buf);
-  return out.map((s) => s.trim()).filter(Boolean);
+  // 去空白: BREAK 原样保留, 其余 trim 后丢弃空项
+  const tags = out.map((t) => (isBreak(t) ? t : t.trim())).filter((t) => t !== "");
+  const res = [];
+  for (const t of tags) {
+    if (isBreak(t) && !res.length) continue;   // 开头的空行没有意义, 丢掉
+    res.push(t);                                // 连续换行按原样保留 (N 个换行 = N 个换行块)
+  }
+  while (res.length && isBreak(res[res.length - 1])) res.pop();   // 结尾空行同理
+  return res;
+}
+
+/** 标签数组 -> 提示词文本: 普通标签用 ", " 连接, 遇到 BREAK 换成真正的换行 */
+function joinTags(tags) {
+  let text = "";
+  let needSep = false;
+  for (const tag of tags) {
+    if (isBreak(tag)) { text += "\n"; needSep = false; continue; }
+    text += (needSep ? ", " : "") + tag;
+    needSep = true;
+  }
+  return text;
 }
 
 /** 解析标签权重: 支持 (内容:权重) 通用形式与 NAI 新版 数字::内容:: 形式 (未闭合的 数字::内容 也兼容), 无权重时 weight = 1 */
@@ -111,7 +148,8 @@ export function openWildcardsModal(source, { title = "提示词", only = null } 
   const taBox = el("div", { class: "ta-box hidden" }, [ta]);
   const chipsView = el("div", { class: "prompt-chips" });
   const editor = el("div", { class: "wc-prompt-editor" }, [chipsView, taBox]);
-  wireAutocomplete(ta, taBox);
+  // 文本编辑视图的补全同样挂到 overlay: 弹窗内的滚动容器会裁剪普通定位的下拉
+  wireAutocomplete(ta, taBox, { portal: overlay });
 
   const addSelBtn = el("button", {
     class: "btn btn-sm btn-primary",
@@ -171,9 +209,26 @@ export function openWildcardsModal(source, { title = "提示词", only = null } 
 
   const zhKey = (content) => (content || "").trim().toLowerCase().replace(/\s+/g, "_");
 
+  // 内置提示词库自带的译文: 先查这张本地表, 查不到才走在线翻译。
+  // 库里的标签大多不在 13 MB Danbooru 词典里, 只靠 /api/suggest/translate 会拿不到译文
+  // (表现为"库里明明有译文, 添加到提示词后译文消失")。
+  // 同名标签在"负面"分组里另有一套压制语义的译法 (如 sketch 素描/草稿), 这里先到先得,
+  // 保证正面标签显示的还是正向译文。
+  const builtinZh = new Map();
+  for (const group of builtinPromptGroups) {
+    for (const [en, zh] of group.tags) {
+      const key = zhKey(en);
+      if (!builtinZh.has(key)) builtinZh.set(key, zh);
+    }
+  }
+  /** 标签译文: 会话内翻译缓存 > 内置词表 > 空 */
+  const zhOf = (content) => zhCache.get(zhKey(content)) || builtinZh.get(zhKey(content)) || "";
+  /** 本地与内置都没有译文, 才值得再发一次在线翻译 */
+  const needZh = (content) => !zhOf(content);
+
   /** 批量获取缺失的翻译 (PAI 风格双语标签), 拿到后重渲染一次 */
   async function fetchTranslations(contents) {
-    const missing = [...new Set(contents.map(zhKey).filter((k) => k && !zhCache.has(k)))];
+    const missing = [...new Set(contents.filter((c) => c && needZh(c)).map(zhKey))];
     if (!missing.length || translating) return;
     translating = true;
     try {
@@ -184,9 +239,9 @@ export function openWildcardsModal(source, { title = "提示词", only = null } 
       if (chipsView.querySelector(".p-chip-input")) {
         const tags = splitTags(ta.value);
         [...chipsView.querySelectorAll(".p-chip")].forEach((chip, i) => {
-          if (tags[i] === undefined) return;
+          if (tags[i] === undefined || isBreak(tags[i])) return;   // 换行块的副标题不是译文, 不要覆盖
           const zhEl = chip.querySelector(".p-chip-zh");
-          if (zhEl) zhEl.textContent = zhCache.get(zhKey(parseWeight(tags[i]).content)) || "";
+          if (zhEl) zhEl.textContent = zhOf(parseWeight(tags[i]).content);
         });
         return;
       }
@@ -206,8 +261,9 @@ export function openWildcardsModal(source, { title = "提示词", only = null } 
     tags.forEach((raw, i) => chipsView.append(makeChip(raw, i)));
     chipsView.append(makeAddChip());
     // 收集未翻译的普通标签, 批量查询 (通配符 <分类:卡片名> 不翻译)
-    const need = tags.map((raw) => parseWeight(raw).content).filter((c) => c && !c.startsWith("<"));
-    if (need.some((c) => !zhCache.has(zhKey(c)))) fetchTranslations(need);
+    const need = tags.filter((raw) => !isBreak(raw))
+      .map((raw) => parseWeight(raw).content).filter((c) => c && !c.startsWith("<"));
+    if (need.some((c) => needZh(c))) fetchTranslations(need);
   }
 
   /** 末尾的 "＋标签" 块: 点击展开输入框, 回车添加标签 (参考 PAI 添加关键词, 支持自动补全) */
@@ -221,10 +277,14 @@ export function openWildcardsModal(source, { title = "提示词", only = null } 
     const anchor = chipsView.querySelector(".p-chip-add");
     const inputChip = el("div", { class: "p-chip p-chip-add-input" });
     const input = el("input", { class: "p-chip-input", placeholder: "输入标签后回车 (可逗号分隔多个, Esc 取消)" });
+    // portal 到弹窗 overlay: 补全下拉不会被标签块视图的 overflow 裁剪容器挡住。
+    // 必须先于宿主 keydown 注册: 补全列表打开时 Enter/Tab/Esc 归它消费 (stopImmediatePropagation)
+    const ac = wireAutocomplete(input, inputChip, { portal: overlay, comma: false });
     let done = false;
     const commit = () => {
       if (done) return;
       done = true;
+      ac.list.remove();   // 挂到 overlay 的下拉要跟着输入框一起收走
       const parts = splitTags(input.value);
       if (parts.length) {
         applyTags([...splitTags(ta.value), ...parts]);
@@ -237,6 +297,7 @@ export function openWildcardsModal(source, { title = "提示词", only = null } 
     const cancel = () => {
       if (done) return;
       done = true;
+      ac.list.remove();
       renderChips();
     };
     input.addEventListener("keydown", (e) => {
@@ -244,8 +305,6 @@ export function openWildcardsModal(source, { title = "提示词", only = null } 
       else if (e.key === "Escape") { e.stopPropagation(); cancel(); }
     });
     input.addEventListener("blur", () => { if (input.value.trim()) commit(); else cancel(); });
-    // portal 到弹窗 overlay: 补全下拉不会被标签块视图的 overflow 裁剪容器挡住
-    wireAutocomplete(input, inputChip, { portal: overlay });  // 添加关键词同样支持自动补全
     inputChip.append(input);
     if (anchor) chipsView.replaceChild(inputChip, anchor);
     else chipsView.append(inputChip);
@@ -253,7 +312,7 @@ export function openWildcardsModal(source, { title = "提示词", only = null } 
   }
 
   function applyTags(tags) {
-    ta.value = tags.join(", ");
+    ta.value = joinTags(tags);
     ta.dispatchEvent(new Event("input", { bubbles: true }));
   }
 
@@ -285,9 +344,15 @@ export function openWildcardsModal(source, { title = "提示词", only = null } 
     let done = false;
     clear(chip);
     chip.classList.add("editing");
+    // 编辑态禁止拖动: 否则在输入框里划选文字会被当成拖标签 (HTML5 drag 会抢走选区)
+    chip.draggable = false;
+    const input = el("input", { class: "p-chip-input", value: content });
+    // 双击编辑同样支持补全: 只替换当前标签本身, 不补逗号
+    const ac = wireAutocomplete(input, chip, { portal: overlay, comma: false });
     const commit = () => {
       if (done) return;
       done = true;
+      ac.list.remove();   // 挂到 overlay 的下拉要跟着编辑框一起收走
       const v = input.value.trim();
       const t = splitTags(ta.value);
       if (!v) t.splice(i, 1);
@@ -297,9 +362,9 @@ export function openWildcardsModal(source, { title = "提示词", only = null } 
     const cancel = () => {
       if (done) return;
       done = true;
+      ac.list.remove();
       renderChips();
     };
-    const input = el("input", { class: "p-chip-input", value: content });
     input.addEventListener("keydown", (e) => {
       if (e.key === "Enter") { e.preventDefault(); commit(); }
       else if (e.key === "Escape") { e.stopPropagation(); cancel(); }
@@ -310,16 +375,8 @@ export function openWildcardsModal(source, { title = "提示词", only = null } 
     input.select();
   }
 
-  function makeChip(raw, i) {
-    const { content, weight } = parseWeight(raw);
-    const zh = zhCache.get(zhKey(content)) || "";
-    const chip = el("div", { class: "p-chip", title: "拖动可排序; 双击编辑 (Esc 取消); 悬停显示操作按钮" }, [
-      el("div", { class: "p-chip-row" }, [
-        el("span", { class: "p-chip-text", text: content }),
-        weight !== 1 ? el("span", { class: "p-chip-w", text: "×" + weight }) : null,
-      ]),
-      el("div", { class: "p-chip-zh", text: zh }),  // 始终占位, 保证有/无翻译的标签等高
-    ]);
+  /** 拖动排序 (普通标签块与换行块共用) */
+  function wireChipDrag(chip, raw, i) {
     chip.draggable = true;
     chip.addEventListener("dragstart", (e) => {
       chipDragIdx = i;
@@ -336,6 +393,36 @@ export function openWildcardsModal(source, { title = "提示词", only = null } 
       chip.classList.remove("chip-dragging");
       $$(".p-chip.drop-before", chipsView).forEach((c) => c.classList.remove("drop-before"));
     });
+  }
+
+  /** 换行块: 只是分隔符, 没有权重与文本编辑, 只保留删除 (可拖动调整位置) */
+  function makeBreakChip(i) {
+    const chip = el("div", {
+      class: "p-chip p-chip-break",
+      title: "换行分隔: 生成时是比逗号更强的断句 (拖动可排序)",
+    }, [
+      el("div", { class: "p-chip-row" }, [el("span", { class: "p-chip-text", text: "⏎" })]),
+      el("div", { class: "p-chip-zh", text: "换行" }),   // 副标题固定在译文行, 与普通标签块的排版一致
+    ]);
+    wireChipDrag(chip, BREAK, i);
+    chip.append(el("div", { class: "p-chip-ops" }, [
+      el("span", { class: "p-op p-op-danger", title: "删除这个换行", text: "×", onclick: () => removeTag(i) }),
+    ]));
+    return chip;
+  }
+
+  function makeChip(raw, i) {
+    if (isBreak(raw)) return makeBreakChip(i);
+    const { content, weight } = parseWeight(raw);
+    const zh = zhOf(content);
+    const chip = el("div", { class: "p-chip", title: "拖动可排序; 双击编辑 (Esc 取消); 悬停显示操作按钮" }, [
+      el("div", { class: "p-chip-row" }, [
+        el("span", { class: "p-chip-text", text: content }),
+        weight !== 1 ? el("span", { class: "p-chip-w", text: "×" + weight }) : null,
+      ]),
+      el("div", { class: "p-chip-zh", text: zh }),  // 始终占位, 保证有/无翻译的标签等高
+    ]);
+    wireChipDrag(chip, raw, i);
     const ops = el("div", { class: "p-chip-ops" }, [
       el("span", { class: "p-op", title: "降低权重 (−0.1)", text: "▼", onclick: () => setWeight(i, -0.1) }),
       el("span", { class: "p-op", title: "增加权重 (+0.1)", text: "▲", onclick: () => setWeight(i, +0.1) }),
@@ -347,6 +434,10 @@ export function openWildcardsModal(source, { title = "提示词", only = null } 
     chip.append(ops);
     chip.addEventListener("dblclick", (e) => {
       if (e.target instanceof Element && e.target.closest(".p-chip-ops")) return;
+      if (e.target instanceof HTMLInputElement) return;   // 已在编辑态: 双击只是选中文字, 别重置输入
+      // 进编辑会把原节点换成 <input>, 事件冒到 chipsView 时 target 已脱离 .p-chip,
+      // 会被当成"双击空白"切到文本视图; 这里直接掐断冒泡
+      e.stopPropagation();
       startEdit(i);
     });
     return chip;
@@ -398,22 +489,26 @@ export function openWildcardsModal(source, { title = "提示词", only = null } 
   let onlineTranslating = false;
   translateBtn.addEventListener("click", async () => {
     if (onlineTranslating) return;
-    const tags = splitTags(ta.value)
+    const tags = [...new Set(splitTags(ta.value)
+      .filter((raw) => !isBreak(raw))
       .map((raw) => parseWeight(raw).content)
-      .filter((c) => c && !c.startsWith("<") && !zhCache.get(zhKey(c)));   // 空译文也重试
+      .filter((c) => c && !c.startsWith("<") && needZh(c)))];   // 空译文也重试
     if (!tags.length) { toast("所有标签都已有译文 ✨", "info"); return; }
     onlineTranslating = true;
     translateBtn.disabled = true;
     const oldText = translateBtn.textContent;
     translateBtn.textContent = "⏳ 翻译中...";
     try {
-      const res = await post("/api/translate", { tags });
       let n = 0;
-      Object.entries(res.translations || {}).forEach(([tag, zh]) => {
-        zhCache.set(zhKey(tag), zh || "");
-        if (zh) n++;
-      });
-      renderChips();
+      // 每批 20 个提交 (后端 4 线程并发翻译): 回来一批就先刷新, 长列表不用等全部翻完
+      for (let i = 0; i < tags.length; i += 20) {
+        const res = await post("/api/translate", { tags: tags.slice(i, i + 20) });
+        Object.entries(res.translations || {}).forEach(([tag, zh]) => {
+          zhCache.set(zhKey(tag), zh || "");
+          if (zh) n++;
+        });
+        renderChips();
+      }
       toast(n ? `已翻译 ${n} 个标签 🌐` : "没有翻译出结果, 可稍后重试", n ? "success" : "warning");
     } catch (e) {
       toast("在线翻译失败: " + e.message, "error");

@@ -53,6 +53,7 @@ export async function render(container, ctx) {
     ["📮 Semi-Auto-NovelAI-to-Pixiv", "部分源代码参考", "https://github.com/zhulinyv/Semi-Auto-NovelAI-to-Pixiv"],
   ];
   const ackServices = [
+    ["📚 Prompt Forge 提示词生成器", "内置提示词库分类标签来源 (Bilibili)", "https://www.bilibili.com/video/BV1dZ4g6tET6"],
     ["🌸 Nekos.best", "动漫壁纸首选 (全 SFW)", "https://docs.nekos.best"],
     ["✨ Nekos API", "动漫壁纸备选 (SFW 过滤)", "https://nekosapi.com/docs"],
     ["🎨 Lolicon API", "动漫壁纸兜底 (Pixiv 收录)", "https://docs.api.lolicon.app"],
