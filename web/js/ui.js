@@ -304,10 +304,11 @@ function observeAutosize(el, fn) {
  * 横向滚动轨道: 轨道两端悬浮渐隐箭头 (悬停自动滚 / 点击翻页 / 到边自动隐藏)。
  *
  * @param {HTMLElement} scrollEl 要横向滚动的元素 (会吞掉 overflow, 变成 nowrap 轨道)
- * @param {{label?: string|HTMLElement}} opts
+ * @param {{label?: string|HTMLElement, wrap?: boolean}} opts
  *   label: 放在轨道**左侧固定**的前缀标签 (如 "分类" 两个字的栏名; 要带 emoji 也行)。
  *   不传时与旧版完全一致; 传了则整体包进 .edge-scroll-row, 标签不随内容滚动 ——
  *   否则像 .wc-types::before 那种轨道内伪元素前缀, 一滚动就跟着跑了。
+ *   wrap: 内容多时向下折行而不是横向滚动 (分类页签用), 此时不生成左右翻页箭头。
  * @returns 包裹层 (调用方 append 它, 而不是 append scrollEl)
  */
 export function edgeScroll(scrollEl, opts = {}) {
@@ -324,6 +325,12 @@ export function edgeScroll(scrollEl, opts = {}) {
   inner.appendChild(scrollEl);
   wrap.append(inner);
   scrollEl.classList.add("edge-scroll-track");
+  // 换行模式: 分类一多就折到下一行, 不做横向滚动 —— 没有滚动也就不需要翻页箭头
+  if (opts.wrap) {
+    wrap.classList.add("edge-scroll-row-wrap");
+    scrollEl.classList.add("edge-scroll-wrap");
+    return wrap;
+  }
   const left = el("button", { class: "edge-btn edge-left", type: "button", html: "‹", title: "向左滚动" });
   const right = el("button", { class: "edge-btn edge-right", type: "button", html: "›", title: "向右滚动" });
   inner.append(left, right);
@@ -693,45 +700,153 @@ export function fileDropZone({ label = null, placeholder = "点击选择或拖�
 }
 
 
-// ---------------- 提示词自动补全 (插入时补逗号) ----------------
+// ---------------- 提示词自动补全 (按光标位置替换当前标签) ----------------
 
-function insertSuggestion(textarea, suggestion) {
-  const value = textarea.value;
-  // 各段先去首尾空格, 避免中间段残留前导空格被 join(", ") 反复累积 (越补空格越多)
-  const parts = value.split(",").map((p) => p.trim());
-  if (value.endsWith(",")) {
-    parts.push(suggestion.split(",")[0]);
-  } else {
-    parts[parts.length - 1] = suggestion.split(",")[0];
+/** 标签边界: 起点遇到的字符 (逗号/换行/开括号/权重冒号) 与终点遇到的字符 */
+const TAG_START_BREAK = /[,，\n([{<:]/;
+const TAG_END_BREAK = /[,，\n)\]}>:]/;
+
+/**
+ * 以光标为准取出"当前正在输入的标签"。
+ *   start   = 光标左侧最近的分隔符之后 (跳过前导空白)
+ *   end     = 光标右侧最近的分隔符之前
+ *   keyword = [start, 光标) —— 只用光标左侧做查询, 光标停在词中间也不会把后半截算进去
+ * 有选区时直接返回选区 (整段替换)。
+ *
+ * 分隔符按"标签"语义取: 逗号(半/全角)、换行、括号、尖括号、权重冒号。
+ * 显式导出供回归脚本直接测 (纯函数, 不碰 DOM 事件)。
+ */
+export function keywordRange(el) {
+  const value = el.value ?? "";
+  const caret = typeof el.selectionStart === "number" ? el.selectionStart : value.length;
+  const selEnd = typeof el.selectionEnd === "number" ? el.selectionEnd : caret;
+  if (selEnd > caret) {
+    return { start: caret, end: selEnd, keyword: value.slice(caret, selEnd).trim(), selected: true };
   }
-  // 末尾补逗号, 方便继续输入下一个标签; 顺带清掉空的段
-  textarea.value = parts.filter((p) => p !== "").join(", ") + ", ";
-  textarea.dispatchEvent(new Event("input"));
+  let start = caret;
+  while (start > 0 && !TAG_START_BREAK.test(value[start - 1])) start--;
+  while (start < caret && /\s/.test(value[start])) start++;
+  let end = caret;
+  while (end < value.length && !TAG_END_BREAK.test(value[end])) end++;
+  return { start, end, keyword: value.slice(start, caret).trim(), selected: false };
+}
+
+/** 右邻已是分隔符/收尾括号: 不用再补逗号 */
+const NO_SEP_AFTER = /^\s*[,，\n)\]}>:]/;
+/** 左邻是开括号或权重冒号: 光标在结构内部 (如 "((best|:1.2))"), 也不能乱加逗号 */
+const NO_SEP_BEFORE = /[(（[\[{<:]\s*$/;
+
+export function insertSuggestion(el, suggestion, opts = {}) {
+  const tag = String(suggestion || "").split(",")[0].trim();
+  if (!tag) return;
+  const value = el.value ?? "";
+  const { start, end, selected } = keywordRange(el);
+  const before = value.slice(0, start);
+  const after = value.slice(end);
+  let sep = "";
+  // 单标签输入框传 comma: false (如双击编辑某个标签), 否则补 ", " 方便继续输入
+  if (opts.comma !== false && !selected) {
+    if (!after) sep = NO_SEP_BEFORE.test(before) ? "" : ", ";   // 文末: 补逗号 (权重内部除外)
+    else if (!NO_SEP_AFTER.test(after) && !NO_SEP_BEFORE.test(before)) sep = ", ";
+  }
+  el.value = before + tag + sep + after;
+  const caret = start + tag.length + sep.length;
+  try { el.setSelectionRange(caret, caret); } catch { /* 少数控件不支持选区 */ }
+  // 标记这次 input 来自"选择候选": 补全自己不要再立刻查一轮 (否则选完又弹出来)
+  el.dataset.suggestSkip = "1";
+  el.dispatchEvent(new Event("input"));
+}
+
+/**
+ * 计算光标在视口中的坐标 (textarea 没有原生 API)。
+ * 用一个和输入框同字体/同内边距/同宽度的隐藏镜像 div 摆出光标前的文本,
+ * 量出插入符相对镜像的位置, 再换算成视口坐标 (含滚动偏移)。
+ * @returns {{x: number, y: number, lineH: number}}
+ */
+export function caretPoint(el) {
+  const cs = getComputedStyle(el);
+  const rect = el.getBoundingClientRect();
+  const mirror = document.createElement("div");
+  const st = mirror.style;
+  st.position = "fixed";
+  st.top = "0";
+  st.left = "0";
+  st.visibility = "hidden";
+  st.pointerEvents = "none";
+  st.zIndex = "-1";
+  st.border = "0";
+  st.boxSizing = "border-box";
+  st.width = (el.clientWidth || rect.width) + "px";
+  st.overflow = "hidden";
+  st.whiteSpace = el.tagName === "TEXTAREA" ? "pre-wrap" : "pre";
+  for (const p of [
+    "fontFamily", "fontSize", "fontWeight", "fontStyle", "letterSpacing",
+    "lineHeight", "textTransform", "textIndent", "tabSize", "direction",
+    "wordBreak", "overflowWrap",
+    "paddingTop", "paddingRight", "paddingBottom", "paddingLeft",
+  ]) st[p] = cs[p];
+  const caret = typeof el.selectionStart === "number" ? el.selectionStart : (el.value || "").length;
+  mirror.textContent = (el.value || "").slice(0, caret);
+  const marker = document.createElement("span");
+  marker.textContent = "\u200b";   // 零宽空格: 只用来占出插入符的位置
+  mirror.append(marker);
+  document.body.append(mirror);
+  const lineH = parseFloat(cs.lineHeight) || marker.offsetHeight || 20;
+  const x = rect.left + (el.clientLeft || 0) + marker.offsetLeft - (el.scrollLeft || 0);
+  const y = rect.top + (el.clientTop || 0) + marker.offsetTop - (el.scrollTop || 0);
+  mirror.remove();
+  return { x, y, lineH };
 }
 
 /** 为提示词输入框接入 /api/suggest 自动补全 (TAB 快速插入, ↑/↓ 切换, Enter 确认, Esc 关闭)。
  *  支持 标签 / 别名 / 中文翻译 三种方式匹配, 结果带 Danbooru 分类着色、匹配高亮与热度。
+ *  补全按**光标位置**工作: 光标停在任意位置 (多行中的某一行 / 某行中间) 都只替换当前标签,
+ *  其余文本原样保留。
  *  opts.portal: 传入一个定位根元素 (如全屏弹窗的 overlay) 时, 补全列表挂到该根节点并用
- *  fixed 定位, 避免被输入框所在的 overflow 裁剪容器 (如标签块视图) 挡住。 */
+ *  fixed 定位, 避免被输入框所在的 overflow 裁剪容器 (如标签块视图) 挡住。
+ *  opts.caret: 是否跟随光标。textarea 默认跟随; 单行 input 默认贴在输入框下方
+ *  (传 true 可强制跟随, 传 false 可关闭)。
+ *  opts.comma: false 时不自动补 ", " (单标签输入框用)。 */
 export function wireAutocomplete(textarea, wrap, opts = {}) {
   const portalRoot = opts.portal || null;
-  const list = el("div", { class: "suggest-list hidden" + (portalRoot ? " suggest-portal" : "") });
-  if (!portalRoot) { list.style.left = "0"; list.style.right = "0"; }
+  // 跟随光标需要 fixed 定位; textarea (提示词框) 默认跟随, 单行 input 保持旧行为
+  const follow = opts.caret ?? textarea.tagName === "TEXTAREA";
+  const fixed = Boolean(portalRoot) || follow;
+  const list = el("div", { class: "suggest-list hidden" + (fixed ? " suggest-portal" : "") });
+  if (!fixed) { list.style.left = "0"; list.style.right = "0"; }
   (portalRoot || wrap).append(list);
   let items = [];
   let active = -1;
+  let lastKeyword = "";   // 当前列表对应的查询词 (光标移动后据此判断是否过期)
+  let composing = false;  // 中文输入法组合中不查询/不插入
 
-  /** portal 模式: 按输入框视口位置放置下拉 (下方放不下时向上弹) */
+  /** 放置下拉: 跟随光标时贴着插入符下方 (放不下就往上弹), 并夹在视口内 */
   function place() {
-    if (!portalRoot) return;
-    const r = textarea.getBoundingClientRect();
-    list.style.left = Math.round(r.left) + "px";
-    list.style.top = Math.round(r.bottom + 4) + "px";
-    list.style.width = Math.max(Math.round(r.width), 360) + "px";
+    if (!fixed) return;   // 非跟随模式: CSS 已经把列表贴在输入框下方
+    const { x, y, lineH } = caretPoint(textarea);
+    const width = Math.max(Math.round(textarea.getBoundingClientRect().width), 360);
     const h = list.offsetHeight;
-    if (r.bottom + 4 + h > window.innerHeight - 8 && r.top - h - 4 > 0) {
-      list.style.top = Math.round(r.top - h - 4) + "px";
-    }
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    list.style.width = width + "px";
+    const left = Math.min(Math.max(x, 8), Math.max(8, vw - width - 8));
+    let top = y + lineH + 4;
+    if (top + h > vh - 8 && y - h - 4 > 8) top = y - h - 4;   // 下方放不下就翻到光标上方
+    list.style.left = Math.round(left) + "px";
+    list.style.top = Math.round(top) + "px";
+  }
+  if (fixed) {
+    // 页面/容器滚动、窗口缩放时重算位置 (输入框被移出 DOM 后顺手摘掉监听, 不留常驻回调)
+    const followViewport = () => {
+      if (!textarea.isConnected) {
+        window.removeEventListener("scroll", followViewport, true);
+        window.removeEventListener("resize", followViewport);
+        return;
+      }
+      if (!list.classList.contains("hidden")) place();
+    };
+    window.addEventListener("scroll", followViewport, true);
+    window.addEventListener("resize", followViewport);
   }
   if (portalRoot) {
     // 输入框所在容器滚动时同步位置 (capture 捕获内部滚动); 监听挂在 portal 根上, 随弹窗销毁
@@ -740,7 +855,12 @@ export function wireAutocomplete(textarea, wrap, opts = {}) {
     }, true);
   }
 
-  function hide() { list.classList.add("hidden"); active = -1; }
+  function hide() {
+    list.classList.add("hidden");
+    active = -1;
+    lastKeyword = "";
+    delete textarea.dataset.suggestOpen;   // 宿主 (标签编辑框等) 据此判断 Enter 该给谁
+  }
   function setActive(i) {
     active = i;
     $$(".suggest-item", list).forEach((it, idx) => it.classList.toggle("active", idx === i));
@@ -767,6 +887,7 @@ export function wireAutocomplete(textarea, wrap, opts = {}) {
   function renderItems(results, kw) {
     items = results;
     active = -1;
+    lastKeyword = kw || "";
     clear(list);
     results.forEach((it, i) => {
       const item = el("div", { class: `suggest-item cat-${it.category ?? 0}`, title: it.zh ? `${it.tag} · ${it.zh}` : it.tag }, [
@@ -778,7 +899,7 @@ export function wireAutocomplete(textarea, wrap, opts = {}) {
       ]);
       item.addEventListener("mousedown", (e) => {
         e.preventDefault();
-        insertSuggestion(textarea, it.tag);
+        insertSuggestion(textarea, it.tag, opts);
         hide();
       });
       item.addEventListener("mousemove", () => setActive(i));
@@ -786,33 +907,38 @@ export function wireAutocomplete(textarea, wrap, opts = {}) {
     });
     if (results.length) {
       list.classList.remove("hidden");
+      textarea.dataset.suggestOpen = "1";
       place();
     }
   }
   function insertActive() {
     if (active < 0) active = 0;
     const it = items[active];
-    if (it) { insertSuggestion(textarea, it.tag); hide(); }
+    if (it) { insertSuggestion(textarea, it.tag, opts); hide(); }
   }
 
   // 每个输入框独立计时器: 共享计时器会被其它输入框的 input 事件清除,
   // 导致补全列表不出现或在他处自发弹出
   let suggestTimer = null;
   let suggestCtl = null; // 进行中的 /api/suggest: 新输入进来即取消旧请求 (慢响应后到不许覆盖新结果)
-  textarea.addEventListener("input", () => {
+  textarea.addEventListener("compositionstart", () => { composing = true; });
+  textarea.addEventListener("compositionend", () => { composing = false; });
+  textarea.addEventListener("input", (e) => {
     clearTimeout(suggestTimer);
     if (suggestCtl) { suggestCtl.abort(); suggestCtl = null; }
+    if (textarea.dataset.suggestSkip) { delete textarea.dataset.suggestSkip; hide(); return; }
+    if (composing || e.isComposing) { hide(); return; }   // 输入法组合中不查 (中文检索时半成品词没意义)
     suggestTimer = setTimeout(async () => {
       // 焦点已不在本输入框时不弹出, 避免干扰其它参数操作
       if (document.activeElement !== textarea) { hide(); return; }
-      const text = textarea.value;
-      const kw = text.split(",").pop().trim();
+      const kw = keywordRange(textarea).keyword;
       if (!kw) { hide(); return; }
       const ctl = new AbortController();
       suggestCtl = ctl;
       try {
         const { post } = await import("./api.js");
-        const res = await post("/api/suggest", { text }, { signal: ctl.signal });
+        // 只传光标处的查询词: 后端不必再猜"末尾那段" (多行 / 光标在中间时那样猜是错的)
+        const res = await post("/api/suggest", { keyword: kw }, { signal: ctl.signal });
         if (ctl.signal.aborted) return; // 等待期间已有更新的输入: 丢弃本次过期结果
         if (!res.items?.length) { hide(); return; }
         renderItems(res.items, res.keyword || kw);
@@ -826,25 +952,43 @@ export function wireAutocomplete(textarea, wrap, opts = {}) {
 
   textarea.addEventListener("blur", () => setTimeout(hide, 200));
 
-  // 键盘: TAB 快速插入 tag, ↑/↓ 切换候选, Enter 确认, Esc 关闭
-  textarea.addEventListener("keydown", (e) => {
+  // 光标移到别的标签上 (点鼠标 / 左右方向键 / Home End) 时旧列表就不对了, 直接收起
+  function syncCaret() {
     if (list.classList.contains("hidden")) return;
+    const kw = keywordRange(textarea).keyword;
+    if (!kw || kw !== lastKeyword) hide();
+  }
+  textarea.addEventListener("click", syncCaret);
+  textarea.addEventListener("keyup", (e) => {
+    if (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "Enter" || e.key === "Tab" || e.key === "Escape") return;
+    syncCaret();
+  });
+
+  // 键盘: TAB 快速插入 tag, ↑/↓ 切换候选, Enter 确认, Esc 关闭。
+  // 被补全消费掉的按键不再传给宿主 (如标签编辑框的 Enter 提交 / Esc 取消),
+  // 否则会"边提交边插入"或直接把编辑态取消掉。
+  textarea.addEventListener("keydown", (e) => {
+    if (list.classList.contains("hidden") || e.isComposing) return;
+    const consume = () => { e.preventDefault(); e.stopImmediatePropagation(); };
     if (e.key === "Tab") {
-      e.preventDefault();
+      consume();
       insertActive();
     } else if (e.key === "ArrowDown") {
-      e.preventDefault();
+      consume();
       setActive(active + 1 < items.length ? active + 1 : 0);
     } else if (e.key === "ArrowUp") {
-      e.preventDefault();
+      consume();
       setActive(active - 1 >= 0 ? active - 1 : items.length - 1);
     } else if (e.key === "Enter") {
-      e.preventDefault();
+      consume();
       insertActive();
     } else if (e.key === "Escape") {
+      e.stopImmediatePropagation();
       hide();
     }
   });
+  // 返回句柄: 宿主销毁输入框时 (标签块编辑/新增) 可一并移除挂到 portal 上的下拉
+  return { list, hide };
 }
 
 

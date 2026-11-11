@@ -6,6 +6,7 @@ import os
 import re
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import APIRouter, HTTPException
 
@@ -108,18 +109,48 @@ def _reset_tag_cache() -> None:
     _ZH_MAP = None
 
 
+_BUILTIN_ZH_FILE = "./assets/builtin_prompt_zh.json"
+_BUILTIN_ZH: dict | None = None
+_ZH_LOCK = threading.Lock()  # 批量翻译并发进来时, 避免重复构建 30 万条的映射表
+
+
 def _get_zh_map() -> dict:
     """标签/别名 -> 中文翻译 查询表 (小写键), 供标签块批量翻译。"""
     global _ZH_MAP
-    if _ZH_MAP is None:
-        m: dict = {}
-        for tag_l, tag, cat, count, aliases, zh in _get_tag_cache()["rows"]:
-            if zh:
-                m[tag_l] = zh
-                for a in aliases:
-                    m.setdefault(a, zh)
-        _ZH_MAP = m
-    return _ZH_MAP
+    if _ZH_MAP is not None:
+        return _ZH_MAP
+    with _ZH_LOCK:
+        if _ZH_MAP is None:
+            m: dict = {}
+            for tag_l, tag, cat, count, aliases, zh in _get_tag_cache()["rows"]:
+                if zh:
+                    m[tag_l] = zh
+                    for a in aliases:
+                        m.setdefault(a, zh)
+            # 内置提示词库自带的译文: 只补 13 MB 词典里没有的新标签 (词典优先)
+            for key, zh in _get_builtin_zh().items():
+                m.setdefault(key, zh)
+            _ZH_MAP = m
+        return _ZH_MAP
+
+
+def _get_builtin_zh() -> dict:
+    """内置提示词库译文表 (英文标签 -> 中文), 由 web/js/data/builtinPrompts.js 生成。
+
+    库里的标签 (画师、长句文本提示词等) 大多不在 Danbooru 词典里, 没有这张表就要逐个
+    走在线翻译; 有了它 /api/suggest/translate 与 /api/translate 都能在本地直接命中。
+    """
+    global _BUILTIN_ZH
+    if _BUILTIN_ZH is None:
+        try:
+            import json as _json
+
+            with open(_BUILTIN_ZH_FILE, "r", encoding="utf-8") as f:
+                _BUILTIN_ZH = _json.load(f) or {}
+        except Exception as e:
+            logger.warning(f"内置译文字典读取失败 ({_BUILTIN_ZH_FILE}): {e}")
+            _BUILTIN_ZH = {}
+    return _BUILTIN_ZH
 
 
 _SUGGEST_LIMIT = 20
@@ -139,8 +170,12 @@ def suggest_tags(payload: dict):
     """
     cache = _get_tag_cache()
     rows = cache["rows"]
-    input_text = (payload.get("text") or "").strip().lower()
-    keyword = input_text.split(",")[-1].strip().rstrip(",")
+    # 前端优先传"光标处的查询词" —— 提示词有多行或光标停在中间时,
+    # 按末尾截取会取到别的标签; 只有老调用方只传 text 时才退回旧的末尾逻辑。
+    keyword = str(payload.get("keyword") or "").strip().lower()
+    if not keyword:
+        input_text = str(payload.get("text") or "").strip().lower()
+        keyword = re.split(r"[,，\n]", input_text)[-1].strip().rstrip(",")
     if not keyword:
         return {"keyword": "", "items": []}
     # 用户习惯用空格, danbooru 标签是下划线
@@ -342,9 +377,9 @@ def _read_translate_cache():
 def _online_translate(text: str) -> str:
     """在线翻译一段英文 -> 中文: 多源免费接口链 (参考 sd-webui-prompt-all-in-one)。
 
-    按"大陆可直连优先"顺序自动切换: Google/Sogou/Iciba/Youdao/Alibaba/Caiyun/
-    CloudTranslation/QQ/Bing/Baidu/MyMemory/海外免费接口, 失败自动换下一个,
-    结果由 translate_online 写入缓存。
+    接口顺序与连接方式都在 utils/translate.py: 先爱词霸/搜狗/阿里等大陆可直连接口
+    (上次成功的接口优先重试), 再 Google/Bing/Baidu/MyMemory 与海外接口兜底;
+    每个接口都按"配了代理先代理, 失败或超时再直连"连接。结果由 translate_online 写入缓存。
     """
     q = text.strip()
     if not q:
@@ -364,29 +399,40 @@ def translate_online(payload: dict):
     """在线批量翻译标签 (仅翻译离线词表没有的内容), 结果写入缓存供后续直接使用。
 
     payload.tags: 待翻译标签列表 (最长 100 个); 已含中日韩文字的跳过。
+    标签之间用 4 线程并发翻译 (单个接口的并发上限在 utils/translate.py 里用信号量控制),
+    结果全部收齐后一次性写缓存, 避免并发写同一个 JSON。
     """
     tags = payload.get("tags") or []
     if not isinstance(tags, list):
         raise HTTPException(status_code=400, detail="参数不合法")
     zh_map = _get_zh_map()
     cache = _read_translate_cache()
-    changed = False
-    translations = {}
+    # 先去重: 同一个标签只翻一次, 结果按原样返回
+    jobs: list[tuple[str, str]] = []
+    seen: set[str] = set()
     for raw in tags[:100]:
         tag = str(raw).strip()
         key = tag.lower().replace(" ", "_")
-        if not tag or key in translations:
+        if not tag or key in seen:
             continue
+        seen.add(key)
+        jobs.append((tag, key))
+
+    def run(job: tuple[str, str]) -> tuple[str, str]:
+        tag, key = job
         if _CJK_RE.search(tag):
-            translations[tag] = ""  # 已是中文/日文等, 无需翻译
-            continue
-        zh = cache.get(key) or zh_map.get(key, "")
-        if not zh:
-            zh = _online_translate(tag)
-            if zh:
+            return tag, ""  # 已是中文/日文等, 无需翻译
+        return tag, cache.get(key) or zh_map.get(key, "") or _online_translate(tag)
+
+    translations: dict[str, str] = {}
+    changed = False
+    with ThreadPoolExecutor(max_workers=min(4, max(1, len(jobs)))) as pool:
+        for tag, zh in pool.map(run, jobs):
+            translations[tag] = zh
+            key = tag.lower().replace(" ", "_")
+            if zh and not cache.get(key):
                 cache[key] = zh
                 changed = True
-        translations[tag] = zh
     if changed:
         jsonstore.write(_TRANSLATE_CACHE_FILE, cache)
     return {"translations": translations}

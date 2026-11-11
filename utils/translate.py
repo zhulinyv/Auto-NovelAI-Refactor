@@ -2,8 +2,15 @@
 """在线翻译多源引擎。
 
 参考 sd-webui-prompt-all-in-one 的"无需 API Key"翻译接口清单, 全部接入,
-并按"大陆可直连优先"的顺序自动选择可用接口: 单个失败立即切换下一个,
-成功结果由调用方 (server/routes/misc.py) 写入 outputs/translate_cache.json 缓存。
+并按"大陆可直连优先"的顺序自动选择可用接口: 单个失败立即切换下一个。
+
+连接方式 (所有接口统一, 见 `_transports()`):
+- 设置里配了代理 (settings.json -> env.proxy): **先代理, 失败或超时再直连**;
+- 只配了系统/环境代理: 同样先代理, 再直连;
+- 都没配: 只走直连。
+(utils/http_client.py 是给壁纸/一言用的"直连优先"策略, 与这里相反, 故不复用。)
+
+成功结果由调用方 (server/routes/library.py) 写入 data/caches/translate_cache.json 缓存。
 实测大陆网络下 爱词霸/搜狗/阿里 最快 (0.2~0.4s), Google 直连反而较慢, 故排在其后。
 
 接口分类:
@@ -23,8 +30,10 @@ mbart50 (HuggingFace 离线模型) 需要下载数 GB 模型, 未纳入。
 
 from __future__ import annotations
 
+import json
 import re
 import threading
+import time
 
 import requests
 
@@ -39,29 +48,121 @@ _HEADERS = {
     "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
 }
 
-# 翻译服务可用连接方式 (None=未探测, False=直连, True=代理) —— 与 misc.py 壁纸逻辑一致
-_TRUST_ENV: bool | None = None
+# 超时: 首轮快速失败 (尽早换接口/换连接方式), 兜底那轮才给足时间
+_TIMEOUT_FAST = (2.5, 5)
+_TIMEOUT_SLOW = (4, 10)
+
+# 接口失败冷却: 某接口报错后 _FAIL_COOLDOWN 秒内直接跳过,
+# 避免一个挂掉的接口把整批标签逐个拖满超时
+_FAIL_COOLDOWN = 60.0
+_FAIL_UNTIL: dict[str, float] = {}
+_FAIL_LOCK = threading.Lock()
+
+# 同一免费接口的最大并发 (批量翻译时多线程共用, 防止被限流/封禁)
+_PROVIDER_SEM: dict[str, threading.Semaphore] = {}
+_PROVIDER_SEM_LOCK = threading.Lock()
+_PROVIDER_CONCURRENCY = 2
+
+# 探测系统代理时用的地址 (只看有没有代理, 不真的请求)
+_PROBE_URL = "https://translate.googleapis.com"
+
+
+def _proxy_conf() -> dict | None:
+    """设置里配置的代理 (settings.json -> env.proxy); 没配返回 None。
+
+    延迟导入 utils.variable: 翻译只是可选路径, 没必要在模块加载时就拉起整个配置模块,
+    也避免与 utils.config 的初始化顺序耦合。
+    """
+    try:
+        from utils.variable import get_proxies
+
+        return get_proxies()
+    except Exception as e:  # pragma: no cover - 仅防御导入/配置异常
+        logger.debug(f"读取代理配置失败: {e}")
+        return None
+
+
+def _system_proxy_configured() -> bool:
+    """系统/环境变量里是否配了代理 (Windows 下含 IE/系统代理设置)。"""
+    try:
+        return bool(requests.utils.get_environ_proxies(_PROBE_URL))
+    except Exception:
+        return False
+
+
+def _transports() -> list[tuple[str, bool, dict | None]]:
+    """连接方式的尝试顺序 —— 配了代理就先代理, 失败或超时再直连; 没配代理只直连。
+
+    返回 (名称, trust_env, 显式 proxies):
+    - 应用内代理: trust_env=False + 显式 proxies (不读系统代理, 避免双重代理)
+    - 只有系统代理: trust_env=True (让 requests 自己读系统/环境代理)
+    - 直连: trust_env=False 且不给 proxies
+    """
+    conf = _proxy_conf()
+    direct = ("直连", False, None)
+    if conf:
+        return [("代理", False, conf), direct]
+    if _system_proxy_configured():
+        return [("代理(系统)", True, None), direct]
+    return [direct]
+
+
+def _new_session(trust_env: bool, proxies: dict | None = None) -> requests.Session:
+    """按连接方式建 session (多步流程复用同一个, 才能带上 cookie)。"""
+    sess = requests.Session()
+    sess.trust_env = trust_env
+    if proxies:
+        sess.proxies.update(proxies)
+    sess.headers.update(_HEADERS)
+    return sess
 
 
 def _request(method: str, url: str, **kw) -> requests.Response:
-    """直连优先 (实测比走系统代理快), 失败自动改走系统代理重试; 记录上次可用方式。"""
-    global _TRUST_ENV
-    modes = (False, True)
-    if _TRUST_ENV is not None:
-        modes = tuple(sorted(modes, key=lambda t: t != _TRUST_ENV))
-    last = None
-    for trust in modes:
+    """按 _transports() 的顺序请求: 先代理后直连 (没配代理时只有一次直连)。
+
+    首轮用短超时快速失败, 兜底那轮放宽, 避免一个挂掉的代理把整批翻译拖住。
+    """
+    last: Exception | None = None
+    for idx, (label, trust_env, proxies) in enumerate(_transports()):
+        timeout = _TIMEOUT_SLOW if idx else _TIMEOUT_FAST
         try:
-            sess = requests.Session()
-            sess.trust_env = trust
-            sess.headers.update(_HEADERS)
-            resp = sess.request(method, url, **kw)
+            resp = _new_session(trust_env, proxies).request(method, url, timeout=timeout, **kw)
             resp.raise_for_status()
-            _TRUST_ENV = trust
             return resp
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - 换下一种连接方式重试
+            logger.debug(f"翻译请求 ({label}) 失败: {e}")
             last = e
-    raise last
+    raise last if last is not None else RuntimeError("翻译请求失败")
+
+
+def _cooling(name: str) -> bool:
+    """该接口是否处于失败冷却期。"""
+    with _FAIL_LOCK:
+        until = _FAIL_UNTIL.get(name, 0.0)
+        if until <= time.monotonic():
+            _FAIL_UNTIL.pop(name, None)
+            return False
+        return True
+
+
+def _mark_fail(name: str) -> None:
+    """接口调用失败: 冷却一段时间, 期间批量翻译不再逐个试它。"""
+    with _FAIL_LOCK:
+        _FAIL_UNTIL[name] = time.monotonic() + _FAIL_COOLDOWN
+
+
+def _mark_ok(name: str) -> None:
+    with _FAIL_LOCK:
+        _FAIL_UNTIL.pop(name, None)
+
+
+def _provider_sem(name: str) -> threading.Semaphore:
+    """同一接口的并发闸门 (批量翻译时多线程共用一张表)。"""
+    with _PROVIDER_SEM_LOCK:
+        sem = _PROVIDER_SEM.get(name)
+        if sem is None:
+            sem = _PROVIDER_SEM[name] = threading.Semaphore(_PROVIDER_CONCURRENCY)
+        return sem
 
 
 # ---------------------------------------------------------------- 直连实现
@@ -73,7 +174,6 @@ def _google_direct(text: str) -> str:
         "GET",
         "https://translate.googleapis.com/translate_a/single",
         params={"client": "gtx", "sl": "en", "tl": "zh-CN", "dt": "t", "q": text},
-        timeout=(4, 12),
     )
     data = resp.json()
     parts = [seg[0] for seg in (data[0] or []) if seg and seg[0]]
@@ -89,7 +189,6 @@ def _mymemory_direct(text: str) -> str:
         "GET",
         "https://api.mymemory.translated.net/get",
         params={"q": text, "langpair": "en|zh-CN"},
-        timeout=(4, 12),
     )
     data = resp.json()
     zh = str(data.get("responseData", {}).get("translatedText") or "").strip()
@@ -102,51 +201,65 @@ def _mymemory_direct(text: str) -> str:
 def _bing_direct(text: str) -> str:
     """Bing 免费翻译 (cn.bing.com ttranslatev3, 先取页面 IG token)。
 
+    两步请求必须共用同一个 session (IG token 与 cookie 配套), 所以按连接方式各建一个;
     部分网络/地区可用; 失败由调用方自动切换下一接口。
     """
-    sess = requests.Session()
-    sess.trust_env = _TRUST_ENV if _TRUST_ENV is not None else False
-    sess.headers.update(_HEADERS)
-    page = sess.get("https://cn.bing.com/translator", timeout=(5, 10))
-    page.raise_for_status()
-    m = re.search(r'IG:"([0-9A-Fa-f]{8,})"', page.text)
-    if not m:
-        raise RuntimeError("Bing 页面未找到 IG token")
-    ig = m.group(1)
-    data = {"fromLang": "en", "text": text, "to": "zh-Hans", "token": "", "key": ""}
-    url = f"https://cn.bing.com/ttranslatev3?isVertical=1&&IG={ig}&IID=translator.5028"
-    resp = sess.post(url, data=data, timeout=(5, 10))
-    resp.raise_for_status()
-    j = resp.json()
-    if isinstance(j, list) and j and j[0].get("translations"):
-        zh = str(j[0]["translations"][0].get("text") or "").strip()
-        if zh:
-            return zh
-    raise RuntimeError(f"Bing 返回异常: {str(j)[:80]}")
+    last: Exception | None = None
+    for idx, (label, trust_env, proxies) in enumerate(_transports()):
+        timeout = _TIMEOUT_SLOW if idx else _TIMEOUT_FAST
+        try:
+            sess = _new_session(trust_env, proxies)
+            page = sess.get("https://cn.bing.com/translator", timeout=timeout)
+            page.raise_for_status()
+            m = re.search(r'IG:"([0-9A-Fa-f]{8,})"', page.text)
+            if not m:
+                raise RuntimeError("Bing 页面未找到 IG token")
+            ig = m.group(1)
+            data = {"fromLang": "en", "text": text, "to": "zh-Hans", "token": "", "key": ""}
+            url = f"https://cn.bing.com/ttranslatev3?isVertical=1&&IG={ig}&IID=translator.5028"
+            resp = sess.post(url, data=data, timeout=timeout)
+            resp.raise_for_status()
+            j = resp.json()
+            if isinstance(j, list) and j and j[0].get("translations"):
+                zh = str(j[0]["translations"][0].get("text") or "").strip()
+                if zh:
+                    return zh
+            raise RuntimeError(f"Bing 返回异常: {str(j)[:80]}")
+        except Exception as e:  # noqa: BLE001 - 换下一种连接方式重试
+            logger.debug(f"Bing 翻译 ({label}) 失败: {e}")
+            last = e
+    raise last if last is not None else RuntimeError("Bing 翻译失败")
 
 
 def _baidu_direct(text: str) -> str:
     """百度翻译免费接口 (fanyi.baidu.com, 需要先访问主页拿 cookies)。
 
-    部分网络/地区会被风控拦截; 失败由调用方自动切换下一接口。
+    同样按连接方式各建一个 session (cookies 配套); 部分网络/地区会被风控拦截;
+    失败由调用方自动切换下一接口。
     """
-    sess = requests.Session()
-    sess.trust_env = _TRUST_ENV if _TRUST_ENV is not None else False
-    sess.headers.update(_HEADERS)
-    sess.headers["Referer"] = "https://fanyi.baidu.com/"
-    sess.get("https://fanyi.baidu.com/", timeout=(5, 8))  # 建立会话拿 cookies
-    resp = sess.post(
-        "https://fanyi.baidu.com/transapi",
-        data={"from": "en", "to": "zh", "query": text},
-        timeout=(5, 8),
-    )
-    resp.raise_for_status()
-    j = resp.json()
-    if j.get("errno") in (0, None) and j.get("data"):
-        dst = str(j["data"][0].get("dst") or "").strip()
-        if dst:
-            return dst
-    raise RuntimeError(f"百度翻译返回异常: {str(j)[:80]}")
+    last: Exception | None = None
+    for idx, (label, trust_env, proxies) in enumerate(_transports()):
+        timeout = _TIMEOUT_SLOW if idx else _TIMEOUT_FAST
+        try:
+            sess = _new_session(trust_env, proxies)
+            sess.headers["Referer"] = "https://fanyi.baidu.com/"
+            sess.get("https://fanyi.baidu.com/", timeout=timeout)  # 建立会话拿 cookies
+            resp = sess.post(
+                "https://fanyi.baidu.com/transapi",
+                data={"from": "en", "to": "zh", "query": text},
+                timeout=timeout,
+            )
+            resp.raise_for_status()
+            j = resp.json()
+            if j.get("errno") in (0, None) and j.get("data"):
+                dst = str(j["data"][0].get("dst") or "").strip()
+                if dst:
+                    return dst
+            raise RuntimeError(f"百度翻译返回异常: {str(j)[:80]}")
+        except Exception as e:  # noqa: BLE001 - 换下一种连接方式重试
+            logger.debug(f"百度翻译 ({label}) 失败: {e}")
+            last = e
+    raise last if last is not None else RuntimeError("百度翻译失败")
 
 
 # ---------------------------------------------------------------- translators 库
@@ -190,7 +303,11 @@ def _get_tss():
 
 
 def _tss_call(name: str, to_lang: str = "zh"):
-    """生成一个调用 translators.server.<name> 的翻译函数 (en -> to_lang)。"""
+    """生成一个调用 translators.server.<name> 的翻译函数 (en -> to_lang)。
+
+    连接方式对齐 `_transports()`: 库内部自己建 session, 只能用它的 proxies 参数控制,
+    所以"系统代理"和"直连"两档在库里都跟随环境代理, 视为同一次尝试 (按 key 去重)。
+    """
 
     def call(text: str) -> str:
         tss = _get_tss()
@@ -199,11 +316,29 @@ def _tss_call(name: str, to_lang: str = "zh"):
         fn = getattr(tss, name, None)
         if fn is None:
             raise RuntimeError(f"translators 无 {name}")
-        out = fn(text, from_language="en", to_language=to_lang, timeout=10)
-        out = (out or "").strip()
-        if not out:
-            raise RuntimeError(f"{name} 返回空结果")
-        return out
+        last: Exception | None = None
+        tried: set[str] = set()
+        for idx, (label, _trust_env, proxies) in enumerate(_transports()):
+            key = json.dumps(proxies, sort_keys=True) if proxies else "env"
+            if key in tried:
+                continue
+            tried.add(key)
+            try:
+                out = fn(
+                    text,
+                    from_language="en",
+                    to_language=to_lang,
+                    timeout=10 if idx else 6,  # 首轮快失败, 兜底那轮放宽
+                    proxies=proxies or {},
+                )
+                out = (out or "").strip()
+                if not out:
+                    raise RuntimeError(f"{name} 返回空结果")
+                return out
+            except Exception as e:  # noqa: BLE001 - 换下一种连接方式重试
+                logger.debug(f"翻译接口 {name} ({label}) 失败: {e}")
+                last = e
+        raise last if last is not None else RuntimeError(f"{name} 翻译失败")
 
     return call
 
@@ -253,7 +388,11 @@ _LAST_SUCCESS: dict = {"idx": 0}
 
 
 def translate_en_to_zh(text: str) -> str:
-    """英文 -> 中文: 按优先级自动切换可用免费接口, 全部失败返回 ""。"""
+    """英文 -> 中文: 按优先级自动切换可用免费接口, 全部失败返回 ""。
+
+    上次成功的接口优先重试; 最近失败过的接口进冷却 (60s) 排到最后;
+    单个接口同时最多 2 个请求 (信号量), 因此批量翻译时可以多线程并发调用本函数。
+    """
     q = (text or "").strip()
     if not q:
         return ""
@@ -264,15 +403,28 @@ def translate_en_to_zh(text: str) -> str:
     last = _LAST_SUCCESS["idx"]
     if 0 <= last < len(providers):
         order = [last] + [i for i in order if i != last]
+    # 失败冷却中的接口排到最后: 平时不再逐个等超时, 万一其它接口全挂也还有兜底机会
+    ready: list[int] = []
+    cooling: list[int] = []
     for i in order:
+        (cooling if _cooling(providers[i][0]) else ready).append(i)
+    for i in ready + cooling:
         name, display, fn = providers[i]
+        started = time.monotonic()
         try:
-            zh = fn(q)
+            with _provider_sem(name):  # 同一接口最多 2 个并发 (批量翻译时防限流)
+                zh = fn(q)
+            cost = time.monotonic() - started
             if zh:
                 _LAST_SUCCESS["idx"] = i
+                _mark_ok(name)
+                logger.debug(f"翻译接口 {display} 命中 ({cost:.2f}s)")
                 return zh
+            logger.debug(f"翻译接口 {display} 返回空结果 ({cost:.2f}s)")
         except Exception as e:
-            logger.debug(f"翻译接口 {display} 失败: {e}")
+            cost = time.monotonic() - started
+            _mark_fail(name)
+            logger.debug(f"翻译接口 {display} 失败 ({cost:.2f}s), {_FAIL_COOLDOWN:.0f}s 内跳过: {e}")
             logger.opt(exception=True).debug("翻译接口调用失败堆栈:")
     logger.warning(f"所有翻译接口均失败: {q[:40]!r}")
     return ""

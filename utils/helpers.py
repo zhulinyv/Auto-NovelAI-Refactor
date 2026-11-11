@@ -268,7 +268,19 @@ def replace_wildcards(text: str) -> str:
                 continue
             matchers_number += 1
             replaced += 1
-            text = text.replace(token, tag)
+            # 逐位置替换: 替换内容末尾按需补逗号 —— token 后面还有内容
+            # (紧接词 / 空格接词 / 换行接词) 且替换内容不以逗号结尾时, 在末尾补一个,
+            # 避免卡片内容与后面的提示词直接粘连; 后面紧跟逗号或已到文本末尾时不补
+            parts: list[str] = []
+            last = 0
+            for m in re.finditer(re.escape(token), text):
+                parts.append(text[last : m.start()])
+                after = text[m.end() :].lstrip()
+                needs_comma = bool(after) and after[0] not in (",", "，") and not tag.rstrip().endswith((",", "，"))
+                parts.append(tag + ("," if needs_comma else ""))
+                last = m.end()
+            parts.append(text[last:])
+            text = "".join(parts)
             logger.debug(
                 loguru_to_rich(
                     r'已将 <c><{}:{}></c> 替换为 <c>{}</c>: "<c>{}</c>"'.format(
