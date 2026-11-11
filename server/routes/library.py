@@ -249,7 +249,10 @@ _PROMPT_LIB_FILE = STATE_DIR / "prompt_library.json"
 
 
 def _read_prompt_lib():
-    """读取提示词库 (用户收藏: {text, category}, 按最近保存倒序; 兼容迁移旧版纯文本格式)。"""
+    """读取提示词库 (用户收藏: {text, category, zh?}, 按最近保存倒序; 兼容迁移旧版纯文本格式)。
+
+    zh 是收藏时手填或自动翻译的译文, 可选; 老数据没有这个键也照常读。
+    """
     try:
         data = jsonstore.read(_PROMPT_LIB_FILE, [])
         if not isinstance(data, list):
@@ -257,12 +260,14 @@ def _read_prompt_lib():
         items = []
         for x in data:
             if isinstance(x, dict) and str(x.get("text") or "").strip():
-                items.append(
-                    {
-                        "text": str(x["text"]).strip(),
-                        "category": str(x.get("category") or "默认").strip() or "默认",
-                    }
-                )
+                item = {
+                    "text": str(x["text"]).strip(),
+                    "category": str(x.get("category") or "默认").strip() or "默认",
+                }
+                zh = str(x.get("zh") or "").strip()
+                if zh:
+                    item["zh"] = zh
+                items.append(item)
             elif isinstance(x, str) and x.strip():
                 items.append({"text": x.strip(), "category": "默认"})  # 旧版数据迁移
         return items
@@ -281,13 +286,21 @@ async def prompt_library_get():
 
 @router.post("/prompt-library/add")
 async def prompt_library_add(payload: dict):
-    """保存关键词到提示词库 (可带分类, 已存在则更新分类并移到最前, 最多保留 500 条)。"""
+    """保存关键词到提示词库 (可带分类与译文, 已存在则更新并移到最前, 最多保留 500 条)。"""
     text = str(payload.get("text") or "").strip()
     category = str(payload.get("category") or "默认").strip() or "默认"
     if not text:
         raise HTTPException(status_code=400, detail="内容不能为空")
-    items = [x for x in _read_prompt_lib() if x["text"] != text]
-    items.insert(0, {"text": text, "category": category})
+    zh = str(payload.get("zh") or "").strip()
+    old = _read_prompt_lib()
+    # 重复收藏同一条时没传译文就沿用旧译文, 不能把已经填好/翻好的译文抹掉
+    prev = next((x for x in old if x["text"] == text), None)
+    zh = zh or (prev or {}).get("zh", "")
+    items = [x for x in old if x["text"] != text]
+    entry = {"text": text, "category": category}
+    if zh:
+        entry["zh"] = zh
+    items.insert(0, entry)
     items = items[:500]
     _write_prompt_lib(items)
     return {"items": items}

@@ -219,6 +219,8 @@ export async function renderPanel(container, ctx, opts = {}) {
   });
   // 收藏提示词表单的输入件: 由 showPromptCreate() 挂进右侧编辑卡片 (与"新建卡片"同款面板)
   const plInput = el("textarea", { rows: 8, placeholder: "要收藏的关键词或一段提示词 (支持自动补全)" });
+  // 译文: 可选, 单行输入 (只占一行, 主体仍是上面的内容框); 留空则在保存时自动翻译
+  const plZhInput = el("input", { type: "text", placeholder: "留空则在添加时自动翻译" });
   // 分类: 与新建卡片一致的下拉形式, 支持选择已有分类或直接输入新分类
   const plCatInput = el("input", { type: "text", style: "flex:1;min-width:0;", placeholder: "📁 选择/输入分类" });
   const plCatWrap = el("div", { class: "wc-type-wrap" }, [
@@ -818,7 +820,8 @@ export async function renderPanel(container, ctx, opts = {}) {
       }
       plItems.forEach((it) => { if (legacy[it.category]) it.category = legacy[it.category]; });
       renderPromptChips();
-      await translatePromptLib(plItems.map((it) => it.text));
+      // 已经有译文 (收藏时手填/自动翻译) 的条目不用再查词典
+      await translatePromptLib(plItems.filter((it) => !it.zh).map((it) => it.text));
     } catch (e) {
       toast("读取提示词库失败: " + e.message, "error");
     }
@@ -1010,10 +1013,12 @@ export async function renderPanel(container, ctx, opts = {}) {
     const bTags = g.builtinTags.filter(([en, zh]) =>
       !kw || en.toLowerCase().includes(kw) || (zh || "").toLowerCase().includes(kw));
     const uItems = g.userItems.filter((it) =>
-      !kw || it.text.toLowerCase().includes(kw) || g.key.toLowerCase().includes(kw));
+      !kw || it.text.toLowerCase().includes(kw) || (it.zh || "").toLowerCase().includes(kw)
+      || g.key.toLowerCase().includes(kw));
     const chips = [
       ...bTags.map(([en, zh]) => makePromptChip(en, zh, { builtin: en })),
-      ...uItems.map((it) => makePromptChip(it.text, plZh.get(plKey(it.text)) || "", { userItem: it })),
+      // 收藏时手填/自动翻译的译文优先, 其次才是词典查出来的
+      ...uItems.map((it) => makePromptChip(it.text, it.zh || plZh.get(plKey(it.text)) || "", { userItem: it })),
     ];
     if (!chips.length) {
       plGrid.append(el("div", { class: "gallery-empty", text: kw ? "当前分类没有匹配的提示词" : "该分类暂无提示词 — 展开上方「➕ 收藏新提示词」添加" }));
@@ -1141,24 +1146,52 @@ export async function renderPanel(container, ctx, opts = {}) {
     toast("已添加到提示词 🌸", "success");
   }
 
-  async function savePromptLib() {
+  /** 收藏时的自动翻译: 先查离线词典/翻译缓存 (毫秒级), 查不到再走在线翻译; 失败返回 "" */
+  async function autoTranslatePrompt(text) {
+    try {
+      const r = await post("/api/suggest/translate", { tags: [text] });
+      const hit = (r.translations || {})[text];
+      if (hit) return hit;
+    } catch { /* 词典查询失败就直接走在线翻译 */ }
+    try {
+      const r = await post("/api/translate", { tags: [text] });
+      return (r.translations || {})[text] || "";
+    } catch { return ""; }
+  }
+
+  async function savePromptLib(btn) {
     const text = plInput.value.trim();
     if (!text) { toast("请输入要收藏的关键词", "warning"); return; }
     const category = plCatInput.value.trim() || "默认";
+    let zh = plZhInput.value.trim();
+    const auto = !zh;   // 译文留空 -> 添加时自动翻译
+    if (auto && btn) {
+      btn.disabled = true;
+      btn.textContent = "⏳ 翻译中...";
+    }
     try {
-      const res = await post("/api/prompt-library/add", { text, category });
+      if (auto) zh = await autoTranslatePrompt(text);
+      const res = await post("/api/prompt-library/add", { text, category, zh });
       plItems = res.items || [];
       plInput.value = "";
+      plZhInput.value = "";
       // 切到刚保存的分类: 新条目立刻可见, 不用再去页签里找
       plCat = category;
       plKeyword = "";
       plSearch.value = "";
       renderPromptChips();
-      await translatePromptLib(plItems.map((it) => it.text));
-      toast(`已收藏到「${category}」📚`, "success");
+      await translatePromptLib(plItems.filter((it) => !it.zh).map((it) => it.text));
+      const tail = zh ? (auto ? " (译文已自动补全)" : "") : "";
+      toast(`已收藏到「${category}」📚${tail}`, "success");
       // 保存完收起右侧面板 (与"新建卡片"保存后回占位的节奏一致); 连续收藏再点右上角按钮即可
       renderEditPlaceholder();
     } catch (e) { toast(e.message, "error"); }
+    finally {
+      if (auto && btn) {
+        btn.disabled = false;
+        btn.textContent = "✅ 保存";
+      }
+    }
   }
 
   // ---------------- 数据加载 ----------------
@@ -1550,6 +1583,7 @@ export async function renderPanel(container, ctx, opts = {}) {
     clear(editCard);
     // 分类留空: 让用户自己选/填 (留空保存时落 "默认" 分类, 见 savePromptLib)
     plCatInput.value = "";
+    plZhInput.value = "";
     const addCurBtn = el("button", {
       class: "btn btn-sm btn-file",
       type: "button",
@@ -1574,9 +1608,17 @@ export async function renderPanel(container, ctx, opts = {}) {
       el("div", { class: "card-title", text: "📚 收藏提示词" }),
       el("div", { class: "field" }, [el("label", { text: "分类" }), plCatWrap]),
       el("div", { class: "field" }, [contentLabel, taBox]),
+      // 译文: 单行输入, 只占一行 —— 主体仍是上面的内容框; 留空保存时自动翻译
+      el("div", { class: "field" }, [
+        el("label", {}, [
+          document.createTextNode("译文"),
+          el("span", { class: "hint", text: "可选 · 留空则在添加时自动翻译" }),
+        ]),
+        plZhInput,
+      ]),
       el("div", { class: "wc-edit-actions" }, [
         addCurBtn,
-        el("button", { class: "btn btn-sm btn-primary", text: "✅ 保存", onclick: savePromptLib }),
+        el("button", { class: "btn btn-sm btn-primary", text: "✅ 保存", onclick: (e) => savePromptLib(e.currentTarget) }),
         el("button", { class: "btn btn-sm btn-ghost", text: "✖ 取消", onclick: renderEditPlaceholder }),
       ]),
     );
