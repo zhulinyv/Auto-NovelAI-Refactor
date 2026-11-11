@@ -1,13 +1,15 @@
 // ============================================================
 // Wildcards 面板 (嵌入 Wildcards 全屏弹窗)
-//   左: 卡片库 (分类页签 / 搜索 / 多选 / 拖拽)   右: 卡片编辑
+//   左: 素材库 (左侧分类栏 + 右侧搜索/网格/多选/拖拽)   右: 卡片编辑
+//   三个库 (卡片库 / 提示词库 / Vibe 库) 布局一致: 分类竖排在左, 内容在右
+//   (参照 ComfyUI-RiceRabbit-Tools 的库面板)。
 //   卡片多选状态通过 cardSelection 共享给弹窗 ("添加选中" 按钮),
 //   拖拽中的卡片通过 cardDrag 共享给弹窗的提示词编辑器投放。
 //   交互: 点击=选中/取消 (与提示词库一致), 双击=打开编辑, Shift+点击=范围选;
 //         选择按分类分桶保存, 切换分类不清其它分类的选中, 可跨分类 "添加选中"。
 //   封面约定: 卡片同目录下的 <名称>.png/jpg/webp 即为其封面
 // ============================================================
-import { $, $$, el, clear, toast, confirmDialog, inputDialog, wireAutocomplete, wildcardsButton, edgeScroll } from "../ui.js";
+import { $, $$, el, clear, toast, confirmDialog, inputDialog, wireAutocomplete, wildcardsButton } from "../ui.js";
 import { get, post, del, imageUrl } from "../api.js";
 import { getCurrentOutputImage } from "./generate.js";
 import { builtinPromptGroups, LEGACY_CATEGORY_NAMES } from "../data/builtinPrompts.js";
@@ -17,6 +19,28 @@ const state = { type: null, name: null, keyword: "", lastIdx: -1 };
 // 封面刚被上传/替换过的卡片名: 只有这些需要给图片 URL 加时间戳绕开缓存。
 // 原先所有封面一律带 &t=Date.now(), 导致每次渲染网格都要重新下载全部封面。
 const coverBustNames = new Set();
+
+// ---------------- 分类侧栏 (三个库共用的小零件) ----------------
+// 分类改成左侧竖排后, 每行是"📁 名称 + 右侧计数"; 删除按钮与计数叠在同一格里
+// (悬停时计数淡出、✕ 淡入), 按钮出现/消失不会改动行宽, 名称也就不会被挤到换行。
+
+/** 计数文字: null/undefined = 未知 (还没统计过), 不显示数字 */
+const catCountText = (n) => (n == null ? "" : String(n));
+
+/** 分类行的尾部: 计数 + (可选) 删除按钮 */
+function catTail(count, delEl) {
+  return el("span", { class: "wc-cat-tail" }, [
+    el("span", { class: "wc-cat-count", text: catCountText(count) }),
+    delEl || null,
+  ]);
+}
+
+/** 就地更新某个分类行右侧的计数 (不重建列表, 免得打断拖拽) */
+function setCatCount(listEl, key, n) {
+  const row = [...listEl.querySelectorAll(".tab-btn")].find((t) => t.dataset.key === key);
+  const box = row?.querySelector(".wc-cat-count");
+  if (box) box.textContent = catCountText(n);
+}
 
 /** 卡片多选状态 (弹窗的 "添加选中" 按钮据此批量插入提示词) */
 export const cardSelection = {
@@ -97,11 +121,12 @@ export async function renderPanel(container, ctx, opts = {}) {
   const selectionStore = new Map(); // 分类 -> Set<卡片名>: 跨分类保留选择
   let allCards = [];
   let visibleCards = [];
+  // 分类 -> 卡片数: 只记"打开过"的分类 (接口只按分类返回卡片, 不做全量统计)
+  const cardCounts = new Map();
 
-  // ---------------- 左: 卡片库 ----------------
-  const countEl = el("span", { class: "wc-count muted" });
+  // ---------------- 左: 素材库 (分类侧栏 + 搜索/网格) ----------------
   // ---------------- 右: 新建 / 编辑卡片 (共用一个面板区域) ----------------
-  const typeList = el("div", { class: "wc-types" });
+  const typeList = el("div", { class: "wc-cats" });
   const searchBox = el("input", { type: "text", class: "wc-search", placeholder: "🔍 搜索卡片名称 (大量卡片时快速筛选)..." });
   const grid = el("div", { class: "wc-grid" });
   const selText = el("span", { text: "" });
@@ -115,10 +140,37 @@ export async function renderPanel(container, ctx, opts = {}) {
     el("button", { class: "tab-btn", text: "📚 提示词库", onclick: () => switchLib("prompts") }),
     el("button", { class: "tab-btn", text: "🎭 Vibe 库", onclick: () => switchLib("vibes") }),
   ]);
-  // 分类栏启用横向滚动: 分类多到放不下时不再换行把版面撑高,
-  // 而是在一行内滚 (两端渐隐箭头, 悬停自动滚; "分类" 前缀固定在左不随内容滚)
-  const typeScroller = edgeScroll(typeList, { label: "分类" });
-  const cardLibBox = el("div", {}, [typeScroller, searchBox, grid, selBar]);
+  // 分类栏在左 (竖排, 多时自身纵向滚动), 搜索 / 网格 / 已选提示在右
+  const cardMain = el("div", { class: "wc-lib-main" }, [searchBox, grid, selBar]);
+  const cardLibBox = el("div", { class: "wc-lib-body" }, [typeList, cardMain]);
+
+  /**
+   * 分类栏的拖拽落点 (纵向列表): 取第一个"纵向中点位于光标下方"的分类行。
+   * 分类栏改成竖排后每行独占一行, 不再有"折成多行"的情况, 只需比较纵向位置。
+   * @returns {HTMLElement|null} 插到该分类行之前; null = 追加到末尾
+   */
+  function dropTargetTab(listEl, y, dragKey) {
+    const tabs = [...listEl.querySelectorAll(".tab-btn")].filter((t) => t.dataset.key !== dragKey);
+    for (const t of tabs) {
+      const r = t.getBoundingClientRect();
+      if (y < r.top + r.height / 2) return t;
+    }
+    return null;
+  }
+
+  /** 清除所有落点标记 */
+  function clearDropMarks(listEl) {
+    $$(".tab-btn.drop-before, .tab-btn.drop-after", listEl)
+      .forEach((x) => x.classList.remove("drop-before", "drop-after"));
+  }
+
+  /** 画落点标记: 插到某行之前画上边线, 追加到末尾画下边线 (竖排列表) */
+  function markDropTarget(listEl, tab) {
+    clearDropMarks(listEl);
+    if (tab) { tab.classList.add("drop-before"); return; }
+    const tabs = [...listEl.querySelectorAll(".tab-btn")];
+    tabs[tabs.length - 1]?.classList.add("drop-after");
+  }
 
   // ---- 分类 tab 拖拽排序 ----
   let typeDragKey = null;
@@ -128,28 +180,19 @@ export async function renderPanel(container, ctx, opts = {}) {
     if (!typeDragKey) return;
     e.preventDefault();
     if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
-    const tabs = [...typeList.querySelectorAll(".tab-btn")];
-    let target = null;
-    for (const tb of tabs) {
-      if (tb.dataset.key === typeDragKey) continue;
-      const r = tb.getBoundingClientRect();
-      if (e.clientX < r.left + r.width / 2) { target = tb; break; }
-    }
-    $$(".tab-btn.drop-before", typeList).forEach((x) => x.classList.remove("drop-before"));
-    (target || tabs[tabs.length - 1])?.classList.add("drop-before");
+    const target = dropTargetTab(typeList, e.clientY, typeDragKey);
+    markDropTarget(typeList, target);
     typeDropKey = target ? target.dataset.key : "__end__";
   });
   typeList.addEventListener("dragleave", (e) => {
-    if (!typeList.contains(e.relatedTarget)) {
-      $$(".tab-btn.drop-before", typeList).forEach((x) => x.classList.remove("drop-before"));
-    }
+    if (!typeList.contains(e.relatedTarget)) clearDropMarks(typeList);
   });
   typeList.addEventListener("drop", async (e) => {
     if (!typeDragKey) return;
     e.preventDefault();
     const key = typeDragKey;
     typeDragKey = null;
-    $$(".tab-btn.drop-before", typeList).forEach((x) => x.classList.remove("drop-before"));
+    clearDropMarks(typeList);
     const ordered = allTypes.filter((t) => t !== key);
     let at = typeDropKey === "__end__" ? ordered.length : ordered.indexOf(typeDropKey);
     if (at < 0) at = ordered.length;
@@ -164,8 +207,8 @@ export async function renderPanel(container, ctx, opts = {}) {
 
   // ---------------- 提示词库 (内置分类提示词 + 用户收藏) ----------------
   //
-  // 布局与卡片库保持一致 (按用户要求): 上方一排"分类"页签, 选中哪个分类,
-  // 下方网格只展示该分类下的提示词。原先是一整页纵向罗列的全部分组,
+  // 布局与卡片库保持一致 (按用户要求): 左侧竖排"分类"栏, 选中哪个分类,
+  // 右侧网格只展示该分类下的提示词。原先是一整页纵向罗列的全部分组,
   // 分类一多就要一直往下滚, 而且看不出"当前在哪个分类"。
   const plSearch = el("input", { type: "text", class: "wc-search", placeholder: "🔍 搜索当前分类的提示词..." });
   // 防抖: 重建网格要为每个 chip 建节点并绑监听器, 逐字符触发很卡; 与卡片搜索一致用 150ms 合并。
@@ -187,8 +230,8 @@ export async function renderPanel(container, ctx, opts = {}) {
   ]);
   // 多选计数 (添加/清除使用弹窗右上角的共用按钮)
   const plSelText = el("div", { class: "wc-pl-selbar muted hidden", text: "" });
-  // 分类页签栏 (与卡片库的 typeList 同款: 可拖拽排序、可删除)
-  const plTypes = el("div", { class: "wc-types" });
+  // 分类栏 (与卡片库的 typeList 同款: 竖排在左, 可拖拽排序、可删除)
+  const plTypes = el("div", { class: "wc-cats" });
   // 当前分类下的提示词网格
   const plGrid = el("div", { class: "wc-pl-grid" });
   // 右上角入口: 打开右侧面板收藏新提示词 (与"新建卡片"同一套交互, 见 showPromptCreate)
@@ -198,13 +241,8 @@ export async function renderPanel(container, ctx, opts = {}) {
     text: "➕ 收藏提示词",
     onclick: () => showPromptCreate(),
   });
-  const plTypeScroller = edgeScroll(plTypes, { label: "分类" });
-  const promptLibBox = el("div", { class: "hidden" }, [
-    plTypeScroller,
-    plSearch,
-    plGrid,
-    plSelText,
-  ]);
+  const plMain = el("div", { class: "wc-lib-main" }, [plSearch, plGrid, plSelText]);
+  const promptLibBox = el("div", { class: "hidden wc-lib-body" }, [plTypes, plMain]);
 
   // ---------------- Vibe 库 (第三个库): 分类 + 编码文件与图片导入 ----------------
   let vibeLoaded = false;
@@ -214,7 +252,6 @@ export async function renderPanel(container, ctx, opts = {}) {
   let vibeKeyword = "";           // 搜索词 (只在当前分类内过滤, 与卡片库一致)
   let vibeImportCategory = null;  // 导入弹窗里选/填的分类 (为空时用 vibeType)
   const vibeGrid = el("div", { class: "wc-vibe-grid" });
-  const vibeHint = el("div", { class: "muted", style: "padding:6px 2px;", text: "" });
   /** 当前默认分类名: 后端把 categories[0] 当作默认分类, 它可以被删 (会换成剩下的第一个) */
   const vibeDefaultCat = () => vibeCategories[0] || "默认";
   // 搜索: 放在分类页签下方, 与卡片库/提示词库同一套视觉与防抖
@@ -223,20 +260,18 @@ export async function renderPanel(container, ctx, opts = {}) {
     class: "wc-search",
     placeholder: "🔍 搜索 Vibe 名称...",
   });
-  // 分类页签栏: 与卡片库/提示词库同一套视觉 (可横向滚动)
-  const vibeTypesEl = el("div", { class: "wc-types" });
-  const vibeTypeScroller = edgeScroll(vibeTypesEl, { label: "分类" });
+  // 分类栏: 与卡片库/提示词库同一套视觉 (竖排在左, 分类多时自身纵向滚动)
+  const vibeTypesEl = el("div", { class: "wc-cats" });
   const vibesFileInput = el("input", { type: "file", accept: ".naiv4vibe,.naiv4vibebundle,.json", multiple: true, style: "display:none;" });
   const vibesImageInput = el("input", { type: "file", accept: "image/png,image/jpeg,image/webp", multiple: true, style: "display:none;" });
   const vibeAddBtn = el("button", {
     class: "btn btn-sm hidden", text: "➕ 导入 Vibe",
     onclick: () => vibeImportDialog(),
   });
-  const vibeLibBox = el("div", { class: "hidden" }, [
-    vibeTypeScroller,
-    vibeSearchBox,
-    vibeHint,
-    vibeGrid,
+  const vibeMain = el("div", { class: "wc-lib-main" }, [vibeSearchBox, vibeGrid]);
+  const vibeLibBox = el("div", { class: "hidden wc-lib-body" }, [
+    vibeTypesEl,
+    vibeMain,
     vibesFileInput,
     vibesImageInput,
   ]);
@@ -245,7 +280,6 @@ export async function renderPanel(container, ctx, opts = {}) {
   const browseCard = el("div", { class: "card wc-browse" }, [
     el("div", { class: "wc-browse-head" }, [
       el("div", { class: "card-title", text: "🗂️ 素材库" }),
-      countEl,
       el("span", { class: "spacer" }),
       plAddBtn,      // 提示词库的入口 (与"新建卡片"同位, 由 switchLib 按当前库三选一显示)
       vibeAddBtn,    // Vibe 库的入口
@@ -414,13 +448,6 @@ export async function renderPanel(container, ctx, opts = {}) {
     const inType = vibeItems.filter((it) => (it.category || vibeDefaultCat()) === vibeType);
     // 有关键词时跨全部分类搜索: vibe 条目不多, "记得名字但忘了放哪个分类"才是常态
     const shown = kw ? vibeItems.filter((it) => vibeMatches(it, kw)) : inType;
-    if (!vibeItems.length) {
-      vibeHint.textContent = "还没有 Vibe。点右上角「➕ 导入 Vibe」添加 .naiv4vibe / .naiv4vibebundle 文件, 或直接拖入图片。";
-    } else if (kw) {
-      vibeHint.textContent = "全部分类中匹配 " + shown.length + " / " + vibeItems.length + " 个 Vibe (关键词: " + vibeKeyword.trim() + ")";
-    } else {
-      vibeHint.textContent = "「" + vibeType + "」· " + inType.length + " / " + vibeItems.length + " 个 Vibe。导入的图片若没有现成编码, 需要按模型现场编码 (每次 2 Anlas)。";
-    }
     if (!shown.length) {
       const empty = !vibeItems.length
         ? "点击右上角「➕ 导入 Vibe」开始"
@@ -474,16 +501,16 @@ export async function renderPanel(container, ctx, opts = {}) {
     }, 150);
   });
 
-  /** 分类页签 (可拖拽排序 / 双击改名 / 点 ➕ 新建) */
+  /** 分类栏 (可拖拽排序 / 双击改名 / 点 ➕ 新建) */
   function renderVibeTypes() {
     clear(vibeTypesEl);
     for (const t of vibeCategories) {
       const btn = el("button", {
         class: "tab-btn" + (t === vibeType ? " active" : ""),
-        // 与卡片库/提示词库同款: 分类名前缀文件夹图标
-        text: "📁 " + t,
-        title: "点击切换分类; 双击改名",
+        // 名称过长时侧栏会省略号截断, 完整名称留在 tooltip 里
+        title: t + " · 点击切换分类; 双击改名",
       });
+      btn.append(el("span", { class: "wc-cat-name", text: "📁 " + t }));
       btn.addEventListener("click", () => {
         vibeType = t;
         renderVibes();
@@ -501,7 +528,7 @@ export async function renderPanel(container, ctx, opts = {}) {
         } catch (err) { toast(err.message, "error"); }
       });
       // 删除分类 (默认分类也能删): 分类连同其中的 Vibe 一起移入系统回收站 (与卡片库一致)
-      btn.append(el("span", {
+      const delEl = el("span", {
         class: "wc-type-del", text: "✕", title: "删除分类「" + t + "」(其中的 Vibe 会一起移入回收站)",
         onclick: async (e) => {
           e.stopPropagation();
@@ -530,7 +557,8 @@ export async function renderPanel(container, ctx, opts = {}) {
             );
           } catch (err) { toast(err.message, "error"); }
         },
-      }));
+      });
+      btn.append(catTail(vibeItems.filter((x) => (x.category || vibeDefaultCat()) === t).length, delEl));
       vibeTypesEl.append(btn);
     }
     // 分类末尾: 新建分类 (空分类会存进 vibes/_meta.json, 切走再回来还在)
@@ -903,12 +931,12 @@ export async function renderPanel(container, ctx, opts = {}) {
         tab.classList.remove("dragging");
         clearPlDropMarks();
       });
-      // 与卡片库/Vibe 库同款: 只显示"📁 分类名", 数量放进 tooltip, 避免三个库样式不一致
+      // 与卡片库/Vibe 库同款: 只显示"📁 分类名", 数量在右侧计数格里, tooltip 里再写全
       tab.title = g.key + " · " + total + " 条";
-      tab.append(el("span", { text: "📁 " + g.key }));
+      tab.append(el("span", { class: "wc-cat-name", text: "📁 " + g.key }));
       // 悬停显示删除分类按钮: 自带分类为隐藏 (meta 可恢复), 用户分类连带收藏真删
       const isBuiltin = g.builtin != null;
-      tab.append(el("span", {
+      const delEl = el("span", {
         class: "wc-type-del", text: "✕",
         title: isBuiltin ? "删除自带分类 " + g.key + " (含 " + g.builtinTags.length + " 个标签)" : "删除分类 " + g.key + " 及其中 " + g.userItems.length + " 条收藏",
         onclick: async (e) => {
@@ -933,7 +961,8 @@ export async function renderPanel(container, ctx, opts = {}) {
             toast("分类「" + g.key + "」已删除 🗑️", "success");
           } catch (err) { toast(err.message, "error"); }
         },
-      }));
+      });
+      tab.append(catTail(total, delEl));
       tab.addEventListener("click", () => {
         if (plCat === g.key) return;
         plCat = g.key;
@@ -943,7 +972,7 @@ export async function renderPanel(container, ctx, opts = {}) {
       plTypes.append(tab);
     });
     if (!groups.length) {
-      plTypes.append(el("span", { class: "muted", style: "font-size:12.5px;padding:3px 0;", text: "暂无分类 — 点右侧「➕ 新建分类」或展开上方「➕ 收藏新提示词」" }));
+      plTypes.append(el("span", { class: "muted", style: "font-size:12.5px;padding:3px 0;", text: "暂无分类 — 点下方「➕ 新建分类」或展开上方「➕ 收藏新提示词」" }));
     }
     // 分类末尾: 新建分类
     plTypes.append(el("button", {
@@ -1008,22 +1037,15 @@ export async function renderPanel(container, ctx, opts = {}) {
   let plDropTargetKey = null;
 
   function clearPlDropMarks() {
-    $$(".tab-btn.drop-before", plTypes).forEach((x) => x.classList.remove("drop-before"));
+    clearDropMarks(plTypes);
   }
 
   plTypes.addEventListener("dragover", (e) => {
     if (!plDragKey) return;
     e.preventDefault();
     if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
-    const tabs = [...plTypes.querySelectorAll(".tab-btn")];
-    let target = null;
-    for (const tb of tabs) {
-      if (tb.dataset.key === plDragKey) continue;
-      const r = tb.getBoundingClientRect();
-      if (e.clientX < r.left + r.width / 2) { target = tb; break; }
-    }
-    clearPlDropMarks();
-    (target || tabs[tabs.length - 1])?.classList.add("drop-before");
+    const target = dropTargetTab(plTypes, e.clientY, plDragKey);
+    markDropTarget(plTypes, target);
     plDropTargetKey = target ? target.dataset.key : "__end__";
   });
   plTypes.addEventListener("dragleave", (e) => {
@@ -1072,6 +1094,8 @@ export async function renderPanel(container, ctx, opts = {}) {
       zh ? el("span", { class: "wc-pl-chip-zh", text: zh }) : null,
     ]);
     if (opts.userItem) {
+      // deletable: 右侧预留固定空间, 悬停时删除按钮原地淡入 (不改变 chip 宽度)
+      chip.classList.add("wc-pl-chip-deletable");
       chip.append(el("span", {
         class: "wc-pl-chip-del", text: "✕", title: "从库中删除这条收藏",
         onclick: async (e) => {
@@ -1087,6 +1111,7 @@ export async function renderPanel(container, ctx, opts = {}) {
         },
       }));
     } else if (opts.builtin) {
+      chip.classList.add("wc-pl-chip-deletable");
       chip.append(el("span", {
         class: "wc-pl-chip-del", text: "✕", title: "从词库中删除这个标签",
         onclick: async (e) => {
@@ -1157,11 +1182,11 @@ export async function renderPanel(container, ctx, opts = {}) {
       tab.addEventListener("dragend", () => {
         typeDragKey = null;
         tab.classList.remove("dragging");
-        $$(".tab-btn.drop-before", typeList).forEach((x) => x.classList.remove("drop-before"));
+        clearDropMarks(typeList);
       });
-      tab.append(el("span", { text: "📁 " + t }));
+      tab.append(el("span", { class: "wc-cat-name", text: "📁 " + t }));
       // 悬停显示删除分类按钮 (文件夹连同卡片移到回收站)
-      tab.append(el("span", {
+      const delEl = el("span", {
         class: "wc-type-del", text: "✕", title: `删除分类 <${t}> (卡片移到回收站)`,
         onclick: async (e) => {
           e.stopPropagation();
@@ -1173,12 +1198,15 @@ export async function renderPanel(container, ctx, opts = {}) {
             toast(`分类 <${t}> 已删除 (移到回收站) 🗑️`, "success");
             if (state.type === t) { state.type = null; renderEditPlaceholder(); selection = new Set(); }
             selectionStore.delete(t);           // 移除被删分类的选择桶 (其它分类的选择保留)
+            cardCounts.delete(t);
             await loadTypes();
             await loadCards();
             syncSelection();
           } catch (err) { toast(err.message, "error"); }
         },
-      }));
+      });
+      // 右侧计数: 只显示"已经打开过"的分类的真实张数 (没加载过的不显示 0, 免得看起来是空的)
+      tab.append(catTail(cardCounts.get(t), delEl));
       tab.addEventListener("click", async () => {
         const prevType = state.type;
         if (prevType && prevType !== t) selectionStore.set(prevType, new Set(selection));
@@ -1221,6 +1249,8 @@ export async function renderPanel(container, ctx, opts = {}) {
     if (!state.type) { allCards = []; renderGrid(); return; }
     const res = await get(`/api/wildcards/${encodeURIComponent(state.type)}/cards`);
     allCards = res.cards || [];
+    cardCounts.set(state.type, allCards.length);
+    setCatCount(typeList, state.type, allCards.length);   // 侧栏计数就地更新, 不重建列表
     renderGrid();
   }
 
@@ -1228,7 +1258,6 @@ export async function renderPanel(container, ctx, opts = {}) {
     clear(grid);
     if (!state.type) {
       visibleCards = [];
-      countEl.textContent = "";
       grid.append(el("div", { class: "gallery-empty", text: "请选择一个分类" }));
       return;
     }
@@ -1240,7 +1269,6 @@ export async function renderPanel(container, ctx, opts = {}) {
     ];
     const filtered = kw ? allCards.filter((c) => c.name.toLowerCase().includes(kw)) : allCards;
     visibleCards = [...specials, ...filtered];
-    countEl.textContent = state.type ? `${state.type} · ${visibleCards.length} / ${allCards.length} 张卡片` : "";
     if (!visibleCards.length) {
       grid.append(el("div", { class: "gallery-empty", text: !state.type ? "请选择一个分类" : (kw ? "没有匹配的卡片" : "该分类暂无卡片") }));
       return;

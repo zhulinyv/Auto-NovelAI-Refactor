@@ -579,6 +579,11 @@ a.btn { text-decoration: none; }
 .edge-scroll-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .edge-scroll-row > .edge-scroll { flex: 1; min-width: 0; margin-bottom: 0; }
 .edge-scroll-label { flex-shrink: 0; font-size: 12.5px; font-weight: 700; color: var(--text-2); opacity: 0.8; }
+/* 换行模式 (Wildcards 的分类页签): 内容多就折行, 不横向滚也不出窗口;
+   标签改为顶部对齐, 与第一行页签同高, 否则多行时标签会飘到中间。 */
+.edge-scroll-track.edge-scroll-wrap { flex-wrap: wrap; overflow: visible; row-gap: 6px; }
+.edge-scroll-row.edge-scroll-row-wrap { align-items: flex-start; }
+.edge-scroll-row.edge-scroll-row-wrap .edge-scroll-label { padding-top: 4px; }
 /* 轨道在 row 里时两端箭头贴的是轨道边缘 (不是 row 边缘), 渐隐底色要与轨道背景一致 */
 .edge-btn {
   position: absolute;
@@ -2586,13 +2591,66 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
 @media (max-width: 1100px) { .wc-panel-grid { grid-template-columns: 1fr; } }
 .wc-browse-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .wc-browse-head .card-title { margin-bottom: 0; flex-shrink: 0; }
-.wc-count { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* 分类栏: 在 edge-scroll 轨道里横向滚动 (nowrap), "分类" 前缀由
-   edgeScroll({label}) 提供并固定在轨道外 —— 原先是 ::before, 一滚动就跟着跑 */
-.wc-types { display: flex; flex-wrap: nowrap; align-items: center; gap: 6px; margin-bottom: 8px; width: max-content; min-width: 100%; }
-.wc-types .tab-btn { padding: 3px 11px; font-size: 12.5px; font-weight: 700; border-radius: 8px; background: transparent; border-color: var(--border); color: var(--text-2); }
-.wc-types .tab-btn:hover { border-color: var(--primary); color: var(--text); }
-.wc-types .tab-btn.active { background: var(--surface-3); border-color: var(--primary); color: var(--text); }
+/* 分类栏: 三个库统一改成左侧竖排 (参照 ComfyUI-RiceRabbit-Tools 的库面板) ——
+   左列固定宽度放分类, 右侧是搜索 + 网格; 分类多时左栏自己纵向滚动, 不撑高整页。
+   原先三处都是"上方一排页签、多了折行", 分类一多就要往下找, 也看不出层级。 */
+.wc-lib-body { display: flex; align-items: flex-start; gap: 14px; }
+.wc-lib-main { flex: 1; min-width: 0; }
+.wc-cats {
+  flex: none;
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  width: 162px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: min(56vh, 560px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 8px;
+  border-right: 1px solid var(--border);
+}
+.wc-cats .tab-btn {
+  position: relative;
+  flex: none;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 9px;
+  font-size: 12.5px;
+  font-weight: 700;
+  border-radius: 8px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-2);
+  text-align: left;
+}
+.wc-cats .tab-btn:hover { background: var(--hover); border-color: transparent; color: var(--text); }
+.wc-cats .tab-btn.active {
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+  border-color: transparent;
+  color: var(--primary);
+}
+/* 分类名: 过长省略, 不把行撑宽 */
+.wc-cat-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 尾部一格: 计数与"删除分类"按钮叠放在同一位 (悬停时计数淡出、✕ 淡入),
+   行宽不变, 名称不会被按钮挤得换行或抖动。 */
+.wc-cat-tail {
+  position: relative;
+  flex: none;
+  min-width: 16px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+.wc-cat-count { font-size: 10.5px; font-weight: 700; opacity: 0.62; transition: opacity 0.12s; }
+.wc-cats .tab-btn.active .wc-cat-count { opacity: 0.9; }
+.wc-cats .tab-btn:hover .wc-cat-count { opacity: 0; }
+.wc-cats .wc-type-del { position: absolute; right: -2px; top: 50%; transform: translateY(-50%); margin: 0; }
+.wc-cats .tab-btn:hover .wc-type-del { opacity: 1; }
 /* 分类末尾的"新建分类": 虚线边框区分它是动作而不是已有分类 */
 .wc-type-add {
   flex: none; padding: 3px 11px; font-size: 12.5px; font-weight: 700; border-radius: 8px;
@@ -2600,6 +2658,39 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
   cursor: pointer; white-space: nowrap; transition: border-color 0.15s, color 0.15s;
 }
 .wc-type-add:hover { border-color: var(--primary); color: var(--text); }
+.wc-cats .wc-type-add { width: 100%; margin-top: 4px; padding: 5px 9px; text-align: left; }
+/* 竖排时拖拽落点画成上下两条线 (横排的那套左右竖线在这里读不出来) */
+.wc-cats .tab-btn.drop-before,
+.wc-cats .tab-btn.drop-after { box-shadow: none; }
+.wc-cats .tab-btn.drop-before::before,
+.wc-cats .tab-btn.drop-after::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--primary);
+}
+.wc-cats .tab-btn.drop-before::before { top: -2px; }
+.wc-cats .tab-btn.drop-after::after { bottom: -2px; }
+/* 窄屏: 分类栏收窄一点, 但仍然留在左侧 (与右侧网格并排), 不做折行处理 ——
+   分类栏折到上方会占掉一大块高度, 反而更难找分类。只有窗口小到装不下两栏时才上下叠放。 */
+@media (max-width: 900px) {
+  .wc-cats { width: 138px; }
+}
+@media (max-width: 640px) {
+  .wc-lib-body { flex-direction: column; gap: 10px; }
+  .wc-cats {
+    position: static;
+    width: 100%;
+    max-height: 148px;
+    padding-right: 0;
+    padding-bottom: 6px;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+}
 /* 导入弹窗里的"分类"一行: 与弹窗整体留白一致 */
 .wc-vibe-import-cat { margin-top: 10px; margin-bottom: 2px; }
 
@@ -2681,6 +2772,9 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 .p-chip:hover { border-color: var(--primary); }
+/* 换行分隔块: 虚线边框 + 弱化文字, 与普通提示词标签区分开 */
+.p-chip.p-chip-break { border-style: dashed; color: var(--text-2); }
+.p-chip.p-chip-break .p-chip-text { font-weight: 700; letter-spacing: 0.5px; }
 .p-chip .p-chip-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .p-chip .p-chip-w {
   flex-shrink: 0;
@@ -2729,6 +2823,9 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
   color: var(--text);
   padding: 0;
 }
+/* 编辑态: 光标改成文本样式, 并取消抓取手势 (拖动选择文字而不是拖走标签) */
+.p-chip.editing { cursor: text; }
+.p-chip.editing .p-chip-input { cursor: text; user-select: text; }
 /* 拖拽悬停高亮 */
 .wc-prompt-editor.drag-over .prompt-chips,
 .wc-prompt-editor.drag-over .ta-box textarea {
@@ -3271,6 +3368,7 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
 .gen-preview-track { width: 160px; height: 5px; border-radius: 3px; background: var(--surface-3); overflow: hidden; }
 .gen-preview-fill { height: 100%; background: var(--primary); transition: width 0.18s ease; }
 .wc-pl-chip {
+  position: relative;
   display: inline-flex; align-items: baseline; gap: 6px;
   padding: 3px 11px; font-size: 12.5px; font-weight: 600; color: var(--text);
   border: 1px solid var(--border); border-radius: 999px; background: var(--input);
@@ -3410,21 +3508,34 @@ body.has-custom-bg input[type="range"]::-moz-range-track {
 .wc-type-del:hover { opacity: 1; }
 
 /* ------- 提示词库: 用户标签悬停删除 + 分类删除按钮 ------- */
+/* 带删除按钮的提示词块右侧预留固定空间: 按钮用绝对定位挂在预留区里,
+   悬停只是把 opacity 从 0 改到 1 —— chip 宽度全程不变, 因此不会把后面的
+   提示词挤到下一行 (原先 display:none ⇄ inline 会让 chip 变宽, 网格重排)。 */
+.wc-pl-chip-deletable { padding-right: 22px; }
 .wc-pl-chip-del {
-  display: none;
-  margin-left: 2px;
+  position: absolute;
+  right: 7px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: block;
+  opacity: 0;
+  pointer-events: none;
+  margin: 0;
   font-size: 10px;
   line-height: 1;
   color: var(--danger);
   cursor: pointer;
-  padding: 1px 3px;
+  padding: 1px 2px;
   border-radius: 5px;
+  transition: opacity 0.12s;
 }
-.wc-pl-chip:hover .wc-pl-chip-del { display: inline; }
+.wc-pl-chip:hover .wc-pl-chip-del { opacity: 1; pointer-events: auto; }
 .wc-pl-chip-del:hover { background: color-mix(in srgb, var(--danger) 15%, transparent); }
 
 /* ------- 分类拖拽排序 (卡片 tab / 提示词页签, 同一套交互) ------- */
 .tab-btn.drop-before { box-shadow: -3px 0 0 0 var(--primary); }
+/* 落在末尾 (最后一行最后一项之后): 标记画在右侧 */
+.tab-btn.drop-after { box-shadow: 3px 0 0 0 var(--primary); }
 .tab-btn.dragging { opacity: 0.45; }
 
 /* ------- 鐢熷浘闃熷垪: 鏃ュ織鏍忓窘鏍?+ 娴姩绐楀彛 ------- */
