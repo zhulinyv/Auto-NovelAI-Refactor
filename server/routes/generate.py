@@ -178,9 +178,16 @@ _SUB_FETCH_LOCK = threading.Lock()
 
 
 def _ensure_subscription() -> dict:
-    """确保有订阅快照 (最多 30 秒补查一次); 查不到返回 {}。"""
+    """确保有订阅快照 (最多 30 秒补查一次); 查不到返回 {}。
+
+    中转站不按 Anlas 计费 (前端只显示张数), 也不一定实现 /user/subscription:
+    直接返回空快照, 免得每次调参数都去查一遍、失败一次。
+    """
     global _SUB_FETCH_AT
     import time
+
+    if _is_relay():
+        return {}
 
     from utils.generator import get_subscription, inquire_anlas
 

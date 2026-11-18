@@ -186,25 +186,60 @@ def get_anlas_extra() -> dict[str, tuple]:
         return dict(_ANLAS_EXTRA)
 
 
+def _relay_points(body) -> tuple | None:
+    """从中转站的订阅响应里取 (剩余点数, 剩余用量); 不是官方结构时返回 None。
+
+    中转站多数只回 active / tier, 没有官方的 usage / trainingStepsLeft —— 那表示
+    "该站点不提供点数", 不是故障, 调用方安静跳过即可。缺 trainingStepsLeft 时点数记
+    -1 (未知), 用量仍可用。
+    """
+    usage = body.get("usage") if isinstance(body, dict) else None
+    if not isinstance(usage, dict) or "percent" not in usage:
+        return None
+    steps = body.get("trainingStepsLeft")
+    anlas = -1
+    if isinstance(steps, dict):
+        anlas = steps.get("fixedTrainingStepsLeft")
+        if anlas == 0:
+            anlas = steps.get("purchasedTrainingSteps", 0)
+        if anlas is None:
+            anlas = -1
+    return anlas, usage["percent"]
+
+
 def inquire_anlas(token: str | None = None):
-    """查询剩余点数与用量 (token 缺省时用当前线程绑定的 Token), 并写入按 Token 缓存。"""
+    """查询剩余点数与用量 (token 缺省时用当前线程绑定的 Token), 并写入按 Token 缓存。
+
+    中转站常常不实现 /user/subscription, 或返回另一套结构: 这类情况只记一行 debug,
+    不输出堆栈 (否则日志面板会被 Traceback 刷屏)。官方地址的异常照旧带堆栈, 便于排查。
+    """
     if token is None:
         token = current_token()  # 与 _set_last_anlas / build_headers 同源, 保证两个缓存键一致
     if env.skip_inquire_anlas:
         return "skipped", "skipped"
+    endpoints = None
     try:
+        endpoints = _endpoints_or_raise()
         rep = requests.get(
-            _endpoints_or_raise().subscription,
+            endpoints.subscription,
             headers=build_headers(token),
             proxies=get_proxies(),
             timeout=(15, 30),
         )
         if rep.status_code == 200:
             body = rep.json()
-            remains = body["usage"]["percent"]
-            anlas = body["trainingStepsLeft"]["fixedTrainingStepsLeft"]
-            if anlas == 0:
-                anlas = body["trainingStepsLeft"]["purchasedTrainingSteps"]
+            if endpoints.is_relay:
+                parsed = _relay_points(body)
+                if parsed is None:
+                    logger.debug("该中转站未返回剩余点数/用量 (响应缺少 usage 字段), 已跳过")
+                    return -1, -1
+                anlas, remains = parsed
+            else:
+                # 官方: 响应结构不符就是真异常, 交给下面的 except 记堆栈
+                remains = body["usage"]["percent"]
+                anlas = body["trainingStepsLeft"]["fixedTrainingStepsLeft"]
+                if anlas == 0:
+                    anlas = body["trainingStepsLeft"]["purchasedTrainingSteps"]
             # 订阅状态与下次恢复 1% 的秒数 (供前端展示 "下次恢复1%: x.xx 小时")
             active = bool(body.get("active"))
             try:
@@ -222,8 +257,12 @@ def inquire_anlas(token: str | None = None):
             return anlas, remains
         return -1, -1
     except Exception as e:
-        logger.debug(f"查询剩余点数失败 (不影响生成): {e}")
-        logger.opt(exception=True).debug("查询剩余点数失败堆栈:")
+        if endpoints is not None and endpoints.is_relay:
+            # 中转站不一定实现 /user/subscription: 常态, 只记一行, 不刷堆栈
+            logger.debug(f"查询剩余点数失败 (中转站不一定实现 /user/subscription, 不影响生成): {e}")
+        else:
+            logger.debug(f"查询剩余点数失败 (不影响生成): {e}")
+            logger.opt(exception=True).debug("查询剩余点数失败堆栈:")
         return -1, -1
 
 
