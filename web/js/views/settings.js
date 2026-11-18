@@ -235,6 +235,10 @@ export async function render(container, ctx) {
       if (res.gen_ui_changed) {
         toast("🖼️ 生图界面样式已切换, 刷新页面 (或重启) 后生效", "warning", 6000);
       }
+      // 服务地址切换: 端点实时求值, 保存后请求立即改发该站点 (不必重启)
+      if (res.base_url_changed) {
+        toast(fields.base_url.value.trim() ? "🛰️ 服务地址已切换, 之后的请求将发往该站点" : "🛰️ 已恢复 NovelAI 官方地址", "info", 6000);
+      }
       // 共享链接切换: 保存成功后切换其它配置的显隐, 并按方向自动跳转对应链接
       // (跳转即整页刷新, 后端已重载插件, 插件商店等变动随之生效)
       if (res.share_changed) {

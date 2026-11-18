@@ -106,6 +106,7 @@ def save_settings(data: dict) -> dict:
 
     _normalize_tokens(normalized)
 
+    old_base_url = getattr(env, "base_url", None)
     old_hide_terminal = env.hide_terminal
     old_port = str(env.port)
     old_share = bool(env.share)
@@ -119,6 +120,8 @@ def save_settings(data: dict) -> dict:
     share_changed = bool(normalized.get("share")) != old_share
     # 生图界面样式: 只影响前端布局, 保存后刷新页面才生效, 前端据此给出提示
     gen_ui_changed = bool(normalized.get("use_new_gen_ui")) != old_use_new_gen_ui
+    # 服务地址切换: 端点每次请求实时求值, 保存即生效 (无需重启), 前端给出"请求已改发往该站点"的提示
+    base_url_changed = "base_url" in normalized and (normalized.get("base_url") or None) != (old_base_url or None)
     # 插件相关配置变化时, 才需要重载插件 (避免普通设置保存也触发插件重载)
     plugins_changed = (
         bool(normalized.get("share")) != old_share
@@ -184,4 +187,5 @@ def save_settings(data: dict) -> dict:
         "hide_terminal_changed": hide_terminal_changed,
         "share_changed": share_changed,
         "gen_ui_changed": gen_ui_changed,
+        "base_url_changed": base_url_changed,
     }

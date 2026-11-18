@@ -54,6 +54,10 @@ DEFAULTS: dict[str, Any] = {
     "token": None,
     "tokens": [],
     "proxy": None,
+    # 服务地址: 留空 = NovelAI 官方; 填第三方站点 (中转站) 即整套端点改指该站点
+    # (端点推导见 utils/api_endpoint.py)。必须登记在 DEFAULTS 里 —— update() 只认
+    # 这里的键, 漏登记会"保存时提示成功、实际没生效、重启后彻底丢失"。
+    "base_url": None,
     "custom_path": "<类型>/<日期>/<种子>_<编号>",
     "cool_time": 9,
     "port": 11451,
@@ -156,6 +160,11 @@ class Settings:
 
     def update(self, data: dict) -> None:
         """更新配置并立即持久化。"""
+        # 不在 DEFAULTS 里的键既不会 setattr 也不会落盘, 属于静默丢弃 (中转站地址
+        # base_url 曾因漏登记而"保存了、重启就没了")。留一条告警, 让同类问题可见。
+        unknown = sorted(key for key in data if key not in DEFAULTS)
+        if unknown:
+            logger.warning(f"配置里有未登记的字段, 已忽略: {', '.join(unknown)}")
         for key in DEFAULTS:
             if key in data:
                 setattr(self, key, _coerce(key, data[key]))
