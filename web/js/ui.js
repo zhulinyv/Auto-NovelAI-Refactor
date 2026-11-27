@@ -818,7 +818,7 @@ export function wireAutocomplete(textarea, wrap, opts = {}) {
   let items = [];
   let active = -1;
   let lastKeyword = "";   // 当前列表对应的查询词 (光标移动后据此判断是否过期)
-  let composing = false;  // 中文输入法组合中不查询/不插入
+  let composing = false;  // 中文输入法组合中 (拼音未上屏) 不查询/不插入; 上屏由 compositionend 补查
 
   /** 放置下拉: 跟随光标时贴着插入符下方 (放不下就往上弹), 并夹在视口内 */
   function place() {
@@ -921,13 +921,16 @@ export function wireAutocomplete(textarea, wrap, opts = {}) {
   // 导致补全列表不出现或在他处自发弹出
   let suggestTimer = null;
   let suggestCtl = null; // 进行中的 /api/suggest: 新输入进来即取消旧请求 (慢响应后到不许覆盖新结果)
-  textarea.addEventListener("compositionstart", () => { composing = true; });
-  textarea.addEventListener("compositionend", () => { composing = false; });
-  textarea.addEventListener("input", (e) => {
+
+  /** 取消还没执行的防抖查询与进行中的旧请求 (新输入 / 收起列表时用, 免得过期结果回填) */
+  function cancelSuggest() {
     clearTimeout(suggestTimer);
     if (suggestCtl) { suggestCtl.abort(); suggestCtl = null; }
-    if (textarea.dataset.suggestSkip) { delete textarea.dataset.suggestSkip; hide(); return; }
-    if (composing || e.isComposing) { hide(); return; }   // 输入法组合中不查 (中文检索时半成品词没意义)
+  }
+
+  /** 按光标处的当前标签安排一次补全查询 (400ms 防抖, 同一输入框只保留最后一次) */
+  function scheduleSuggest() {
+    cancelSuggest();
     suggestTimer = setTimeout(async () => {
       // 焦点已不在本输入框时不弹出, 避免干扰其它参数操作
       if (document.activeElement !== textarea) { hide(); return; }
@@ -948,6 +951,28 @@ export function wireAutocomplete(textarea, wrap, opts = {}) {
         if (suggestCtl === ctl) suggestCtl = null;
       }
     }, 400); // 防抖 400ms: 补全不需要 250ms 那么跟手, 也减少后端查询次数
+  }
+
+  // 输入法组合 (拼音还没选字) 期间不查询: 半成品拼音没有检索意义。
+  // 但 Chromium/Edge 有两个已知行为 (w3c/uievents#394、#202), 不能只靠 input + isComposing 判断:
+  //   1. 中文上屏那一下的 input 事件, isComposing 依然是 true (组合中输入事件全是 true);
+  //   2. compositionend 在这个"上屏 input"之后才触发。
+  // 于是只监听 input 时中文永远不会查 —— 粘贴不经过组合, 所以粘贴同样的中文反而正常。
+  // 组合结束 = 文本已最终上屏, 这里补一次查询; 浏览器若随后又补发 input, 防抖会合并成一次。
+  let valueBeforeComposition = "";
+  textarea.addEventListener("compositionstart", () => {
+    composing = true;
+    valueBeforeComposition = textarea.value;
+  });
+  textarea.addEventListener("compositionend", () => {
+    composing = false;
+    if (textarea.value === valueBeforeComposition) return;   // 只是取消组合 (Esc): 文本没变, 不用重查
+    scheduleSuggest();
+  });
+  textarea.addEventListener("input", () => {
+    if (textarea.dataset.suggestSkip) { delete textarea.dataset.suggestSkip; cancelSuggest(); hide(); return; }
+    if (composing) { cancelSuggest(); hide(); return; }   // 组合中不查; 不看 e.isComposing, 原因见上
+    scheduleSuggest();
   });
 
   textarea.addEventListener("blur", () => setTimeout(hide, 200));
